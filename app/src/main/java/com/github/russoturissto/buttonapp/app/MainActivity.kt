@@ -243,9 +243,11 @@ class MainActivity : AppCompatActivity() {
         val mobile = card()
         mobile.addView(textLine("Мобильная связь", 19f, ink, true))
         mobile.addView(verticalGap(10))
+        val sims = T2Balance.sims(this)
+        val selectedSim = sims.firstOrNull { it.isT2 } ?: sims.firstOrNull()
         val manager = getSystemService(android.content.Context.TELEPHONY_SERVICE)
             as android.telephony.TelephonyManager
-        val operator = manager.simOperatorName?.takeIf { it.isNotBlank() }
+        val operator = selectedSim?.operator?.takeIf { it.isNotBlank() } ?: manager.simOperatorName?.takeIf { it.isNotBlank() }
             ?: "Оператор не определён"
         val operatorCode = manager.simOperator.orEmpty()
         val known = RussianMobileOperators.find(operatorCode, operator)
@@ -267,7 +269,10 @@ class MainActivity : AppCompatActivity() {
         mobile.addView(operatorRow)
         mobile.addView(verticalGap(16))
         mobile.addView(textLine("Баланс", 13f, muted))
-        mobile.addView(textLine("Нет данных", 23f, ink, true))
+        val cached = selectedSim?.let { T2Balance.cached(this, it.subscriptionId) }
+        val amountView = textLine(cached?.let { "${it.first} ₽" } ?: "Нет данных", 23f, ink, true)
+        mobile.addView(amountView)
+        if (cached != null) mobile.addView(textLine("Обновлено: " + DateFormat.getDateTimeInstance().format(Date(cached.second)), 12f, muted))
         mobile.addView(verticalGap(10))
         val metrics = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         val internet = LinearLayout(this).apply {
@@ -291,7 +296,30 @@ class MainActivity : AppCompatActivity() {
         mobile.addView(verticalGap(12))
         mobile.addView(textLine("Проверка при открытии: включена · В фоне: каждые 24 ч", 12f, muted))
         mobile.addView(verticalGap(8))
-        mobile.addView(textLine("USSD-запросы пока не активированы. Данные не выдумываются.", 12f, accent))
+        val status = textLine("USSD T2: *105# · ожидание проверки", 12f, accent)
+        mobile.addView(status)
+        if (selectedSim != null && selectedSim.isT2) {
+            fun runCheck(force: Boolean) {
+                status.text = "Проверяем баланс T2…"
+                T2Balance.check(this, selectedSim, force) { message ->
+                    runOnUiThread {
+                        status.text = message
+                        T2Balance.cached(this, selectedSim.subscriptionId)?.let { amountView.text = "${it.first} ₽" }
+                    }
+                }
+            }
+            mobile.addView(verticalGap(8))
+            mobile.addView(primaryButton("Проверить баланс T2") {
+                if (androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.CALL_PHONE) != PackageManager.PERMISSION_GRANTED ||
+                    androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) {
+                    androidx.core.app.ActivityCompat.requestPermissions(this,
+                        arrayOf(android.Manifest.permission.CALL_PHONE, android.Manifest.permission.READ_PHONE_STATE), 510)
+                } else runCheck(true)
+            })
+            if (androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED) {
+                runCheck(false)
+            } else status.text = "Разрешите телефонные вызовы кнопкой ниже"
+        }
         mobile.addView(verticalGap(12))
         mobile.addView(secondaryButton("Настроить проверку") {
             Toast.makeText(this, "Настройки → Мобильная связь", Toast.LENGTH_SHORT).show()
