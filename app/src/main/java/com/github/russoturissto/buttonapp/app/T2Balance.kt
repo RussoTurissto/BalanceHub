@@ -9,6 +9,7 @@ import android.os.Looper
 import android.telephony.SubscriptionManager
 import android.telephony.TelephonyManager
 import androidx.core.content.ContextCompat
+import androidx.core.content.edit
 import java.util.Locale
 
 internal data class MobileSim(val subscriptionId: Int, val label: String, val operator: String, val isT2: Boolean)
@@ -65,7 +66,7 @@ internal object T2Balance {
             result("Последняя проверка уже выполнена; повтор позже")
             return
         }
-        p.edit().putLong("t2_attempt_${sim.subscriptionId}", now).apply()
+        p.edit { putLong("t2_attempt_${sim.subscriptionId}", now) }
         val tm = context.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
         val scoped = if (sim.subscriptionId >= 0) tm.createForSubscriptionId(sim.subscriptionId) else tm
         val handler = Handler(Looper.getMainLooper())
@@ -75,8 +76,10 @@ internal object T2Balance {
                     val raw = response.toString()
                     val value = amountRegex.find(raw)?.groupValues?.get(1)?.replace(" ", "")?.replace(',', '.')
                     if (value != null) {
-                        p.edit().putString("t2_amount_${sim.subscriptionId}", value)
-                            .putLong("t2_success_${sim.subscriptionId}", System.currentTimeMillis()).apply()
+                        p.edit {
+                            putString("t2_amount_${sim.subscriptionId}", value)
+                            putLong("t2_success_${sim.subscriptionId}", System.currentTimeMillis())
+                        }
                         result("Баланс обновлён: $value ₽")
                     } else result("Ответ T2 получен, но сумма не распознана: ${raw.take(180)}")
                 }
