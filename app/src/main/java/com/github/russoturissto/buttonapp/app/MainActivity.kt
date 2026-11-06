@@ -264,9 +264,15 @@ class MainActivity : AppCompatActivity() {
         if (nextTab !in 0..3 || nextTab == currentTab) return
         contentContainer.animate().cancel()
         selectTab(nextTab)
-        contentContainer.translationX = (if (direction > 0) dp(22) else -dp(22)).toFloat()
-        contentContainer.alpha = 0.84f
-        contentContainer.animate().translationX(0f).alpha(1f).setDuration(175L).start()
+        // Small slide and decelerating fade produce a gentler tab transition.
+        contentContainer.translationX = (if (direction > 0) dp(26) else -dp(26)).toFloat()
+        contentContainer.alpha = 0.86f
+        contentContainer.animate()
+            .translationX(0f)
+            .alpha(1f)
+            .setDuration(210L)
+            .setInterpolator(android.view.animation.DecelerateInterpolator(1.5f))
+            .start()
     }
 
     private fun showDashboard() {
@@ -282,6 +288,8 @@ class MainActivity : AppCompatActivity() {
         header.addView(textLine("BalanceHub", 21f, Color.WHITE, true).apply {
             typeface = balanceHubTypeface
             letterSpacing = -0.015f
+            // Shift the wordmark down without resizing the gradient header.
+            translationY = dp(8).toFloat()
         })
         screen.addView(header)
 
@@ -291,6 +299,7 @@ class MainActivity : AppCompatActivity() {
             private var downX = 0f
             private var downY = 0f
             private var downTime = 0L
+            private var multiTouch = false
 
             override fun dispatchTouchEvent(event: MotionEvent): Boolean {
                 when (event.actionMasked) {
@@ -298,19 +307,20 @@ class MainActivity : AppCompatActivity() {
                         downX = event.x
                         downY = event.y
                         downTime = event.eventTime
+                        multiTouch = false
                     }
+                    MotionEvent.ACTION_POINTER_DOWN -> multiTouch = true
                     MotionEvent.ACTION_UP -> {
-                        val deltaX = event.x - downX
-                        val deltaY = event.y - downY
                         val editingField = contentContainer.findFocus() is EditText
-                        if (!editingField &&
-                            kotlin.math.abs(deltaX) >= dp(88) &&
-                            kotlin.math.abs(deltaX) > kotlin.math.abs(deltaY) * 1.5f &&
-                            event.eventTime - downTime in 0L..850L
-                        ) {
-                            val direction = if (deltaX < 0) 1 else -1
-                            val destination = (currentTab + direction).coerceIn(0, 3)
-                            if (destination != currentTab) {
+                        if (!editingField && !multiTouch) {
+                            val direction = SwipeGesture.direction(
+                                event.x - downX, event.y - downY,
+                                event.eventTime - downTime, resources.displayMetrics.density
+                            )
+                            val destination = currentTab + direction
+                            if (direction != 0 && destination in 0..3) {
+                                // Cancel the child's gesture, not its click, once a real
+                                // horizontal swipe has been confirmed on release.
                                 val cancellation = MotionEvent.obtain(event)
                                 cancellation.action = MotionEvent.ACTION_CANCEL
                                 super.dispatchTouchEvent(cancellation)
