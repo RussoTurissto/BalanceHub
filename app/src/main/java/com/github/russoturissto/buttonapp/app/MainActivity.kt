@@ -1,5 +1,12 @@
 package com.github.russoturissto.buttonapp.app
 
+import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
+import android.view.Gravity
+import android.view.View
+import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
 import android.app.AlarmManager
 import android.app.DatePickerDialog
 import android.app.PendingIntent
@@ -30,6 +37,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var leadDaysInput: EditText
     private lateinit var dateButton: Button
     private lateinit var listContainer: LinearLayout
+    private lateinit var contentContainer: LinearLayout
+    private var currentTab = 0
     private var dueDate = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, 7) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -38,65 +47,219 @@ class MainActivity : AppCompatActivity() {
         showDashboard()
     }
 
-    private fun showDashboard() {
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(24), dp(20), dp(20))
-        }
-        root.addView(TextView(this).apply {
-            text = "BalanceHub"
-            textSize = 28f
-            setTypeface(null, android.graphics.Typeface.BOLD)
-        })
-        root.addView(TextView(this).apply {
-            text = "Баланс под контролем"
-            textSize = 14f
-            setPadding(0, 0, 0, dp(20))
-        })
-        root.addView(TextView(this).apply {
-            text = "Новое напоминание о платеже"
-            textSize = 20f
-            setPadding(0, 0, 0, dp(12))
-        })
 
-        titleInput = field("Название платежа (например, Интернет)")
+    private val ink = Color.rgb(36, 49, 61)
+    private val muted = Color.rgb(111, 125, 136)
+    private val accent = Color.rgb(57, 107, 111)
+    private val surface = Color.WHITE
+    private val backdrop = Color.rgb(246, 248, 248)
+
+    private fun rounded(color: Int, radius: Int = 18): GradientDrawable =
+        GradientDrawable().apply { setColor(color); cornerRadius = dp(radius).toFloat() }
+
+    private fun textLine(value: String, size: Float = 15f, color: Int = ink, bold: Boolean = false) =
+        TextView(this).apply {
+            text = value
+            textSize = size
+            setTextColor(color)
+            if (bold) setTypeface(null, Typeface.BOLD)
+        }
+
+    private fun verticalGap(height: Int) = View(this).apply {
+        layoutParams = LinearLayout.LayoutParams(1, dp(height))
+    }
+
+    private fun card(): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(dp(18), dp(18), dp(18), dp(18))
+        background = rounded(surface)
+        elevation = dp(1).toFloat()
+    }
+
+    private fun primaryButton(label: String, action: () -> Unit) = Button(this).apply {
+        text = label
+        isAllCaps = false
+        setTextColor(Color.WHITE)
+        background = rounded(accent, 14)
+        setOnClickListener { action() }
+    }
+
+    private fun showDashboard() {
+        val screen = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(backdrop)
+        }
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(22), dp(20), dp(22), dp(12))
+        }
+        header.addView(textLine("BalanceHub", 27f, ink, true))
+        header.addView(textLine("Всё важное под контролем", 13f, muted))
+        screen.addView(header)
+
+        val scroll = android.widget.ScrollView(this).apply {
+            fillViewport = true
+            isVerticalScrollBarEnabled = false
+        }
+        contentContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(10), dp(18), dp(24))
+        }
+        scroll.addView(contentContainer)
+        screen.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+
+        val tabs = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(dp(6), dp(8), dp(6), dp(8))
+            setBackgroundColor(surface)
+        }
+        val names = listOf("Главная", "Балансы", "Платежи", "Настройки")
+        names.forEachIndexed { index, name ->
+            tabs.addView(TextView(this).apply {
+                text = name
+                textSize = 12f
+                gravity = Gravity.CENTER
+                setPadding(dp(3), dp(12), dp(3), dp(12))
+                setTextColor(if (index == currentTab) accent else muted)
+                if (index == currentTab) {
+                    setTypeface(null, Typeface.BOLD)
+                    background = rounded(Color.rgb(233, 243, 242), 12)
+                }
+                setOnClickListener {
+                    currentTab = index
+                    showDashboard()
+                }
+            }, LinearLayout.LayoutParams(0, -2, 1f))
+        }
+        screen.addView(tabs)
+        setContentView(screen)
+        renderTab()
+    }
+
+    private fun renderTab() {
+        contentContainer.removeAllViews()
+        when (currentTab) {
+            0 -> renderHome()
+            1 -> renderBalances()
+            2 -> renderPaymentScreen()
+            else -> renderSettings()
+        }
+    }
+
+    private fun renderHome() {
+        contentContainer.addView(textLine("Обзор", 23f, ink, true))
+        contentContainer.addView(verticalGap(14))
+        val summary = card()
+        summary.addView(textLine("Предстоящие платежи", 14f, muted))
+        summary.addView(verticalGap(8))
+        summary.addView(textLine(payments.size.toString(), 36f, ink, true))
+        summary.addView(textLine("Запланировано напоминаний", 13f, muted))
+        contentContainer.addView(summary)
+        contentContainer.addView(verticalGap(16))
+        contentContainer.addView(textLine("Ближайшие платежи", 19f, ink, true))
+        contentContainer.addView(verticalGap(10))
+        val upcoming = payments.sortedBy { it.dueAt }.take(3)
+        if (upcoming.isEmpty()) {
+            val empty = card()
+            empty.addView(textLine("Пока нет платежей", 16f, ink, true))
+            empty.addView(verticalGap(5))
+            empty.addView(textLine("Добавьте первый платёж во вкладке «Платежи».", 14f, muted))
+            contentContainer.addView(empty)
+        } else upcoming.forEach { payment ->
+            val item = card()
+            item.addView(textLine(payment.title, 16f, ink, true))
+            item.addView(verticalGap(5))
+            item.addView(textLine("${payment.amount} ${payment.currency} · " +
+                DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(payment.dueAt)), 14f, muted))
+            contentContainer.addView(item)
+            contentContainer.addView(verticalGap(9))
+        }
+        contentContainer.addView(verticalGap(12))
+        contentContainer.addView(primaryButton("Все платежи") {
+            currentTab = 2
+            showDashboard()
+        })
+    }
+
+    private fun renderBalances() {
+        contentContainer.addView(textLine("Балансы", 23f, ink, true))
+        contentContainer.addView(verticalGap(6))
+        contentContainer.addView(textLine("Здесь будут собраны счета и мобильная связь.", 14f, muted))
+        contentContainer.addView(verticalGap(18))
+        listOf("Мобильная связь" to "Tele2 и МТС", "Банковские счета" to "Подключение счетов").forEach { (title, subtitle) ->
+            val item = card()
+            item.addView(textLine(title, 17f, ink, true))
+            item.addView(verticalGap(7))
+            item.addView(textLine(subtitle, 14f, muted))
+            item.addView(verticalGap(9))
+            item.addView(textLine("Автоматическое получение баланса пока не подключено", 12f, accent))
+            contentContainer.addView(item)
+            contentContainer.addView(verticalGap(12))
+        }
+    }
+
+    private fun renderPaymentScreen() {
+        contentContainer.addView(textLine("Платежи", 23f, ink, true))
+        contentContainer.addView(verticalGap(14))
+        val form = card()
+        form.addView(textLine("Новое напоминание", 18f, ink, true))
+        form.addView(verticalGap(10))
+        titleInput = field("Название платежа")
         amountInput = field("Сумма")
         amountInput.inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
-        currencyInput = field("Валюта (например, RUB или EUR)").apply { setText("RUB") }
+        currencyInput = field("Валюта (RUB, EUR...)").apply { setText("RUB") }
         leadDaysInput = field("Напомнить за сколько дней").apply {
             inputType = android.text.InputType.TYPE_CLASS_NUMBER
             setText("3")
         }
-        dateButton = Button(this).apply { setOnClickListener { chooseDate() } }
+        dateButton = Button(this).apply {
+            isAllCaps = false
+            setTextColor(accent)
+            background = rounded(Color.rgb(233, 243, 242), 12)
+            setOnClickListener { chooseDate() }
+        }
         updateDateButton()
-        root.addView(titleInput)
-        root.addView(amountInput)
-        root.addView(currencyInput)
-        root.addView(dateButton)
-        root.addView(leadDaysInput)
-        root.addView(Button(this).apply {
-            text = "Сохранить напоминание"
-            setOnClickListener { saveReminder() }
-        })
-        root.addView(Button(this).apply {
-            text = "Проверить уведомление"
-            setOnClickListener { sendTestNotification() }
-        })
-        root.addView(TextView(this).apply {
-            text = "Предстоящие платежи"
-            textSize = 20f
-            setPadding(0, dp(24), 0, dp(8))
-        })
+        form.addView(titleInput)
+        form.addView(amountInput)
+        form.addView(currencyInput)
+        form.addView(dateButton)
+        form.addView(textLine("За сколько дней напомнить", 13f, muted))
+        form.addView(leadDaysInput)
+        form.addView(verticalGap(10))
+        form.addView(primaryButton("Сохранить напоминание") { saveReminder() })
+        contentContainer.addView(form)
+        contentContainer.addView(verticalGap(22))
+        contentContainer.addView(textLine("Предстоящие платежи", 19f, ink, true))
+        contentContainer.addView(verticalGap(10))
         listContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        root.addView(listContainer)
-        setContentView(android.widget.ScrollView(this).apply { addView(root) })
+        contentContainer.addView(listContainer)
         renderPayments()
+    }
+
+    private fun renderSettings() {
+        contentContainer.addView(textLine("Настройки", 23f, ink, true))
+        contentContainer.addView(verticalGap(16))
+        val notificationCard = card()
+        notificationCard.addView(textLine("Уведомления", 18f, ink, true))
+        notificationCard.addView(verticalGap(7))
+        notificationCard.addView(textLine("Проверьте, что уведомления отображаются на телефоне.", 14f, muted))
+        notificationCard.addView(verticalGap(15))
+        notificationCard.addView(primaryButton("Проверить уведомление") { sendTestNotification() })
+        contentContainer.addView(notificationCard)
+        contentContainer.addView(verticalGap(14))
+        val info = card()
+        info.addView(textLine("О приложении", 17f, ink, true))
+        info.addView(verticalGap(6))
+        info.addView(textLine("BalanceHub · управление платежами и балансами", 13f, muted))
+        contentContainer.addView(info)
     }
 
     private fun field(hintText: String) = EditText(this).apply {
         hint = hintText
         maxLines = 1
         textSize = 16f
+        setTextColor(ink)
+        setHintTextColor(muted)
     }
 
     private fun chooseDate() {
@@ -136,32 +299,28 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderPayments() {
-        if (!::listContainer.isInitialized) return
+        if (!::listContainer.isInitialized || currentTab != 2) return
         listContainer.removeAllViews()
         if (payments.isEmpty()) {
-            listContainer.addView(TextView(this).apply {
-                text = "Пока нет напоминаний. Добавьте первый платёж выше."
-            })
+            val empty = card()
+            empty.addView(textLine("Пока нет напоминаний", 15f, ink, true))
+            empty.addView(textLine("Добавьте первый платёж выше.", 13f, muted))
+            listContainer.addView(empty)
             return
         }
         payments.sortedBy { it.dueAt }.forEach { payment ->
-            val item = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(12), dp(10), dp(12), dp(10))
-                setBackgroundResource(android.R.drawable.dialog_holo_light_frame)
-            }
-            item.addView(TextView(this).apply {
-                text = payment.title
-                textSize = 17f
-                setTypeface(null, android.graphics.Typeface.BOLD)
-            })
-            item.addView(TextView(this).apply {
-                val date = DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(payment.dueAt))
-                text = "${payment.amount} ${payment.currency} · оплатить ${date} · напомнить за ${payment.leadDays} дн."
-                textSize = 14f
-            })
+            val item = card()
+            item.addView(textLine(payment.title, 17f, ink, true))
+            item.addView(verticalGap(6))
+            val date = DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(payment.dueAt))
+            item.addView(textLine("${payment.amount} ${payment.currency} · оплатить ${date}", 14f, muted))
+            item.addView(textLine("Напомнить за ${payment.leadDays} дн.", 13f, muted))
+            item.addView(verticalGap(8))
             item.addView(Button(this).apply {
                 text = "Удалить"
+                isAllCaps = false
+                setTextColor(accent)
+                background = rounded(Color.rgb(233, 243, 242), 12)
                 setOnClickListener {
                     payments.removeAll { it.id == payment.id }
                     cancelReminder(payment)
@@ -170,7 +329,7 @@ class MainActivity : AppCompatActivity() {
                 }
             })
             listContainer.addView(item)
-            listContainer.addView(TextView(this).apply { text = " " })
+            listContainer.addView(verticalGap(10))
         }
     }
 
