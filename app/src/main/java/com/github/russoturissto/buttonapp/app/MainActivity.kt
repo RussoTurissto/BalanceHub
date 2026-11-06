@@ -51,6 +51,8 @@ class MainActivity : AppCompatActivity() {
     private var currentTab = 0
     private var mobileSettingsOpen = false
     private var operatorDetailsOpen = false
+    private var selectedOperatorId: Int? = null
+    private var sessionAutoRefreshStarted = false
     // Match the approved header position on every tab and in every theme.
     // Never derive this padding from transient window insets during recreation.
     private val headerTopPadding get() = dp(36)
@@ -70,8 +72,9 @@ class MainActivity : AppCompatActivity() {
         currentTab = savedInstanceState?.getInt("current_tab") ?: 0
         mobileSettingsOpen = savedInstanceState?.getBoolean("mobile_settings_open") ?: false
         operatorDetailsOpen = savedInstanceState?.getBoolean("operator_details_open") ?: false
+        selectedOperatorId = savedInstanceState?.getInt("selected_operator_id", Int.MIN_VALUE)?.takeIf { it != Int.MIN_VALUE }
         loadPayments()
-        T2Balance.sims(this).firstOrNull { it.isT2 }?.let { syncT2Payment(it) }
+        T2Balance.sims(this).forEach { syncMobilePayment(it) }
         showDashboard()
         onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -103,6 +106,7 @@ class MainActivity : AppCompatActivity() {
         outState.putInt("current_tab", currentTab)
         outState.putBoolean("mobile_settings_open", mobileSettingsOpen)
         outState.putBoolean("operator_details_open", operatorDetailsOpen)
+        selectedOperatorId?.let { outState.putInt("selected_operator_id", it) }
         super.onSaveInstanceState(outState)
     }
 
@@ -323,6 +327,14 @@ class MainActivity : AppCompatActivity() {
     }
 
 
+    private fun connectedSims(): List<MobileSim> = T2Balance.sims(this)
+
+    private fun currentSim(): MobileSim? {
+        val sims = connectedSims()
+        return sims.firstOrNull { it.subscriptionId == selectedOperatorId }
+            ?: sims.firstOrNull { it.isT2 } ?: sims.firstOrNull()
+    }
+
     private fun renderBalances() {
         if (operatorDetailsOpen) { renderOperatorDetails(); return }
         contentContainer.addView(textLine("Балансы", 23f, ink, true))
@@ -330,97 +342,97 @@ class MainActivity : AppCompatActivity() {
         contentContainer.addView(textLine("Мобильная связь", 14f, muted))
         contentContainer.addView(verticalGap(14))
 
-        val sims = T2Balance.sims(this)
-        val selectedSim = sims.firstOrNull { it.isT2 } ?: sims.firstOrNull()
-        val manager = getSystemService(android.content.Context.TELEPHONY_SERVICE)
-            as android.telephony.TelephonyManager
-        val operator = selectedSim?.operator?.takeIf { it.isNotBlank() }
-            ?: manager.simOperatorName?.takeIf { it.isNotBlank() }
-            ?: "Оператор не определён"
-        val operatorCode = manager.simOperator.orEmpty()
-        val known = RussianMobileOperators.find(operatorCode, operator)
-        val cached = selectedSim?.let { T2Balance.cached(this, it.subscriptionId) }
-        syncT2Payment(selectedSim)
-
-        // Compact Variant 1: operator identity on the left, a prominent
-        // balance chip on the right. Stack the chip on narrow devices.
-        val mobile = card()
-        val operatorRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
+        val sims = connectedSims()
+        if (sims.isEmpty()) {
+            contentContainer.addView(card().apply {
+                addView(textLine("Активные SIM-карты не обнаружены", 15f, ink))
+            })
+            return
         }
-        val emblem = textLine(known?.shortLabel ?: "SIM", 19f, Color.WHITE, true).apply {
-            gravity = Gravity.CENTER
-            background = rounded(Color.rgb(8, 41, 42), 14)
-        }
-        operatorRow.addView(emblem, LinearLayout.LayoutParams(dp(56), dp(56)))
-        operatorRow.addView(View(this), LinearLayout.LayoutParams(dp(10), 1))
-        val operatorDetails = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            addView(textLine(known?.displayName ?: operator, 17f, ink, true))
-            addView(verticalGap(3))
-            addView(textLine("Мобильный баланс", 13f, muted))
-        }
-        operatorRow.addView(operatorDetails, LinearLayout.LayoutParams(0, -2, 1f))
-
-        val amountView = textLine(
-            cached?.let { it.first + " ₽" } ?: "Нет данных",
-            if (cached == null) 17f else 25f, Color.rgb(23, 55, 33), true
-        ).apply {
-            gravity = Gravity.CENTER
-            setPadding(dp(12), dp(9), dp(12), dp(9))
-            background = rounded(
-                if (isNight) Color.rgb(191, 239, 104) else Color.rgb(216, 241, 166), 15
-            )
-        }
-        val wideScreen = resources.configuration.screenWidthDp >= 400
-        if (wideScreen) {
-            operatorRow.addView(View(this), LinearLayout.LayoutParams(dp(8), 1))
-            operatorRow.addView(amountView)
-        }
-        mobile.addView(operatorRow)
-        if (!wideScreen) {
-            mobile.addView(verticalGap(10))
-            val amountRow = LinearLayout(this).apply {
+        sims.forEach { sim ->
+            val op = MobileBalanceService.operator(this, sim)
+            val name = MobileBalanceService.displayName(this, sim)
+            val cached = MobileBalanceService.cached(this, sim)
+            syncMobilePayment(sim)
+            val mobile = card()
+            val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.END
+                gravity = Gravity.CENTER_VERTICAL
             }
-            amountRow.addView(amountView)
-            mobile.addView(amountRow)
+            val emblem = textLine(
+                op?.shortLabel ?: "SIM",
+                if ((op?.shortLabel?.length ?: 3) > 3) 13f else 19f,
+                if (op?.colorHex == "#E4B714") Color.BLACK else Color.WHITE,
+                true
+            ).apply {
+                gravity = Gravity.CENTER
+                background = rounded(Color.parseColor(op?.colorHex ?: "#174F50"), 14)
+            }
+            row.addView(emblem, LinearLayout.LayoutParams(dp(54), dp(54)))
+            row.addView(View(this), LinearLayout.LayoutParams(dp(10), 1))
+            val info = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(textLine(name, 16f, ink, true))
+                addView(verticalGap(3))
+                addView(textLine(sim.label + " · мобильный баланс", 12f, muted))
+            }
+            row.addView(info, LinearLayout.LayoutParams(0, -2, 1f))
+            val amount = textLine(
+                cached?.first?.let { it + " ₽" } ?: "Нет данных",
+                if (cached == null) 15f else 22f,
+                Color.rgb(23, 55, 33), true
+            ).apply {
+                gravity = Gravity.CENTER
+                setPadding(dp(10), dp(8), dp(10), dp(8))
+                background = rounded(
+                    if (isNight) Color.rgb(191, 239, 104)
+                    else Color.rgb(216, 241, 166), 14
+                )
+            }
+            if (resources.configuration.screenWidthDp >= 395) {
+                row.addView(View(this), LinearLayout.LayoutParams(dp(6), 1))
+                row.addView(amount)
+            }
+            mobile.addView(row)
+            if (resources.configuration.screenWidthDp < 395) {
+                mobile.addView(verticalGap(9))
+                mobile.addView(LinearLayout(this).apply {
+                    gravity = Gravity.END
+                    addView(amount)
+                })
+            }
+            mobile.setOnClickListener {
+                selectedOperatorId = sim.subscriptionId
+                operatorDetailsOpen = true
+                renderTab()
+            }
+            contentContainer.addView(mobile)
+            contentContainer.addView(verticalGap(12))
         }
-
-        // Keep the balances dashboard uncluttered. Operator diagnostics and
-        // USSD controls are available from Settings -> Mobile connection.
-        mobile.setOnClickListener {
-            operatorDetailsOpen = true
-            renderTab()
-        }
-        contentContainer.addView(mobile)
-        contentContainer.addView(verticalGap(14))
-
-        // This is a real preference, not a decorative settings label.
-        if (selectedSim != null && selectedSim.isT2 &&
+        if (!sessionAutoRefreshStarted &&
             preferences.getBoolean("mobile_auto_refresh_on_open", true) &&
             androidx.core.content.ContextCompat.checkSelfPermission(
                 this, android.Manifest.permission.CALL_PHONE
             ) == PackageManager.PERMISSION_GRANTED
         ) {
-            T2Balance.check(this, selectedSim, false) { _ ->
-                runOnUiThread {
-                    syncT2Payment(selectedSim)
-                    if (currentTab == 1 && operatorDetailsOpen) renderTab()
-                    if (currentTab == 1 && !operatorDetailsOpen) {
-                        T2Balance.cached(this, selectedSim.subscriptionId)?.let {
-                            amountView.text = it.first + " ₽"
-                            amountView.textSize = 25f
-                        }
-                    }
-                }
-            }
+            sessionAutoRefreshStarted = true
+            refreshSimsInSequence(sims, 0)
         }
-
     }
 
+    private fun refreshSimsInSequence(sims: List<MobileSim>, index: Int) {
+        if (index >= sims.size) {
+            if (currentTab == 1 && !operatorDetailsOpen) renderTab()
+            return
+        }
+        val sim = sims[index]
+        MobileBalanceService.check(this, sim, false) { _ ->
+            runOnUiThread {
+                syncMobilePayment(sim)
+                refreshSimsInSequence(sims, index + 1)
+            }
+        }
+    }
 
     private fun formatT2Date(instant: Long): String =
         java.text.SimpleDateFormat("dd.MM.yyyy", java.util.Locale("ru")).format(Date(instant))
@@ -428,51 +440,69 @@ class MainActivity : AppCompatActivity() {
     private fun formatT2DateTime(instant: Long): String =
         java.text.SimpleDateFormat("dd.MM.yyyy, HH:mm", java.util.Locale("ru")).format(Date(instant))
 
-    private fun t2DueAt(sim: MobileSim): Long? {
-        val id = sim.subscriptionId
-        val manuallyChosen = preferences.getLong("t2_manual_debit_$id", 0L).takeIf { it > 0 }
-        val estimated = T2UssdParser.estimatedNextDebit(
-            T2Balance.packages(this, id)?.packagesExpireAt
-        )
-        val firstDue = manuallyChosen ?: estimated ?: return null
-        val date = Calendar.getInstance().apply { timeInMillis = firstDue }
-        while (date.timeInMillis < System.currentTimeMillis()) date.add(Calendar.MONTH, 1)
-        return date.timeInMillis
+    private fun isT2(sim: MobileSim): Boolean =
+        MobileBalanceService.operator(this, sim)?.displayName == "T2 (Tele2)"
+
+    private fun paymentIdFor(sim: MobileSim): String =
+        (if (isT2(sim)) "t2_subscription_" else "mobile_subscription_") + sim.subscriptionId
+
+    private fun feeKeyFor(sim: MobileSim): String =
+        (if (isT2(sim)) "t2_fee_" else "mobile_fee_") + sim.subscriptionId
+
+    private fun dateKeyFor(sim: MobileSim): String =
+        (if (isT2(sim)) "t2_manual_debit_" else "mobile_manual_debit_") + sim.subscriptionId
+
+    private fun enabledKeyFor(sim: MobileSim): String =
+        (if (isT2(sim)) "t2_payment_enabled_" else "mobile_payment_enabled_") + sim.subscriptionId
+
+    private fun operatorDueAt(sim: MobileSim): Long? {
+        val manual = preferences.getLong(dateKeyFor(sim), 0L).takeIf { it > 0 }
+        val estimated = if (isT2(sim)) T2UssdParser.estimatedNextDebit(
+            T2Balance.packages(this, sim.subscriptionId)?.packagesExpireAt
+        ) else null
+        val firstDue = manual ?: estimated ?: return null
+        return Calendar.getInstance().apply {
+            timeInMillis = firstDue
+            while (timeInMillis < System.currentTimeMillis()) add(Calendar.MONTH, 1)
+        }.timeInMillis
     }
 
-    /** One stable ID per SIM prevents duplicate auto-generated reminders. */
-    private fun syncT2Payment(sim: MobileSim?) {
-        if (sim == null || !sim.isT2 || sim.subscriptionId < 0) return
-        val id = sim.subscriptionId
-        val paymentId = "t2_subscription_$id"
-        val previous = payments.firstOrNull { it.id == paymentId }
-        if (!preferences.getBoolean("t2_payment_enabled_$id", true)) {
-            if (previous != null) {
-                cancelReminder(previous)
-                payments.removeAll { it.id == paymentId }
+    /** One stable reminder ID per SIM; preserve T2 records from previous versions. */
+    private fun syncMobilePayment(sim: MobileSim?) {
+        if (sim == null) return
+        val id = paymentIdFor(sim)
+        val legacyId = "t2_subscription_" + sim.subscriptionId
+        if (!isT2(sim) && legacyId != id) {
+            payments.firstOrNull { it.id == legacyId }?.let {
+                cancelReminder(it)
+                payments.remove(it)
+                persistPayments()
+            }
+        }
+        val old = payments.firstOrNull { it.id == id }
+        if (!preferences.getBoolean(enabledKeyFor(sim), true)) {
+            if (old != null) {
+                cancelReminder(old)
+                payments.remove(old)
                 persistPayments()
             }
             return
         }
-        val fee = preferences.getString("t2_fee_$id", null)
-            ?.trim()?.replace(',', '.')
-        if (fee.isNullOrBlank() ||
-            !fee.matches(Regex("""\d{1,7}(?:\.\d{1,2})?""")) ||
-            fee.toBigDecimalOrNull()?.signum() != 1
-        ) return
-        val due = t2DueAt(sim) ?: previous?.dueAt ?: return
-        val payment = PaymentReminder(
-            paymentId, "Абонентская плата T2",
-            fee, "RUB", due, 1, "monthly"
-        )
-        if (previous == payment) return
-        if (previous != null) {
-            cancelReminder(previous)
-            payments.removeAll { it.id == paymentId }
+        val fee = preferences.getString(feeKeyFor(sim), null)?.trim()?.replace(',', '.')
+        if (fee.isNullOrBlank() || !fee.matches(Regex("""\d{1,7}(?:\.\d{1,2})?""")) ||
+            fee.toBigDecimalOrNull()?.signum() != 1) return
+        val due = operatorDueAt(sim) ?: old?.dueAt ?: return
+        val name = if (isT2(sim)) "T2" else MobileBalanceService.displayName(this, sim)
+        val newPayment = PaymentReminder(id, "Абонентская плата " + name,
+            fee, "RUB", due, 1, "monthly")
+        if (old == newPayment) return
+        if (old != null) {
+            cancelReminder(old)
+            payments.remove(old)
         }
-        payments.add(payment)
+        payments.add(newPayment)
         persistPayments()
-        scheduleReminder(payment)
+        scheduleReminder(newPayment)
     }
 
     private fun renderOperatorDetails() {
@@ -481,29 +511,27 @@ class MainActivity : AppCompatActivity() {
             renderTab()
         })
         contentContainer.addView(verticalGap(14))
-        contentContainer.addView(textLine("T2 · Подробная информация", 23f, ink, true))
-        contentContainer.addView(verticalGap(14))
-        val selectedSim = T2Balance.sims(this).firstOrNull { it.isT2 }
-        if (selectedSim == null) {
-            contentContainer.addView(card().apply {
-                addView(textLine("SIM-карта T2 не найдена", 16f, ink, true))
-            })
+        val sim = currentSim()
+        if (sim == null) {
+            contentContainer.addView(textLine("SIM-карта не найдена", 16f, ink))
             return
         }
-        val id = selectedSim.subscriptionId
-        val balance = T2Balance.cached(this, id)
-        val due = t2DueAt(selectedSim)
-        val fee = preferences.getString("t2_fee_$id", null)
-        val manualDate = preferences.getLong("t2_manual_debit_$id", 0L) > 0L
+        val name = MobileBalanceService.displayName(this, sim)
+        val op = MobileBalanceService.operator(this, sim)
+        val balance = MobileBalanceService.cached(this, sim)
+        val due = operatorDueAt(sim)
+        val fee = preferences.getString(feeKeyFor(sim), null)
+        val manualDate = preferences.getLong(dateKeyFor(sim), 0L) > 0L
+
+        contentContainer.addView(textLine(name + " · Подробная информация", 22f, ink, true))
+        contentContainer.addView(verticalGap(14))
 
         val summary = card()
-        summary.addView(textLine("T2 (Tele2) · " + selectedSim.label, 18f, ink, true))
-        summary.addView(verticalGap(6))
+        summary.addView(textLine(name + " · " + sim.label, 18f, ink, true))
+        summary.addView(verticalGap(7))
         summary.addView(textLine("Текущий известный баланс", 13f, muted))
-        summary.addView(textLine(
-            balance?.first?.let { it + " ₽" } ?: "Нет данных",
-            28f, accent, true
-        ))
+        summary.addView(textLine(balance?.first?.let { it + " ₽" } ?: "Нет данных",
+            28f, accent, true))
         balance?.let {
             summary.addView(textLine("Обновлён: " + formatT2DateTime(it.second), 12f, muted))
         }
@@ -515,59 +543,91 @@ class MainActivity : AppCompatActivity() {
         billing.addView(verticalGap(10))
         billing.addView(textLine("Абонентская плата: " +
             (fee?.let { it + " ₽" } ?: "не указана"), 15f, ink, true))
-        billing.addView(verticalGap(7))
+        billing.addView(verticalGap(8))
         billing.addView(textLine(
             (if (manualDate) "Дата списания (указана вручную): "
              else "Предполагаемое списание: ") +
-                (due?.let { formatT2Date(it) } ?: "нет данных"),
+            (due?.let { formatT2Date(it) } ?: "нет данных"),
             14f, accent, true
         ))
-        billing.addView(verticalGap(5))
-        billing.addView(textLine(
-            "Расчёт по дате окончания пакетов не подтверждён оператором.",
-            12f, muted
-        ))
+        if (!manualDate && isT2(sim)) {
+            billing.addView(verticalGap(6))
+            billing.addView(textLine(
+                "Расчёт по окончанию пакетов не подтверждён оператором.",
+                12f, muted
+            ))
+        }
         contentContainer.addView(billing)
         contentContainer.addView(verticalGap(12))
 
         val controls = card()
         controls.addView(textLine("Обновление и управление", 18f, ink, true))
-        controls.addView(verticalGap(9))
-        val status = textLine("Обновите данные USSD *105#", 13f, muted)
+        controls.addView(verticalGap(8))
+        val code = op?.balanceUssd
+        val status = textLine(
+            if (code != null) "Проверка баланса: $code"
+            else "USSD этого оператора не подтверждён. Доступен ручной ввод.",
+            13f, muted
+        )
         controls.addView(status)
-        controls.addView(verticalGap(10))
-        controls.addView(primaryButton("Проверить T2 · *105#") {
-            val callGranted = androidx.core.content.ContextCompat.checkSelfPermission(
-                this, android.Manifest.permission.CALL_PHONE
-            ) == PackageManager.PERMISSION_GRANTED
-            val stateGranted = androidx.core.content.ContextCompat.checkSelfPermission(
-                this, android.Manifest.permission.READ_PHONE_STATE
-            ) == PackageManager.PERMISSION_GRANTED
-            if (!callGranted || !stateGranted) {
-                androidx.core.app.ActivityCompat.requestPermissions(
-                    this,
-                    arrayOf(android.Manifest.permission.CALL_PHONE,
-                        android.Manifest.permission.READ_PHONE_STATE), 510
-                )
-                status.text = "Разрешите доступ к телефону и повторите запрос"
-            } else {
-                status.text = "Получаем данные T2…"
-                T2Balance.check(this, selectedSim, true) { message ->
-                    runOnUiThread {
-                        syncT2Payment(selectedSim)
-                        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
-                        if (currentTab == 1 && operatorDetailsOpen) renderTab()
+        if (code != null) {
+            controls.addView(verticalGap(10))
+            controls.addView(primaryButton("Проверить баланс · " + code) {
+                val granted = androidx.core.content.ContextCompat.checkSelfPermission(
+                    this, android.Manifest.permission.CALL_PHONE
+                ) == PackageManager.PERMISSION_GRANTED
+                if (!granted) {
+                    androidx.core.app.ActivityCompat.requestPermissions(
+                        this, arrayOf(android.Manifest.permission.CALL_PHONE,
+                            android.Manifest.permission.READ_PHONE_STATE), 510)
+                    status.text = "Разрешите доступ к телефону и повторите проверку"
+                } else {
+                    status.text = "Проверяем баланс…"
+                    MobileBalanceService.check(this, sim, true) { message ->
+                        runOnUiThread {
+                            syncMobilePayment(sim)
+                            Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+                            if (currentTab == 1 && operatorDetailsOpen) renderTab()
+                        }
                     }
                 }
-            }
+            })
+        }
+        controls.addView(verticalGap(9))
+        controls.addView(secondaryButton("Ввести баланс вручную") {
+            showManualBalanceDialog(sim)
         })
         controls.addView(verticalGap(9))
         controls.addView(secondaryButton("Настроить абонентскую плату и дату") {
             operatorDetailsOpen = false
+            selectedOperatorId = sim.subscriptionId
             mobileSettingsOpen = true
             selectTab(3)
         })
         contentContainer.addView(controls)
+    }
+
+    private fun showManualBalanceDialog(sim: MobileSim) {
+        val value = field("Баланс в рублях").apply {
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER or
+                android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+            setText(MobileBalanceService.cached(this@MainActivity, sim)?.first ?: "")
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Указать мобильный баланс")
+            .setView(LinearLayout(this).apply {
+                setPadding(dp(22), dp(12), dp(22), dp(12))
+                addView(value)
+            })
+            .setNegativeButton("Отмена", null)
+            .setPositiveButton("Сохранить") { _, _ ->
+                if (MobileBalanceService.setManual(this, sim, value.text.toString())) {
+                    if (currentTab == 1) renderTab()
+                    else if (currentTab == 3 && mobileSettingsOpen) renderTab()
+                } else {
+                    Toast.makeText(this, "Введите корректную сумму", Toast.LENGTH_LONG).show()
+                }
+            }.show()
     }
 
     private fun renderPaymentScreen() {
@@ -775,71 +835,102 @@ class MainActivity : AppCompatActivity() {
             mobileSettingsOpen = false
             renderTab()
         })
-        contentContainer.addView(verticalGap(18))
-        contentContainer.addView(textLine("Мобильная связь", 23f, ink, true))
-        contentContainer.addView(verticalGap(6))
-        contentContainer.addView(textLine(
-            "Информация о SIM и проверка баланса",
-            14f, muted
-        ))
         contentContainer.addView(verticalGap(16))
-
-        val sims = T2Balance.sims(this)
-        val selectedSim = sims.firstOrNull { it.isT2 } ?: sims.firstOrNull()
-        val manager = getSystemService(android.content.Context.TELEPHONY_SERVICE)
-            as android.telephony.TelephonyManager
-        val operator = selectedSim?.operator?.takeIf { it.isNotBlank() }
-            ?: manager.simOperatorName?.takeIf { it.isNotBlank() }
-            ?: "Оператор не определён"
-        val cached = selectedSim?.let { T2Balance.cached(this, it.subscriptionId) }
-
-        val simInfo = card()
-        simInfo.addView(textLine("Информация об операторе", 18f, ink, true))
-        simInfo.addView(verticalGap(10))
-        simInfo.addView(textLine("Оператор: " + operator, 14f, ink))
-        simInfo.addView(verticalGap(5))
-        simInfo.addView(textLine("SIM: " + (selectedSim?.label ?: "не определена"), 14f, ink))
-        simInfo.addView(verticalGap(5))
-        simInfo.addView(textLine("Номер: не определён", 14f, muted))
-        if (sims.size > 1) {
-            simInfo.addView(verticalGap(5))
-            simInfo.addView(textLine("Активных SIM-карт: " + sims.size, 14f, muted))
-        }
-        simInfo.addView(verticalGap(9))
-        val cachedValue = textLine(
-            "Последний баланс: " + (cached?.first?.let { it + " ₽" } ?: "нет данных"),
-            15f, ink, true
-        )
-        simInfo.addView(cachedValue)
-        val updateTime = textLine(
-            cached?.let {
-                "Обновлено: " + DateFormat.getDateTimeInstance().format(Date(it.second))
-            } ?: "Пока нет успешных проверок",
-            13f, muted
-        )
-        simInfo.addView(verticalGap(5))
-        simInfo.addView(updateTime)
-        simInfo.addView(verticalGap(10))
-        simInfo.addView(textLine("Интернет и минуты: нет данных", 13f, muted))
-        contentContainer.addView(simInfo)
+        contentContainer.addView(textLine("Мобильная связь", 23f, ink, true))
+        contentContainer.addView(verticalGap(5))
+        contentContainer.addView(textLine("Отдельные настройки для каждой SIM", 14f, muted))
         contentContainer.addView(verticalGap(14))
+        val sims = connectedSims()
+        val sim = currentSim()
+        if (sim == null) {
+            contentContainer.addView(textLine("SIM-карта не обнаружена", 16f, ink))
+            return
+        }
+        val id = sim.subscriptionId
+        val op = MobileBalanceService.operator(this, sim)
+        val name = MobileBalanceService.displayName(this, sim)
+        val balance = MobileBalanceService.cached(this, sim)
 
-        val checking = card()
-        checking.addView(textLine("Проверка баланса", 18f, ink, true))
-        checking.addView(verticalGap(6))
-        checking.addView(textLine(
-            "USSD-запрос T2: *105#. Результат зависит от сети и устройства.",
-            13f, muted
-        ))
-        checking.addView(verticalGap(10))
-        val status = textLine(
-            "Для обновления нажмите кнопку ниже",
-            13f, accent
-        )
-        checking.addView(status)
-        checking.addView(verticalGap(12))
-        if (selectedSim != null && selectedSim.isT2) {
-            checking.addView(primaryButton("Проверить баланс T2") {
+        if (sims.size > 1) {
+            val simsCard = card()
+            simsCard.addView(textLine("Выбранная SIM: " + sim.label, 17f, ink, true))
+            simsCard.addView(verticalGap(9))
+            simsCard.addView(secondaryButton("Выбрать другую SIM") {
+                AlertDialog.Builder(this)
+                    .setTitle("SIM-карта")
+                    .setItems(sims.map {
+                        it.label + " · " + MobileBalanceService.displayName(this, it)
+                    }.toTypedArray()) { _, index ->
+                        selectedOperatorId = sims[index].subscriptionId
+                        renderTab()
+                    }.show()
+            })
+            contentContainer.addView(simsCard)
+            contentContainer.addView(verticalGap(12))
+        }
+        val operatorCard = card()
+        operatorCard.addView(textLine("Оператор и баланс", 18f, ink, true))
+        operatorCard.addView(verticalGap(8))
+        operatorCard.addView(textLine("Оператор: " + name, 15f, ink, true))
+        operatorCard.addView(textLine("SIM: " + sim.label, 13f, muted))
+        operatorCard.addView(verticalGap(7))
+        operatorCard.addView(secondaryButton("Выбрать оператора вручную") {
+            val entries = listOf("Определять автоматически") +
+                RussianMobileOperators.all.map { it.displayName } +
+                listOf("Другой оператор…")
+            AlertDialog.Builder(this).setTitle("Оператор мобильной связи")
+                .setItems(entries.toTypedArray()) { _, index ->
+                    when (index) {
+                        0 -> {
+                            preferences.edit().remove("mobile_operator_$id").apply()
+                            syncMobilePayment(sim)
+                            renderTab()
+                        }
+                        entries.lastIndex -> {
+                            val input = field("Название оператора")
+                            AlertDialog.Builder(this).setTitle("Другой оператор")
+                                .setView(LinearLayout(this).apply {
+                                    setPadding(dp(20), dp(10), dp(20), dp(10))
+                                    addView(input)
+                                })
+                                .setNegativeButton("Отмена", null)
+                                .setPositiveButton("Сохранить") { _, _ ->
+                                    val custom = input.text.toString().trim()
+                                    if (custom.isNotBlank()) {
+                                        preferences.edit()
+                                            .putString("mobile_operator_$id", custom).apply()
+                                        syncMobilePayment(sim)
+                                        renderTab()
+                                    }
+                                }.show()
+                        }
+                        else -> {
+                            preferences.edit()
+                                .putString("mobile_operator_$id", entries[index]).apply()
+                            syncMobilePayment(sim)
+                            renderTab()
+                        }
+                    }
+                }.show()
+        })
+        operatorCard.addView(verticalGap(10))
+        operatorCard.addView(textLine("Баланс: " +
+            (balance?.first?.let { it + " ₽" } ?: "нет данных"),
+            16f, ink, true))
+        balance?.let {
+            operatorCard.addView(textLine("Обновлён: " +
+                formatT2DateTime(it.second), 12f, muted))
+        }
+        operatorCard.addView(verticalGap(9))
+        operatorCard.addView(secondaryButton("Указать баланс вручную") {
+            showManualBalanceDialog(sim)
+        })
+        val code = op?.balanceUssd
+        if (code != null) {
+            operatorCard.addView(verticalGap(8))
+            val message = textLine("USSD: " + code, 13f, muted)
+            operatorCard.addView(message)
+            operatorCard.addView(primaryButton("Проверить баланс") {
                 if (androidx.core.content.ContextCompat.checkSelfPermission(
                         this, android.Manifest.permission.CALL_PHONE
                     ) != PackageManager.PERMISSION_GRANTED ||
@@ -847,159 +938,142 @@ class MainActivity : AppCompatActivity() {
                         this, android.Manifest.permission.READ_PHONE_STATE
                     ) != PackageManager.PERMISSION_GRANTED
                 ) {
-                    androidx.core.app.ActivityCompat.requestPermissions(
-                        this,
-                        arrayOf(
-                            android.Manifest.permission.CALL_PHONE,
-                            android.Manifest.permission.READ_PHONE_STATE
-                        ), 510
-                    )
-                    status.text = "Разрешите доступ к телефону и повторите проверку"
+                    androidx.core.app.ActivityCompat.requestPermissions(this, arrayOf(
+                        android.Manifest.permission.CALL_PHONE,
+                        android.Manifest.permission.READ_PHONE_STATE), 510)
+                    message.text = "Разрешите телефонные вызовы и повторите запрос"
                 } else {
-                    status.text = "Проверяем баланс T2…"
-                    T2Balance.check(this, selectedSim, true) { message ->
+                    message.text = "Получаем ответ оператора…"
+                    MobileBalanceService.check(this, sim, true) { result ->
                         runOnUiThread {
-                            syncT2Payment(selectedSim)
-                            status.text = message
-                            T2Balance.cached(this, selectedSim.subscriptionId)?.let {
-                                cachedValue.text = "Последний баланс: " + it.first + " ₽"
-                                updateTime.text = "Обновлено: " +
-                                    DateFormat.getDateTimeInstance().format(Date(it.second))
+                            syncMobilePayment(sim)
+                            message.text = result
+                            MobileBalanceService.cached(this, sim)?.let { data ->
+                                Toast.makeText(this,
+                                    "Баланс: " + data.first + " ₽", Toast.LENGTH_LONG).show()
                             }
                         }
                     }
                 }
             })
         } else {
-            status.text = "Автоматический USSD сейчас доступен только для T2"
+            operatorCard.addView(verticalGap(6))
+            operatorCard.addView(textLine(
+                "Непроверенная USSD-команда не отправляется. " +
+                    "Все настройки и платежи доступны вручную.", 12f, muted
+            ))
         }
-        contentContainer.addView(checking)
-        contentContainer.addView(verticalGap(14))
+        contentContainer.addView(operatorCard)
+        contentContainer.addView(verticalGap(12))
 
-
-        if (selectedSim != null && selectedSim.isT2) {
-            val id = selectedSim.subscriptionId
-            val billingCard = card()
-            billingCard.addView(textLine("Абонентская плата T2", 18f, ink, true))
-            billingCard.addView(verticalGap(7))
-            billingCard.addView(textLine(
-                "Укажите стоимость тарифа вручную. Она не берётся из баланса.",
-                13f, muted
-            ))
-            billingCard.addView(verticalGap(8))
-            val feeInput = field("Абонентская плата, ₽").apply {
-                inputType = android.text.InputType.TYPE_CLASS_NUMBER or
-                    android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
-                setText(preferences.getString("t2_fee_$id", ""))
-            }
-            billingCard.addView(feeInput)
-            billingCard.addView(verticalGap(9))
-            billingCard.addView(primaryButton("Сохранить сумму") {
-                val fee = feeInput.text.toString().trim().replace(',', '.')
-                if (!fee.matches(Regex("""\d{1,7}(?:\.\d{1,2})?""")) ||
-                    fee.toBigDecimalOrNull()?.signum() != 1
-                ) {
-                    Toast.makeText(this,
-                        "Введите сумму больше нуля, максимум 2 знака после запятой",
-                        Toast.LENGTH_LONG).show()
-                } else {
-                    preferences.edit().putString("t2_fee_$id", fee).apply()
-                    syncT2Payment(selectedSim)
-                    Toast.makeText(this, "Абонентская плата сохранена", Toast.LENGTH_SHORT).show()
-                    requestNotificationPermissionIfNeeded()
-                    renderTab()
-                }
-            })
-            billingCard.addView(verticalGap(14))
-            val manualDate = preferences.getLong("t2_manual_debit_$id", 0L)
-            billingCard.addView(textLine(
-                "Следующее списание: " +
-                    (t2DueAt(selectedSim)?.let { formatT2Date(it) } ?: "нет данных"),
-                15f, ink, true
-            ))
-            billingCard.addView(verticalGap(5))
-            billingCard.addView(textLine(
-                if (manualDate > 0L) "Дата установлена вручную"
-                else "Расчёт по окончанию пакетов (если указано 23:59)",
-                12f, muted
-            ))
-            billingCard.addView(verticalGap(10))
-            billingCard.addView(secondaryButton("Указать дату списания вручную") {
-                val selectedDate = Calendar.getInstance().apply {
-                    timeInMillis = t2DueAt(selectedSim) ?: System.currentTimeMillis()
-                }
-                showThemedCalendar(selectedDate) {
-                    preferences.edit().putLong(
-                        "t2_manual_debit_$id", selectedDate.timeInMillis
-                    ).apply()
-                    syncT2Payment(selectedSim)
-                    renderTab()
-                }
-            })
-            if (manualDate > 0L) {
-                billingCard.addView(verticalGap(6))
-                billingCard.addView(secondaryButton("Вернуть расчётную дату") {
-                    preferences.edit().remove("t2_manual_debit_$id").apply()
-                    syncT2Payment(selectedSim)
-                    renderTab()
-                })
-            }
-            billingCard.addView(verticalGap(12))
-            val enabledRow = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-            }
-            enabledRow.addView(textLine(
-                "Добавлять в предстоящие платежи", 14f, ink
-            ), LinearLayout.LayoutParams(0, -2, 1f))
-            enabledRow.addView(androidx.appcompat.widget.SwitchCompat(this).apply {
-                isChecked = preferences.getBoolean("t2_payment_enabled_$id", true)
-                contentDescription = "Автоматически создавать платёж T2"
-                setOnCheckedChangeListener { _, enabled ->
-                    preferences.edit().putBoolean("t2_payment_enabled_$id", enabled).apply()
-                    syncT2Payment(selectedSim)
-                    if (enabled) requestNotificationPermissionIfNeeded()
-                }
-            })
-            billingCard.addView(enabledRow)
-            billingCard.addView(verticalGap(8))
-            billingCard.addView(textLine(
-                "Повторение — ежемесячно. Уведомление — за 1 день. " +
-                    "При обновлении USSD дата уточняется без дубликатов.",
-                12f, muted
-            ))
-            contentContainer.addView(billingCard)
-            contentContainer.addView(verticalGap(14))
+        val billing = card()
+        billing.addView(textLine("Абонентская плата и дата", 18f, ink, true))
+        billing.addView(verticalGap(7))
+        billing.addView(textLine(
+            "Стоимость тарифа вводится вручную и не берётся из баланса.",
+            13f, muted
+        ))
+        billing.addView(verticalGap(8))
+        val feeInput = field("Абонентская плата, ₽").apply {
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER or
+                android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+            setText(preferences.getString(feeKeyFor(sim), ""))
         }
-
-        val refreshCard = card()
-        refreshCard.addView(textLine("Автоматическое обновление", 18f, ink, true))
-        refreshCard.addView(verticalGap(8))
-        val switchRow = LinearLayout(this).apply {
+        billing.addView(feeInput)
+        billing.addView(verticalGap(9))
+        billing.addView(primaryButton("Сохранить сумму") {
+            val fee = feeInput.text.toString().trim().replace(',', '.')
+            if (!fee.matches(Regex("""\d{1,7}(?:\.\d{1,2})?""")) ||
+                fee.toBigDecimalOrNull()?.signum() != 1
+            ) {
+                Toast.makeText(this, "Введите корректную сумму больше нуля",
+                    Toast.LENGTH_LONG).show()
+            } else {
+                preferences.edit().putString(feeKeyFor(sim), fee).apply()
+                syncMobilePayment(sim)
+                Toast.makeText(this, "Абонентская плата сохранена", Toast.LENGTH_SHORT).show()
+                requestNotificationPermissionIfNeeded()
+                renderTab()
+            }
+        })
+        billing.addView(verticalGap(14))
+        val manualDate = preferences.getLong(dateKeyFor(sim), 0L)
+        billing.addView(textLine("Следующее списание: " +
+            (operatorDueAt(sim)?.let { formatT2Date(it) } ?: "нет данных"),
+            15f, ink, true))
+        billing.addView(verticalGap(5))
+        billing.addView(textLine(
+            if (manualDate > 0L) "Дата указана вручную"
+            else if (isT2(sim)) "Расчёт по сроку окончания пакетов (если 23:59)"
+            else "Укажите дату следующего списания вручную",
+            12f, muted
+        ))
+        billing.addView(verticalGap(10))
+        billing.addView(secondaryButton("Указать дату списания") {
+            val chosen = Calendar.getInstance().apply {
+                timeInMillis = operatorDueAt(sim) ?: System.currentTimeMillis()
+            }
+            showThemedCalendar(chosen) {
+                preferences.edit().putLong(dateKeyFor(sim), chosen.timeInMillis).apply()
+                syncMobilePayment(sim)
+                renderTab()
+            }
+        })
+        if (manualDate > 0L && isT2(sim)) {
+            billing.addView(verticalGap(6))
+            billing.addView(secondaryButton("Вернуть расчётную дату") {
+                preferences.edit().remove(dateKeyFor(sim)).apply()
+                syncMobilePayment(sim)
+                renderTab()
+            })
+        }
+        billing.addView(verticalGap(13))
+        val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        val switchLabel = textLine(
-            "Проверять баланс при открытии вкладки «Балансы»", 14f, ink
-        )
-        switchRow.addView(switchLabel, LinearLayout.LayoutParams(0, -2, 1f))
-        val autoRefreshSwitch = androidx.appcompat.widget.SwitchCompat(this).apply {
-            isChecked = preferences.getBoolean("mobile_auto_refresh_on_open", true)
-            contentDescription = "Проверять баланс автоматически при открытии вкладки"
+        row.addView(textLine("Добавлять в предстоящие платежи", 14f, ink),
+            LinearLayout.LayoutParams(0, -2, 1f))
+        row.addView(androidx.appcompat.widget.SwitchCompat(this).apply {
+            isChecked = preferences.getBoolean(enabledKeyFor(sim), true)
+            contentDescription = "Автоматически создавать ежемесячный платёж"
             setOnCheckedChangeListener { _, enabled ->
-                preferences.edit().putBoolean(
-                    "mobile_auto_refresh_on_open", enabled
-                ).apply()
+                preferences.edit().putBoolean(enabledKeyFor(sim), enabled).apply()
+                syncMobilePayment(sim)
+                if (enabled) requestNotificationPermissionIfNeeded()
             }
-        }
-        switchRow.addView(autoRefreshSwitch)
-        refreshCard.addView(switchRow)
-        refreshCard.addView(verticalGap(8))
-        refreshCard.addView(textLine(
-            "Повторные запросы ограничены. Фоновая проверка пока не настроена.",
+        })
+        billing.addView(row)
+        billing.addView(verticalGap(7))
+        billing.addView(textLine(
+            "Платёж повторяется ежемесячно. Напоминание — за 1 день.",
             12f, muted
         ))
-        contentContainer.addView(refreshCard)
+        contentContainer.addView(billing)
+        contentContainer.addView(verticalGap(14))
+
+        val refresh = card()
+        refresh.addView(textLine("Автоматическая проверка", 18f, ink, true))
+        refresh.addView(verticalGap(8))
+        val refreshRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        refreshRow.addView(textLine("Проверять доступные USSD при открытии «Балансов»",
+            13f, ink), LinearLayout.LayoutParams(0, -2, 1f))
+        refreshRow.addView(androidx.appcompat.widget.SwitchCompat(this).apply {
+            isChecked = preferences.getBoolean("mobile_auto_refresh_on_open", true)
+            setOnCheckedChangeListener { _, enabled ->
+                preferences.edit().putBoolean("mobile_auto_refresh_on_open", enabled).apply()
+            }
+        })
+        refresh.addView(refreshRow)
+        refresh.addView(verticalGap(7))
+        refresh.addView(textLine(
+            "Интервал между запросами ограничен. Поддержка USSD зависит от оператора и телефона.",
+            12f, muted
+        ))
+        contentContainer.addView(refresh)
     }
 
     private fun field(hintText: String) = EditText(this).apply {
@@ -1067,15 +1141,17 @@ class MainActivity : AppCompatActivity() {
             item.addView(textLine("Напомнить за ${payment.leadDays} дн. · ${recurrenceLabel(payment.recurrence)}", 13f, muted))
             item.addView(verticalGap(8))
             val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            if (payment.id.startsWith("t2_subscription_")) {
+            if (payment.id.startsWith("t2_subscription_") || payment.id.startsWith("mobile_subscription_")) {
                 actions.addView(secondaryButton("Настроить T2") {
                     mobileSettingsOpen = true
                     selectTab(3)
                 }, LinearLayout.LayoutParams(0, -2, 1f))
                 actions.addView(View(this), LinearLayout.LayoutParams(dp(8), 1))
                 actions.addView(secondaryButton("Отключить") {
-                    val id = payment.id.removePrefix("t2_subscription_")
-                    preferences.edit().putBoolean("t2_payment_enabled_" + id, false).apply()
+                    val isLegacyT2 = payment.id.startsWith("t2_subscription_")
+                    val id = payment.id.removePrefix("t2_subscription_").removePrefix("mobile_subscription_")
+                    val pref = (if (isLegacyT2) "t2_payment_enabled_" else "mobile_payment_enabled_") + id
+                    preferences.edit().putBoolean(pref, false).apply()
                     cancelReminder(payment)
                     payments.removeAll { it.id == payment.id }
                     persistPayments()
@@ -1393,7 +1469,8 @@ class MainActivity : AppCompatActivity() {
             if (recurrence == "weekly" || recurrence == "monthly") {
                 // T2 stays in "upcoming" until the actual estimated debit date;
                 // receiving a one-day-before alert must not hide that payment.
-                val isT2 = item.getString("id").startsWith("t2_subscription_")
+                val isT2 = item.getString("id").startsWith("t2_subscription_") ||
+                    item.getString("id").startsWith("mobile_subscription_")
                 while ((if (isT2) date.timeInMillis
                         else date.timeInMillis - lead * 86400000L
                     ) <= System.currentTimeMillis()

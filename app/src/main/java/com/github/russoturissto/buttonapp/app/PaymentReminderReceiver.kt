@@ -56,7 +56,8 @@ class PaymentReminderReceiver : BroadcastReceiver() {
             if (record.optString("id") != id || record.optString("recurrence", "once") != recurrence) continue
             val originalDue = record.getLong("dueAt")
             val remindedDue = intent.getLongExtra("dueAt", -1L)
-            val isT2 = id.startsWith("t2_subscription_")
+            val isT2 = id.startsWith("t2_subscription_") ||
+                id.startsWith("mobile_subscription_")
             // Auto-generated T2 payments keep the current debit visible until
             // it passes, even after the reminder is delivered the day before.
             if ((isT2 && remindedDue < originalDue) ||
