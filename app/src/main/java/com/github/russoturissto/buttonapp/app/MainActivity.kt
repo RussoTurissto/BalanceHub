@@ -65,6 +65,11 @@ class MainActivity : AppCompatActivity() {
     }
 
 
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 510 && currentTab == 1) renderTab()
+    }
+
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putInt("current_tab", currentTab)
         super.onSaveInstanceState(outState)
@@ -267,6 +272,7 @@ class MainActivity : AppCompatActivity() {
         details.addView(textLine("Оператор SIM · $operatorCode", 12f, muted))
         operatorRow.addView(details, LinearLayout.LayoutParams(0, -2, 1f))
         mobile.addView(operatorRow)
+        if (sims.size > 1) mobile.addView(textLine("Обнаружено SIM-карт: ${sims.size}. Проверяется T2.", 12f, muted))
         mobile.addView(verticalGap(16))
         mobile.addView(textLine("Баланс", 13f, muted))
         val cached = selectedSim?.let { T2Balance.cached(this, it.subscriptionId) }
