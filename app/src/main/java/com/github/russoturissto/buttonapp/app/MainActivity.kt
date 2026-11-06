@@ -22,6 +22,7 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Spinner
+import android.widget.GridLayout
 import android.widget.ArrayAdapter
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -469,6 +470,75 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun showThemedCalendar(selected: Calendar, onSelected: () -> Unit) {
+        val visible = (selected.clone() as Calendar).apply { set(Calendar.DAY_OF_MONTH, 1) }
+        val wrapper = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(12), dp(18), dp(12))
+            background = rounded(surface, 20)
+        }
+        val heading = textLine("Выберите дату", 20f, ink, true)
+        wrapper.addView(heading)
+        wrapper.addView(verticalGap(16))
+        val controls = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val prev = secondaryButton("‹") {}
+        val month = textLine("", 17f, ink, true).apply { gravity = Gravity.CENTER }
+        val next = secondaryButton("›") {}
+        controls.addView(prev, LinearLayout.LayoutParams(dp(52), dp(48)))
+        controls.addView(month, LinearLayout.LayoutParams(0, dp(48), 1f))
+        controls.addView(next, LinearLayout.LayoutParams(dp(52), dp(48)))
+        wrapper.addView(controls)
+        wrapper.addView(verticalGap(12))
+        val grid = GridLayout(this).apply { columnCount = 7 }
+        wrapper.addView(grid)
+        val footer = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.END
+        }
+        wrapper.addView(verticalGap(12))
+        wrapper.addView(footer)
+        val dialog = AlertDialog.Builder(this).setView(wrapper).create()
+        fun refresh() {
+            month.text = java.text.SimpleDateFormat("LLLL yyyy", java.util.Locale("ru"))
+                .format(visible.time).replaceFirstChar { it.uppercase() }
+            grid.removeAllViews()
+            val cellWidth = (resources.displayMetrics.widthPixels - dp(92)) / 7
+            listOf("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс").forEach { day ->
+                grid.addView(textLine(day, 12f, muted).apply { gravity = Gravity.CENTER },
+                    android.view.ViewGroup.LayoutParams(cellWidth, dp(36)))
+            }
+            val start = (visible.get(Calendar.DAY_OF_WEEK) + 5) % 7
+            repeat(start) {
+                grid.addView(View(this), android.view.ViewGroup.LayoutParams(cellWidth, dp(45)))
+            }
+            val days = visible.getActualMaximum(Calendar.DAY_OF_MONTH)
+            for (day in 1..days) {
+                val isSelected = selected.get(Calendar.YEAR) == visible.get(Calendar.YEAR) &&
+                    selected.get(Calendar.MONTH) == visible.get(Calendar.MONTH) &&
+                    selected.get(Calendar.DAY_OF_MONTH) == day
+                grid.addView(TextView(this).apply {
+                    text = day.toString()
+                    gravity = Gravity.CENTER
+                    textSize = 15f
+                    setTextColor(if (isSelected) Color.WHITE else ink)
+                    background = rounded(if (isSelected) accent else surface, 12)
+                    setOnClickListener {
+                        selected.set(visible.get(Calendar.YEAR), visible.get(Calendar.MONTH), day, 9, 0, 0)
+                        selected.set(Calendar.MILLISECOND, 0)
+                        onSelected()
+                        dialog.dismiss()
+                    }
+                }, android.view.ViewGroup.LayoutParams(cellWidth, dp(45)))
+            }
+        }
+        prev.setOnClickListener { visible.add(Calendar.MONTH, -1); refresh() }
+        next.setOnClickListener { visible.add(Calendar.MONTH, 1); refresh() }
+        footer.addView(secondaryButton("Отмена") { dialog.dismiss() })
+        refresh()
+        dialog.setOnShowListener { dialog.window?.setBackgroundDrawable(rounded(surface, 20)) }
+        dialog.show()
+    }
+
     private fun showEditPaymentDialog(payment: PaymentReminder) {
         val editor = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -490,13 +560,10 @@ class MainActivity : AppCompatActivity() {
         val dateControl = secondaryButton("Дата: " +
             DateFormat.getDateInstance(DateFormat.MEDIUM).format(date.time)) {}
         dateControl.setOnClickListener {
-            DatePickerDialog(this, { _, year, month, day ->
-                date.set(year, month, day, 9, 0, 0)
-                date.set(Calendar.MILLISECOND, 0)
+            showThemedCalendar(date) {
                 dateControl.text = "Дата: " +
                     DateFormat.getDateInstance(DateFormat.MEDIUM).format(date.time)
-            }, date.get(Calendar.YEAR), date.get(Calendar.MONTH),
-                date.get(Calendar.DAY_OF_MONTH)).show()
+            }
         }
         val options = listOf("Единоразовый", "Еженедельный", "Ежемесячный")
         val recurrence = Spinner(this).apply {
@@ -537,7 +604,10 @@ class MainActivity : AppCompatActivity() {
         editor.addView(textLine("Напомнить за (дней)", 13f, muted))
         editor.addView(days)
         val dialog = AlertDialog.Builder(this)
-            .setTitle("Изменить платёж")
+            .setCustomTitle(textLine("Изменить платёж", 21f, ink, true).apply {
+                setBackgroundColor(surface)
+                setPadding(dp(24), dp(22), dp(20), dp(12))
+            })
             .setView(android.widget.ScrollView(this).apply {
                 setBackgroundColor(surface)
                 addView(editor)
