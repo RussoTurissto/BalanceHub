@@ -21,6 +21,8 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Spinner
+import android.widget.ArrayAdapter
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
@@ -39,6 +41,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var currencyInput: EditText
     private lateinit var leadDaysInput: EditText
     private lateinit var dateButton: Button
+    private lateinit var recurrenceInput: Spinner
     private lateinit var listContainer: LinearLayout
     private lateinit var contentContainer: LinearLayout
     private var currentTab = 0
@@ -273,6 +276,15 @@ class MainActivity : AppCompatActivity() {
         form.addView(amountInput)
         form.addView(currencyInput)
         form.addView(dateButton)
+        form.addView(textLine("Повторение платежа", 13f, muted))
+        recurrenceInput = Spinner(this).apply {
+            adapter = ArrayAdapter(this@MainActivity,
+                android.R.layout.simple_spinner_dropdown_item,
+                listOf("Единоразовый", "Еженедельный", "Ежемесячный"))
+            setBackgroundColor(softAccent)
+        }
+        form.addView(recurrenceInput)
+        form.addView(verticalGap(10))
         form.addView(textLine("За сколько дней напомнить", 13f, muted))
         form.addView(leadDaysInput)
         form.addView(verticalGap(10))
@@ -376,12 +388,13 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "Проверьте название, сумму, валюту и срок напоминания", Toast.LENGTH_LONG).show()
             return
         }
+        val recurrence = listOf("once", "weekly", "monthly")[recurrenceInput.selectedItemPosition]
         val old = payments.firstOrNull { it.id == editingId }
         if (old != null) {
             cancelReminder(old)
             payments.removeAll { it.id == old.id }
         }
-        val reminder = PaymentReminder(old?.id ?: UUID.randomUUID().toString(), title, amount, currency, dueDate.timeInMillis, leadDays)
+        val reminder = PaymentReminder(old?.id ?: UUID.randomUUID().toString(), title, amount, currency, dueDate.timeInMillis, leadDays, recurrence)
         payments.add(reminder)
         editingId = null
         persistPayments()
@@ -409,7 +422,7 @@ class MainActivity : AppCompatActivity() {
             item.addView(verticalGap(6))
             val date = DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(payment.dueAt))
             item.addView(textLine("${payment.amount} ${payment.currency} · оплатить ${date}", 14f, muted))
-            item.addView(textLine("Напомнить за ${payment.leadDays} дн.", 13f, muted))
+            item.addView(textLine("Напомнить за ${payment.leadDays} дн. · ${recurrenceLabel(payment.recurrence)}", 13f, muted))
             item.addView(verticalGap(8))
             val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
             actions.addView(secondaryButton("Изменить") {
@@ -420,6 +433,7 @@ class MainActivity : AppCompatActivity() {
                 leadDaysInput.setText(payment.leadDays.toString())
                 dueDate = Calendar.getInstance().apply { timeInMillis = payment.dueAt }
                 updateDateButton()
+                recurrenceInput.setSelection(listOf("once", "weekly", "monthly").indexOf(payment.recurrence).coerceAtLeast(0))
                 (contentContainer.parent as? android.widget.ScrollView)?.smoothScrollTo(0, 0)
                 titleInput.requestFocus()
             }, LinearLayout.LayoutParams(0, -2, 1f))
@@ -444,6 +458,12 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun recurrenceLabel(value: String) = when (value) {
+        "weekly" -> "Каждую неделю"
+        "monthly" -> "Каждый месяц"
+        else -> "Единоразово"
+    }
+
     private fun scheduleReminder(payment: PaymentReminder) {
         val triggerAt = payment.dueAt - payment.leadDays * 24L * 60L * 60L * 1000L
         if (triggerAt <= System.currentTimeMillis()) return
@@ -461,6 +481,9 @@ class MainActivity : AppCompatActivity() {
             putExtra("amount", payment.amount)
             putExtra("currency", payment.currency)
             putExtra("id", payment.id)
+            putExtra("dueAt", payment.dueAt)
+            putExtra("leadDays", payment.leadDays)
+            putExtra("recurrence", payment.recurrence)
         }
         return PendingIntent.getBroadcast(this, payment.id.hashCode(), intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
@@ -497,7 +520,7 @@ class MainActivity : AppCompatActivity() {
         for (i in 0 until array.length()) {
             val item = array.getJSONObject(i)
             payments.add(PaymentReminder(item.getString("id"), item.getString("title"),
-                item.getString("amount"), item.getString("currency"), item.getLong("dueAt"), item.getInt("leadDays")))
+                item.getString("amount"), item.getString("currency"), item.getLong("dueAt"), item.getInt("leadDays"), item.optString("recurrence", "once")) )
         }
     }
 
@@ -507,6 +530,7 @@ class MainActivity : AppCompatActivity() {
             array.put(JSONObject().apply {
                 put("id", payment.id); put("title", payment.title); put("amount", payment.amount)
                 put("currency", payment.currency); put("dueAt", payment.dueAt); put("leadDays", payment.leadDays)
+                put("recurrence", payment.recurrence)
             })
         }
         preferences.edit().putString("payment_reminders", array.toString()).apply()
@@ -527,5 +551,5 @@ class MainActivity : AppCompatActivity() {
 
 private data class PaymentReminder(
     val id: String, val title: String, val amount: String, val currency: String,
-    val dueAt: Long, val leadDays: Int
+    val dueAt: Long, val leadDays: Int, val recurrence: String = "once"
 )
