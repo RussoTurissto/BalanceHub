@@ -282,7 +282,7 @@ class MainActivity : AppCompatActivity() {
             val item = card()
             item.addView(textLine(payment.title, 16f, ink, true))
             item.addView(verticalGap(5))
-            item.addView(textLine("${payment.amount} ${payment.currency} · " +
+            item.addView(textLine(PaymentCurrencyFormatter.amountWithCurrency(payment.amount, payment.currency) + " · " +
                 DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(payment.dueAt)), 14f, muted))
             contentContainer.addView(item)
             contentContainer.addView(verticalGap(9))
@@ -437,7 +437,7 @@ class MainActivity : AppCompatActivity() {
         ) return
         val due = t2DueAt(sim) ?: previous?.dueAt ?: return
         val payment = PaymentReminder(
-            paymentId, "Абонентская плата T2 (расчёт)",
+            paymentId, "Абонентская плата T2",
             fee, "RUB", due, 1, "monthly"
         )
         if (previous == payment) return
@@ -467,7 +467,6 @@ class MainActivity : AppCompatActivity() {
         }
         val id = selectedSim.subscriptionId
         val balance = T2Balance.cached(this, id)
-        val packages = T2Balance.packages(this, id)
         val due = t2DueAt(selectedSim)
         val fee = preferences.getString("t2_fee_$id", null)
         val manualDate = preferences.getLong("t2_manual_debit_$id", 0L) > 0L
@@ -492,10 +491,6 @@ class MainActivity : AppCompatActivity() {
         billing.addView(textLine("Абонентская плата: " +
             (fee?.let { it + " ₽" } ?: "не указана"), 15f, ink, true))
         billing.addView(verticalGap(7))
-        billing.addView(textLine("Пакеты действуют до: " +
-            (packages?.packagesExpireAt?.let { formatT2DateTime(it) } ?: "нет данных"),
-            14f, ink))
-        billing.addView(verticalGap(7))
         billing.addView(textLine(
             (if (manualDate) "Дата списания (указана вручную): "
              else "Предполагаемое списание: ") +
@@ -508,36 +503,6 @@ class MainActivity : AppCompatActivity() {
             12f, muted
         ))
         contentContainer.addView(billing)
-        contentContainer.addView(verticalGap(12))
-
-        val allowances = card()
-        allowances.addView(textLine("Остатки пакетов", 18f, ink, true))
-        allowances.addView(verticalGap(10))
-        fun line(label: String, data: String?, unit: String) {
-            allowances.addView(textLine(
-                label + ": " + (data?.let { it + " " + unit } ?: "нет данных"),
-                15f, ink
-            ))
-            allowances.addView(verticalGap(7))
-        }
-        line("Минуты по тарифу", packages?.planMinutes, "мин.")
-        line("Интернет по тарифу", packages?.planGigabytes, "ГБ")
-        allowances.addView(verticalGap(5))
-        allowances.addView(textLine("Накопленные остатки", 15f, accent, true))
-        allowances.addView(verticalGap(8))
-        line("Минуты", packages?.savedMinutes, "мин.")
-        line("Интернет", packages?.savedGigabytes, "ГБ")
-        allowances.addView(textLine("Действуют до: " +
-            (packages?.packagesExpireAt?.let { formatT2DateTime(it) } ?: "нет данных"),
-            13f, muted))
-        packages?.let {
-            allowances.addView(verticalGap(6))
-            allowances.addView(textLine(
-                "Последнее обновление: " + formatT2DateTime(it.updatedAt),
-                12f, muted
-            ))
-        }
-        contentContainer.addView(allowances)
         contentContainer.addView(verticalGap(12))
 
         val controls = card()
@@ -1029,7 +994,7 @@ class MainActivity : AppCompatActivity() {
             item.addView(textLine(payment.title, 17f, ink, true))
             item.addView(verticalGap(6))
             val date = DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(payment.dueAt))
-            item.addView(textLine("${payment.amount} ${payment.currency} · оплатить ${date}", 14f, muted))
+            item.addView(textLine("${PaymentCurrencyFormatter.amountWithCurrency(payment.amount, payment.currency)} · оплатить $date", 14f, muted))
             item.addView(textLine("Напомнить за ${payment.leadDays} дн. · ${recurrenceLabel(payment.recurrence)}", 13f, muted))
             item.addView(verticalGap(8))
             val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
@@ -1370,7 +1335,16 @@ class MainActivity : AppCompatActivity() {
                     paymentAdvanced = true
                 }
             }
-            val payment = PaymentReminder(item.getString("id"), item.getString("title"),
+            val id = item.getString("id")
+            val oldTitle = item.getString("title")
+            val title = if (id.startsWith("t2_subscription_")) {
+                "Абонентская плата T2"
+            } else oldTitle
+            if (title != oldTitle) {
+                advanced = true
+                paymentAdvanced = true
+            }
+            val payment = PaymentReminder(id, title,
                 item.getString("amount"), item.getString("currency"), date.timeInMillis, lead, recurrence)
             payments.add(payment)
             if (paymentAdvanced) scheduleReminder(payment)

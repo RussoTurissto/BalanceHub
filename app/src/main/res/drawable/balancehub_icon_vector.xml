@@ -4,11 +4,14 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Transparent background, with the full bell inside the adaptive launcher
-         safe circle (radius 33 around 54,54). No square image or icon plate. -->
+    <!-- Golden bell on the separate green gradient background.
+         This group occupies the largest safe circle without launcher clipping. -->
+    <group
+        android:pivotX="54" android:pivotY="54"
+        android:scaleX="0.91" android:scaleY="0.91">
     <path
         android:fillColor="#00000000"
-        android:strokeColor="#FFE77A"
+        android:strokeColor="#FFDE55"
         android:strokeWidth="3.5"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
@@ -21,18 +24,19 @@
             M36,56 C45,58 48,53 54,49 C60,45 67,51 77,41
             M36,65 C46,65 50,59 56,57 C65,54 71,58 79,50" />
     <path
-        android:fillColor="#06382E"
-        android:strokeColor="#FFE77A"
+        android:fillColor="#07462C"
+        android:strokeColor="#FFD24A"
         android:strokeWidth="3.4"
         android:strokeLineJoin="round"
         android:pathData="M54,63 C47,63 43,68 43,75 C43,82 48,85 54,85
             C60,85 65,82 65,75 C65,68 61,63 54,63 Z" />
     <path
         android:fillColor="#00000000"
-        android:strokeColor="#FFE77A"
+        android:strokeColor="#FFD24A"
         android:strokeWidth="2.8"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
         android:pathData="M54,67 L54,82 M59,70 C56,67 50,68 50,72
             C50,75 59,74 59,78 C59,81 53,83 49,80" />
+    </group>
 </vector>
