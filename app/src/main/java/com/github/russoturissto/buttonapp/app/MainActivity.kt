@@ -492,7 +492,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateDateButton() {
-        dateButton.text = "Дата оплаты: " + DateFormat.getDateInstance(DateFormat.MEDIUM).format(dueDate.time)
+        dateButton.text = getString(R.string.payment_due_date, DateFormat.getDateInstance(DateFormat.MEDIUM).format(dueDate.time))
     }
 
     private fun saveReminder() {
