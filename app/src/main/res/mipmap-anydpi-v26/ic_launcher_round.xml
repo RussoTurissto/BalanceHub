@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-    <background android:drawable="@color/balancehub_icon_background" />
-    <!-- Keep the entire approved bell inside Android's adaptive-icon safe area. -->
-    <foreground android:drawable="@drawable/balancehub_icon_inset" />
+    <background android:drawable="@android:color/transparent" />
+    <!-- Transparent background with an enlarged bell in the launcher safe circle. -->
+    <foreground android:drawable="@drawable/balancehub_icon_vector" />
     <monochrome android:drawable="@drawable/balancehub_icon_monochrome" />
 </adaptive-icon>

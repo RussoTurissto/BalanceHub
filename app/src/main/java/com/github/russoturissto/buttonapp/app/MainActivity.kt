@@ -49,6 +49,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var contentContainer: LinearLayout
     private var tabViews: List<TextView> = emptyList()
     private var currentTab = 0
+    private var mobileSettingsOpen = false
     // Match the approved header position on every tab and in every theme.
     // Never derive this padding from transient window insets during recreation.
     private val headerTopPadding get() = dp(36)
@@ -66,6 +67,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         currentTab = savedInstanceState?.getInt("current_tab") ?: 0
+        mobileSettingsOpen = savedInstanceState?.getBoolean("mobile_settings_open") ?: false
         loadPayments()
         showDashboard()
     }
@@ -73,11 +75,12 @@ class MainActivity : AppCompatActivity() {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == 510 && currentTab == 1) renderTab()
+        if (requestCode == 510 && (currentTab == 1 || (currentTab == 3 && mobileSettingsOpen))) renderTab()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putInt("current_tab", currentTab)
+        outState.putBoolean("mobile_settings_open", mobileSettingsOpen)
         super.onSaveInstanceState(outState)
     }
 
@@ -209,6 +212,7 @@ class MainActivity : AppCompatActivity() {
     private fun selectTab(index: Int) {
         if (index == currentTab) return
         currentTab = index
+        if (index != 3) mobileSettingsOpen = false
         tabViews.forEachIndexed { position, tab ->
             val selected = position == index
             tab.setTextColor(if (selected) Color.WHITE else ink)
@@ -331,32 +335,25 @@ class MainActivity : AppCompatActivity() {
             mobile.addView(amountRow)
         }
 
-        val diagnostics = card()
-        diagnostics.addView(textLine("Информация об операторе", 18f, ink, true))
-        diagnostics.addView(verticalGap(9))
-        diagnostics.addView(textLine("SIM: " + (selectedSim?.label ?: "не определена"), 13f, muted))
-        diagnostics.addView(textLine("Номер: не определён", 13f, muted))
-        if (sims.size > 1) {
-            diagnostics.addView(textLine("Обнаружено SIM-карт: " + sims.size, 13f, muted))
+        // Keep the balances dashboard uncluttered. Operator diagnostics and
+        // USSD controls are available from Settings -> Mobile connection.
+        mobile.setOnClickListener {
+            mobileSettingsOpen = true
+            selectTab(3)
         }
-        if (cached != null) {
-            diagnostics.addView(textLine(
-                "Баланс обновлён: " +
-                    DateFormat.getDateTimeInstance().format(Date(cached.second)),
-                13f, muted
-            ))
-        }
-        diagnostics.addView(verticalGap(9))
-        diagnostics.addView(textLine("Интернет и минуты: нет данных", 13f, muted))
-        diagnostics.addView(verticalGap(12))
-        val status = textLine("USSD T2: *105# · ожидание проверки", 13f, accent)
-        diagnostics.addView(status)
-        if (selectedSim != null && selectedSim.isT2) {
-            fun runCheck(force: Boolean) {
-                status.text = "Проверяем баланс T2…"
-                T2Balance.check(this, selectedSim, force) { message ->
-                    runOnUiThread {
-                        status.text = message
+        contentContainer.addView(mobile)
+        contentContainer.addView(verticalGap(14))
+
+        // This is a real preference, not a decorative settings label.
+        if (selectedSim != null && selectedSim.isT2 &&
+            preferences.getBoolean("mobile_auto_refresh_on_open", true) &&
+            androidx.core.content.ContextCompat.checkSelfPermission(
+                this, android.Manifest.permission.CALL_PHONE
+            ) == PackageManager.PERMISSION_GRANTED
+        ) {
+            T2Balance.check(this, selectedSim, false) { _ ->
+                runOnUiThread {
+                    if (currentTab == 1) {
                         T2Balance.cached(this, selectedSim.subscriptionId)?.let {
                             amountView.text = it.first + " ₽"
                             amountView.textSize = 25f
@@ -364,47 +361,7 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
-            diagnostics.addView(verticalGap(12))
-            diagnostics.addView(primaryButton("Проверить баланс T2") {
-                if (androidx.core.content.ContextCompat.checkSelfPermission(
-                        this, android.Manifest.permission.CALL_PHONE
-                    ) != PackageManager.PERMISSION_GRANTED ||
-                    androidx.core.content.ContextCompat.checkSelfPermission(
-                        this, android.Manifest.permission.READ_PHONE_STATE
-                    ) != PackageManager.PERMISSION_GRANTED
-                ) {
-                    androidx.core.app.ActivityCompat.requestPermissions(
-                        this,
-                        arrayOf(
-                            android.Manifest.permission.CALL_PHONE,
-                            android.Manifest.permission.READ_PHONE_STATE
-                        ), 510
-                    )
-                } else runCheck(true)
-            })
-            if (androidx.core.content.ContextCompat.checkSelfPermission(
-                    this, android.Manifest.permission.CALL_PHONE
-                ) == PackageManager.PERMISSION_GRANTED
-            ) {
-                runCheck(false)
-            } else {
-                status.text = "Для запроса баланса разрешите телефонные вызовы"
-            }
-        } else {
-            status.text = "USSD поддерживается пока только для T2"
         }
-        diagnostics.addView(verticalGap(10))
-        diagnostics.addView(secondaryButton("Настроить проверку") {
-            selectTab(3)
-        })
-        mobile.setOnClickListener {
-            (contentContainer.parent as? android.widget.ScrollView)
-                ?.smoothScrollTo(0, diagnostics.top)
-        }
-        contentContainer.addView(mobile)
-        contentContainer.addView(verticalGap(14))
-        contentContainer.addView(diagnostics)
-        contentContainer.addView(verticalGap(14))
         val bank = card()
         bank.addView(textLine("Банковские счета", 17f, ink, true))
         bank.addView(verticalGap(6))
@@ -479,26 +436,50 @@ class MainActivity : AppCompatActivity() {
         renderPayments()
     }
 
+
     private fun renderSettings() {
+        if (mobileSettingsOpen) {
+            renderMobileSettings()
+            return
+        }
         contentContainer.addView(textLine("Настройки", 23f, ink, true))
-        contentContainer.addView(verticalGap(16))
+        contentContainer.addView(verticalGap(6))
+        contentContainer.addView(textLine("Управление BalanceHub", 14f, muted))
+        contentContainer.addView(verticalGap(18))
+
+        val mobileSettings = card()
+        mobileSettings.addView(textLine("Мобильная связь   ›", 18f, ink, true))
+        mobileSettings.addView(verticalGap(6))
+        mobileSettings.addView(textLine(
+            "SIM-карты, проверка баланса T2 и сведения об операторе",
+            14f, muted
+        ))
+        mobileSettings.addView(verticalGap(7))
+        mobileSettings.addView(textLine("Открыть параметры мобильной связи", 13f, accent))
+        mobileSettings.setOnClickListener {
+            mobileSettingsOpen = true
+            renderTab()
+        }
+        contentContainer.addView(mobileSettings)
+        contentContainer.addView(verticalGap(14))
+
         val appearanceCard = card()
         appearanceCard.addView(textLine("Оформление", 18f, ink, true))
         appearanceCard.addView(verticalGap(6))
-        appearanceCard.addView(textLine("Выберите удобный режим отображения", 14f, muted))
-        appearanceCard.addView(verticalGap(12))
+        appearanceCard.addView(textLine("Тема приложения", 14f, muted))
+        appearanceCard.addView(verticalGap(10))
         val selected = preferences.getString("appearance", "system") ?: "system"
         listOf(
             "system" to "Как в системе",
-            "day" to "День",
-            "night" to "Ночь"
+            "day" to "Светлая",
+            "night" to "Тёмная"
         ).forEach { (value, label) ->
             val active = value == selected
             appearanceCard.addView(TextView(this).apply {
                 text = (if (active) "✓  " else "     ") + label
                 textSize = 16f
                 setTextColor(if (active) accent else ink)
-                setPadding(dp(14), dp(13), dp(14), dp(13))
+                setPadding(dp(14), dp(12), dp(14), dp(12))
                 if (active) {
                     setTypeface(null, Typeface.BOLD)
                     background = rounded(softAccent, 12)
@@ -506,45 +487,177 @@ class MainActivity : AppCompatActivity() {
                 setOnClickListener {
                     if (value != preferences.getString("appearance", "system")) {
                         preferences.edit().putString("appearance", value).apply()
-                        val mode = when (value) {
+                        AppCompatDelegate.setDefaultNightMode(when (value) {
                             "day" -> AppCompatDelegate.MODE_NIGHT_NO
                             "night" -> AppCompatDelegate.MODE_NIGHT_YES
                             else -> AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
-                        }
-                        AppCompatDelegate.setDefaultNightMode(mode)
+                        })
                         recreate()
                     }
                 }
             })
-            appearanceCard.addView(verticalGap(3))
+            appearanceCard.addView(verticalGap(2))
         }
         contentContainer.addView(appearanceCard)
         contentContainer.addView(verticalGap(14))
-        val mobileSettings = card()
-        mobileSettings.addView(textLine("Мобильная связь", 18f, ink, true))
-        mobileSettings.addView(verticalGap(8))
-        mobileSettings.addView(textLine("Автоматическая проверка при открытии: включена", 14f, ink))
-        mobileSettings.addView(verticalGap(5))
-        mobileSettings.addView(textLine("Фоновая проверка: каждые 24 часа", 14f, ink))
-        mobileSettings.addView(verticalGap(5))
-        mobileSettings.addView(textLine("Только Wi-Fi: нет", 14f, ink))
-        mobileSettings.addView(verticalGap(9))
-        mobileSettings.addView(textLine("Параметры согласованы. USSD и фоновое расписание будут подключены отдельно после проверки совместимости.", 12f, muted))
-        contentContainer.addView(mobileSettings)
-        contentContainer.addView(verticalGap(14))
+
         val notificationCard = card()
         notificationCard.addView(textLine("Уведомления", 18f, ink, true))
-        notificationCard.addView(verticalGap(7))
-        notificationCard.addView(textLine("Проверьте, что уведомления отображаются на телефоне.", 14f, muted))
-        notificationCard.addView(verticalGap(15))
-        notificationCard.addView(primaryButton("Проверить уведомление") { sendTestNotification() })
+        notificationCard.addView(verticalGap(6))
+        notificationCard.addView(textLine(
+            "Напоминания о платежах и проверка разрешений",
+            14f, muted
+        ))
+        notificationCard.addView(verticalGap(12))
+        notificationCard.addView(primaryButton("Проверить уведомление") {
+            sendTestNotification()
+        })
         contentContainer.addView(notificationCard)
         contentContainer.addView(verticalGap(14))
+
         val info = card()
-        info.addView(textLine("О приложении", 17f, ink, true))
+        info.addView(textLine("О приложении", 18f, ink, true))
         info.addView(verticalGap(6))
-        info.addView(textLine("BalanceHub · управление платежами и балансами", 13f, muted))
+        info.addView(textLine(
+            "BalanceHub · управление балансами и платежами",
+            13f, muted
+        ))
         contentContainer.addView(info)
+    }
+
+    private fun renderMobileSettings() {
+        contentContainer.addView(secondaryButton("‹  Все настройки") {
+            mobileSettingsOpen = false
+            renderTab()
+        })
+        contentContainer.addView(verticalGap(18))
+        contentContainer.addView(textLine("Мобильная связь", 23f, ink, true))
+        contentContainer.addView(verticalGap(6))
+        contentContainer.addView(textLine(
+            "Информация о SIM и проверка баланса",
+            14f, muted
+        ))
+        contentContainer.addView(verticalGap(16))
+
+        val sims = T2Balance.sims(this)
+        val selectedSim = sims.firstOrNull { it.isT2 } ?: sims.firstOrNull()
+        val manager = getSystemService(android.content.Context.TELEPHONY_SERVICE)
+            as android.telephony.TelephonyManager
+        val operator = selectedSim?.operator?.takeIf { it.isNotBlank() }
+            ?: manager.simOperatorName?.takeIf { it.isNotBlank() }
+            ?: "Оператор не определён"
+        val cached = selectedSim?.let { T2Balance.cached(this, it.subscriptionId) }
+
+        val simInfo = card()
+        simInfo.addView(textLine("Информация об операторе", 18f, ink, true))
+        simInfo.addView(verticalGap(10))
+        simInfo.addView(textLine("Оператор: " + operator, 14f, ink))
+        simInfo.addView(verticalGap(5))
+        simInfo.addView(textLine("SIM: " + (selectedSim?.label ?: "не определена"), 14f, ink))
+        simInfo.addView(verticalGap(5))
+        simInfo.addView(textLine("Номер: не определён", 14f, muted))
+        if (sims.size > 1) {
+            simInfo.addView(verticalGap(5))
+            simInfo.addView(textLine("Активных SIM-карт: " + sims.size, 14f, muted))
+        }
+        simInfo.addView(verticalGap(9))
+        val cachedValue = textLine(
+            "Последний баланс: " + (cached?.first?.let { it + " ₽" } ?: "нет данных"),
+            15f, ink, true
+        )
+        simInfo.addView(cachedValue)
+        val updateTime = textLine(
+            cached?.let {
+                "Обновлено: " + DateFormat.getDateTimeInstance().format(Date(it.second))
+            } ?: "Пока нет успешных проверок",
+            13f, muted
+        )
+        simInfo.addView(verticalGap(5))
+        simInfo.addView(updateTime)
+        simInfo.addView(verticalGap(10))
+        simInfo.addView(textLine("Интернет и минуты: нет данных", 13f, muted))
+        contentContainer.addView(simInfo)
+        contentContainer.addView(verticalGap(14))
+
+        val checking = card()
+        checking.addView(textLine("Проверка баланса", 18f, ink, true))
+        checking.addView(verticalGap(6))
+        checking.addView(textLine(
+            "USSD-запрос T2: *105#. Результат зависит от сети и устройства.",
+            13f, muted
+        ))
+        checking.addView(verticalGap(10))
+        val status = textLine(
+            "Для обновления нажмите кнопку ниже",
+            13f, accent
+        )
+        checking.addView(status)
+        checking.addView(verticalGap(12))
+        if (selectedSim != null && selectedSim.isT2) {
+            checking.addView(primaryButton("Проверить баланс T2") {
+                if (androidx.core.content.ContextCompat.checkSelfPermission(
+                        this, android.Manifest.permission.CALL_PHONE
+                    ) != PackageManager.PERMISSION_GRANTED ||
+                    androidx.core.content.ContextCompat.checkSelfPermission(
+                        this, android.Manifest.permission.READ_PHONE_STATE
+                    ) != PackageManager.PERMISSION_GRANTED
+                ) {
+                    androidx.core.app.ActivityCompat.requestPermissions(
+                        this,
+                        arrayOf(
+                            android.Manifest.permission.CALL_PHONE,
+                            android.Manifest.permission.READ_PHONE_STATE
+                        ), 510
+                    )
+                    status.text = "Разрешите доступ к телефону и повторите проверку"
+                } else {
+                    status.text = "Проверяем баланс T2…"
+                    T2Balance.check(this, selectedSim, true) { message ->
+                        runOnUiThread {
+                            status.text = message
+                            T2Balance.cached(this, selectedSim.subscriptionId)?.let {
+                                cachedValue.text = "Последний баланс: " + it.first + " ₽"
+                                updateTime.text = "Обновлено: " +
+                                    DateFormat.getDateTimeInstance().format(Date(it.second))
+                            }
+                        }
+                    }
+                }
+            })
+        } else {
+            status.text = "Автоматический USSD сейчас доступен только для T2"
+        }
+        contentContainer.addView(checking)
+        contentContainer.addView(verticalGap(14))
+
+        val refreshCard = card()
+        refreshCard.addView(textLine("Автоматическое обновление", 18f, ink, true))
+        refreshCard.addView(verticalGap(8))
+        val switchRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val switchLabel = textLine(
+            "Проверять баланс при открытии вкладки «Балансы»", 14f, ink
+        )
+        switchRow.addView(switchLabel, LinearLayout.LayoutParams(0, -2, 1f))
+        val autoRefreshSwitch = androidx.appcompat.widget.SwitchCompat(this).apply {
+            isChecked = preferences.getBoolean("mobile_auto_refresh_on_open", true)
+            contentDescription = "Проверять баланс автоматически при открытии вкладки"
+            setOnCheckedChangeListener { _, enabled ->
+                preferences.edit().putBoolean(
+                    "mobile_auto_refresh_on_open", enabled
+                ).apply()
+            }
+        }
+        switchRow.addView(autoRefreshSwitch)
+        refreshCard.addView(switchRow)
+        refreshCard.addView(verticalGap(8))
+        refreshCard.addView(textLine(
+            "Повторные запросы ограничены. Фоновая проверка пока не настроена.",
+            12f, muted
+        ))
+        contentContainer.addView(refreshCard)
     }
 
     private fun field(hintText: String) = EditText(this).apply {
