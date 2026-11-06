@@ -5,21 +5,12 @@ pluginManagement {
         mavenCentral()
     }
 }
-
 dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
     }
 }
-
-rootProject.name = ("buttonapp")
-
+rootProject.name = "BalanceHub"
 enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
-
-include(
-    "app",
-    "library-android",
-    "library-compose",
-    "library-kotlin"
-)
+include("app", "library-android", "library-compose", "library-kotlin")
