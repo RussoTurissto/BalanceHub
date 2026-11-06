@@ -48,9 +48,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var listContainer: LinearLayout
     private lateinit var contentContainer: LinearLayout
     private var currentTab = 0
-    // Cache a reliable status-bar height for tab changes and theme recreations.
-    // An unattached window may temporarily report zero insets.
-    private val initialStatusBarHeight by lazy { statusBarHeight() }
+    // Match the approved header position on every tab and in every theme.
+    // Never derive this padding from transient window insets during recreation.
+    private val headerTopPadding get() = dp(36)
     private var editingId: String? = null
     private var dueDate = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, 7) }
 
@@ -135,22 +135,10 @@ class MainActivity : AppCompatActivity() {
         }
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(12), dp(20), dp(12))
+            setPadding(dp(20), headerTopPadding, dp(20), dp(12))
             setBackgroundColor(accent)
         }
         header.addView(textLine("BalanceHub", 21f, Color.WHITE, true))
-        // Use a non-zero stable offset even before Android dispatches window insets.
-        header.setPadding(dp(20), initialStatusBarHeight + dp(12), dp(20), dp(12))
-        // When the view is attached, account for real status-bar/cutout insets,
-        // but never let a transient zero collapse the header after a theme change.
-        ViewCompat.setOnApplyWindowInsetsListener(header) { view, insets ->
-            val actualInset = insets.getInsets(WindowInsetsCompat.Type.statusBars()).top
-            val topPadding = maxOf(initialStatusBarHeight, actualInset) + dp(12)
-            if (view.paddingTop != topPadding) {
-                view.setPadding(dp(20), topPadding, dp(20), dp(12))
-            }
-            insets
-        }
         screen.addView(header)
 
         val scroll = android.widget.ScrollView(this).apply {
@@ -206,7 +194,6 @@ class MainActivity : AppCompatActivity() {
             isAppearanceLightNavigationBars = !isNight
         }
         setContentView(screen)
-        ViewCompat.requestApplyInsets(header)
         renderTab()
     }
 
@@ -894,14 +881,6 @@ class MainActivity : AppCompatActivity() {
     private fun navigationBarHeight(): Int =
         ViewCompat.getRootWindowInsets(window.decorView)
             ?.getInsets(WindowInsetsCompat.Type.navigationBars())?.bottom ?: dp(24)
-
-    private fun statusBarHeight(): Int {
-        // Theme recreation can report top=0 before the window is attached.
-        // The insets listener on the header applies the actual size after attach.
-        val windowInset = ViewCompat.getRootWindowInsets(window.decorView)
-            ?.getInsets(WindowInsetsCompat.Type.statusBars())?.top ?: 0
-        return maxOf(dp(24), windowInset)
-    }
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 }
