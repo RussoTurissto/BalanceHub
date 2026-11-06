@@ -50,8 +50,8 @@ jobs:
       - name: Build signed release APK
         run: |
           ./gradlew --no-daemon :app:assembleRelease \
-            -PAPP_VERSION_CODE=${{ github.run_number + 1 }} \
-            -PAPP_VERSION_NAME=1.0.${{ github.run_number + 1 }}
+            -PAPP_VERSION_CODE=${{ github.run_number }} \
+            -PAPP_VERSION_NAME=1.0.${{ github.run_number }}
         env:
           ORG_GRADLE_PROJECT_BALANCEHUB_KEYSTORE_PATH: ${{ runner.temp }}/balancehub-upload.jks
           ORG_GRADLE_PROJECT_BALANCEHUB_KEYSTORE_PASSWORD: ${{ secrets.BALANCEHUB_KEYSTORE_PASSWORD }}
