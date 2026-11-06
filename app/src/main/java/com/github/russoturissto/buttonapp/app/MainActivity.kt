@@ -451,23 +451,40 @@ class MainActivity : AppCompatActivity() {
             }, LinearLayout.LayoutParams(0, -2, 1f))
             actions.addView(View(this), LinearLayout.LayoutParams(dp(8), 1))
             actions.addView(secondaryButton("Удалить") {
-                AlertDialog.Builder(this)
-                    .setTitle("Удалить платёж?")
-                    .setMessage(payment.title)
-                    .setNegativeButton("Отмена", null)
-                    .setPositiveButton("Удалить") { _, _ ->
-                        payments.removeAll { it.id == payment.id }
-                        cancelReminder(payment)
-                        if (editingId == payment.id) editingId = null
-                        persistPayments()
-                        renderPayments()
-                    }
-                    .show()
+                showDeletePaymentDialog(payment)
             }, LinearLayout.LayoutParams(0, -2, 1f))
             item.addView(actions)
             listContainer.addView(item)
             listContainer.addView(verticalGap(10))
         }
+    }
+
+    private fun showDeletePaymentDialog(payment: PaymentReminder) {
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(24), dp(24), dp(24), dp(20))
+            background = rounded(surface, 22)
+        }
+        panel.addView(textLine("Удалить платёж?", 21f, ink, true))
+        panel.addView(verticalGap(12))
+        panel.addView(textLine("«${payment.title}» будет удалён без возможности восстановления.", 15f, muted))
+        panel.addView(verticalGap(24))
+        val buttons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val dialog = AlertDialog.Builder(this).setView(panel).create()
+        buttons.addView(secondaryButton("Отмена") { dialog.dismiss() },
+            LinearLayout.LayoutParams(0, dp(52), 1f))
+        buttons.addView(View(this), LinearLayout.LayoutParams(dp(10), 1))
+        buttons.addView(primaryButton("Удалить") {
+            payments.removeAll { it.id == payment.id }
+            cancelReminder(payment)
+            if (editingId == payment.id) editingId = null
+            persistPayments()
+            renderPayments()
+            dialog.dismiss()
+        }, LinearLayout.LayoutParams(0, dp(52), 1f))
+        panel.addView(buttons)
+        dialog.setOnShowListener { dialog.window?.setBackgroundDrawable(rounded(surface, 22)) }
+        dialog.show()
     }
 
     private fun showThemedCalendar(selected: Calendar, onSelected: () -> Unit) {
@@ -489,7 +506,7 @@ class MainActivity : AppCompatActivity() {
         controls.addView(next, LinearLayout.LayoutParams(dp(52), dp(48)))
         wrapper.addView(controls)
         wrapper.addView(verticalGap(12))
-        val grid = GridLayout(this).apply { columnCount = 7 }
+        val grid = GridLayout(this).apply { columnCount = 7; alignmentMode = GridLayout.ALIGN_BOUNDS }
         wrapper.addView(grid)
         val footer = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -502,7 +519,7 @@ class MainActivity : AppCompatActivity() {
             month.text = java.text.SimpleDateFormat("LLLL yyyy", java.util.Locale("ru"))
                 .format(visible.time).replaceFirstChar { it.uppercase() }
             grid.removeAllViews()
-            val cellWidth = (resources.displayMetrics.widthPixels - dp(92)) / 7
+            val cellWidth = ((resources.displayMetrics.widthPixels - dp(92)) / 7).coerceAtMost(dp(46))
             listOf("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс").forEach { day ->
                 grid.addView(textLine(day, 12f, muted).apply { gravity = Gravity.CENTER },
                     android.view.ViewGroup.LayoutParams(cellWidth, dp(36)))
@@ -521,7 +538,7 @@ class MainActivity : AppCompatActivity() {
                     gravity = Gravity.CENTER
                     textSize = 15f
                     setTextColor(if (isSelected) Color.WHITE else ink)
-                    background = rounded(if (isSelected) accent else surface, 12)
+                    background = rounded(if (isSelected) accent else softAccent, 12)
                     setOnClickListener {
                         selected.set(visible.get(Calendar.YEAR), visible.get(Calendar.MONTH), day, 9, 0, 0)
                         selected.set(Calendar.MILLISECOND, 0)
@@ -533,7 +550,8 @@ class MainActivity : AppCompatActivity() {
         }
         prev.setOnClickListener { visible.add(Calendar.MONTH, -1); refresh() }
         next.setOnClickListener { visible.add(Calendar.MONTH, 1); refresh() }
-        footer.addView(secondaryButton("Отмена") { dialog.dismiss() })
+        footer.addView(secondaryButton("Отмена") { dialog.dismiss() },
+            LinearLayout.LayoutParams(0, dp(50), 1f))
         refresh()
         dialog.setOnShowListener { dialog.window?.setBackgroundDrawable(rounded(surface, 20)) }
         dialog.show()
