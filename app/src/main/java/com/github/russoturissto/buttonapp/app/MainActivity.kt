@@ -264,9 +264,38 @@ class MainActivity : AppCompatActivity() {
         contentContainer.addView(verticalGap(14))
         val summary = card()
         summary.addView(textLine("Предстоящие платежи", 14f, muted))
-        summary.addView(verticalGap(8))
-        summary.addView(textLine(payments.size.toString(), 36f, ink, true))
-        summary.addView(textLine("Запланировано напоминаний", 13f, muted))
+        summary.addView(verticalGap(10))
+        val totals = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val count = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(textLine(payments.size.toString(), 34f, ink, true))
+            addView(textLine("Запланировано\nнапоминаний", 12f, muted))
+        }
+        totals.addView(count, LinearLayout.LayoutParams(0, -2, 1f))
+        val divider = View(this).apply { setBackgroundColor(muted) }
+        totals.addView(divider, LinearLayout.LayoutParams(dp(1), dp(65)).apply {
+            marginStart = dp(7)
+            marginEnd = dp(15)
+        })
+        val valueColumn = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.END
+        }
+        val amount = PaymentOverview.totalLabel(
+            payments.map { it.amount to it.currency }
+        )
+        valueColumn.addView(textLine(amount, 20f, ink, true).apply {
+            gravity = Gravity.END
+        })
+        valueColumn.addView(verticalGap(4))
+        valueColumn.addView(textLine("Общая сумма", 12f, muted).apply {
+            gravity = Gravity.END
+        })
+        totals.addView(valueColumn, LinearLayout.LayoutParams(0, -2, 1f))
+        summary.addView(totals)
         contentContainer.addView(summary)
         contentContainer.addView(verticalGap(16))
         contentContainer.addView(textLine("Ближайшие платежи", 19f, ink, true))
@@ -389,11 +418,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
-        val bank = card()
-        bank.addView(textLine("Банковские счета", 17f, ink, true))
-        bank.addView(verticalGap(6))
-        bank.addView(textLine("Подключение банковских счетов появится позже.", 13f, muted))
-        contentContainer.addView(bank)
+
     }
 
 
@@ -623,11 +648,93 @@ class MainActivity : AppCompatActivity() {
         contentContainer.addView(textLine("Управление BalanceHub", 14f, muted))
         contentContainer.addView(verticalGap(18))
 
+        // First and more compact: three side-by-side theme selectors.
+        val appearanceCard = card()
+        appearanceCard.addView(textLine("Оформление", 18f, ink, true))
+        appearanceCard.addView(verticalGap(5))
+        appearanceCard.addView(textLine("Тема приложения", 13f, muted))
+        appearanceCard.addView(verticalGap(12))
+        val currentAppearance = preferences.getString("appearance", "system") ?: "system"
+        val choices = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        listOf(
+            Triple("system", "Авто", "◉"),
+            Triple("day", "Светлая", "☀"),
+            Triple("night", "Тёмная", "☾")
+        ).forEachIndexed { index, (mode, label, glyph) ->
+            val chosen = currentAppearance == mode
+            val cell = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                setPadding(dp(3), dp(9), dp(3), dp(9))
+                background = GradientDrawable().apply {
+                    setColor(if (chosen) softAccent else surface)
+                    cornerRadius = dp(12).toFloat()
+                    setStroke(dp(if (chosen) 2 else 1), if (chosen) accent else muted)
+                }
+                contentDescription = "Тема: $label"
+                isClickable = true
+                isFocusable = true
+                setOnClickListener {
+                    if (mode != preferences.getString("appearance", "system")) {
+                        preferences.edit().putString("appearance", mode).apply()
+                        val nightMode = when (mode) {
+                            "day" -> AppCompatDelegate.MODE_NIGHT_NO
+                            "night" -> AppCompatDelegate.MODE_NIGHT_YES
+                            else -> AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
+                        }
+                        AppCompatDelegate.setDefaultNightMode(nightMode)
+                        recreate()
+                    }
+                }
+            }
+            cell.addView(textLine(glyph, 20f, accent, true).apply {
+                gravity = Gravity.CENTER
+                layoutParams = LinearLayout.LayoutParams(dp(28), dp(28))
+            })
+            cell.addView(verticalGap(4))
+            cell.addView(textLine(label, 12f, if (chosen) accent else ink, chosen).apply {
+                gravity = Gravity.CENTER
+            })
+            if (chosen) cell.addView(textLine("✓", 11f, accent, true))
+            choices.addView(cell, LinearLayout.LayoutParams(0, -2, 1f).apply {
+                if (index > 0) marginStart = dp(8)
+            })
+        }
+        appearanceCard.addView(choices)
+        appearanceCard.addView(verticalGap(12))
+        // A small live preview reflects the current day/night palette.
+        val themePreview = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(backdrop, 12)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+        }
+        themePreview.addView(textLine("Предпросмотр", 12f, muted))
+        themePreview.addView(verticalGap(7))
+        val previewRow = LinearLayout(this).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            background = rounded(surface, 10)
+            setPadding(dp(9), dp(8), dp(9), dp(8))
+        }
+        previewRow.addView(textLine("t2", 16f, Color.WHITE, true).apply {
+            gravity = Gravity.CENTER
+            background = rounded(Color.rgb(8, 41, 42), 8)
+        }, LinearLayout.LayoutParams(dp(32), dp(32)))
+        previewRow.addView(textLine("T2 · мобильный баланс", 12f, ink, true),
+            LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(8) })
+        previewRow.addView(textLine("509,80 ₽", 12f, Color.rgb(23, 55, 33), true).apply {
+            setPadding(dp(6), dp(5), dp(6), dp(5))
+            background = rounded(Color.rgb(191, 239, 104), 8)
+        })
+        themePreview.addView(previewRow)
+        appearanceCard.addView(themePreview)
+        contentContainer.addView(appearanceCard)
+        contentContainer.addView(verticalGap(14))
+
         val mobileSettings = card()
         mobileSettings.addView(textLine("Мобильная связь   ›", 18f, ink, true))
         mobileSettings.addView(verticalGap(6))
         mobileSettings.addView(textLine(
-            "SIM-карты, проверка баланса T2 и сведения об операторе",
+            "SIM-карты, проверка баланса и настройки абонентской платы",
             14f, muted
         ))
         mobileSettings.addView(verticalGap(7))
@@ -637,44 +744,6 @@ class MainActivity : AppCompatActivity() {
             renderTab()
         }
         contentContainer.addView(mobileSettings)
-        contentContainer.addView(verticalGap(14))
-
-        val appearanceCard = card()
-        appearanceCard.addView(textLine("Оформление", 18f, ink, true))
-        appearanceCard.addView(verticalGap(6))
-        appearanceCard.addView(textLine("Тема приложения", 14f, muted))
-        appearanceCard.addView(verticalGap(10))
-        val selected = preferences.getString("appearance", "system") ?: "system"
-        listOf(
-            "system" to "Как в системе",
-            "day" to "Светлая",
-            "night" to "Тёмная"
-        ).forEach { (value, label) ->
-            val active = value == selected
-            appearanceCard.addView(TextView(this).apply {
-                text = (if (active) "✓  " else "     ") + label
-                textSize = 16f
-                setTextColor(if (active) accent else ink)
-                setPadding(dp(14), dp(12), dp(14), dp(12))
-                if (active) {
-                    setTypeface(null, Typeface.BOLD)
-                    background = rounded(softAccent, 12)
-                }
-                setOnClickListener {
-                    if (value != preferences.getString("appearance", "system")) {
-                        preferences.edit().putString("appearance", value).apply()
-                        AppCompatDelegate.setDefaultNightMode(when (value) {
-                            "day" -> AppCompatDelegate.MODE_NIGHT_NO
-                            "night" -> AppCompatDelegate.MODE_NIGHT_YES
-                            else -> AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
-                        })
-                        recreate()
-                    }
-                }
-            })
-            appearanceCard.addView(verticalGap(2))
-        }
-        contentContainer.addView(appearanceCard)
         contentContainer.addView(verticalGap(14))
 
         val notificationCard = card()
