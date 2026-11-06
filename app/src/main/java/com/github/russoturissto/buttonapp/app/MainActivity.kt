@@ -385,13 +385,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun chooseDate() {
-        DatePickerDialog(this, { _, year, month, day ->
-            dueDate = Calendar.getInstance().apply {
-                set(year, month, day, 9, 0, 0)
-                set(Calendar.MILLISECOND, 0)
-            }
-            updateDateButton()
-        }, dueDate.get(Calendar.YEAR), dueDate.get(Calendar.MONTH), dueDate.get(Calendar.DAY_OF_MONTH)).show()
+        showThemedCalendar(dueDate) { updateDateButton() }
     }
 
     private fun updateDateButton() {
@@ -489,71 +483,94 @@ class MainActivity : AppCompatActivity() {
 
     private fun showThemedCalendar(selected: Calendar, onSelected: () -> Unit) {
         val visible = (selected.clone() as Calendar).apply { set(Calendar.DAY_OF_MONTH, 1) }
+        val chosen = selected.clone() as Calendar
         val wrapper = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(12), dp(18), dp(12))
-            background = rounded(surface, 20)
+            setPadding(dp(18), dp(18), dp(18), dp(18))
+            background = rounded(surface, 24)
         }
-        val heading = textLine("Выберите дату", 20f, ink, true)
-        wrapper.addView(heading)
-        wrapper.addView(verticalGap(16))
-        val controls = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        val prev = secondaryButton("‹") {}
-        val month = textLine("", 17f, ink, true).apply { gravity = Gravity.CENTER }
-        val next = secondaryButton("›") {}
-        controls.addView(prev, LinearLayout.LayoutParams(dp(52), dp(48)))
-        controls.addView(month, LinearLayout.LayoutParams(0, dp(48), 1f))
-        controls.addView(next, LinearLayout.LayoutParams(dp(52), dp(48)))
-        wrapper.addView(controls)
-        wrapper.addView(verticalGap(12))
-        val grid = GridLayout(this).apply { columnCount = 7; alignmentMode = GridLayout.ALIGN_BOUNDS }
-        wrapper.addView(grid)
-        val footer = LinearLayout(this).apply {
+        val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.END
+            gravity = Gravity.CENTER_VERTICAL
+            background = rounded(softAccent, 18)
+            setPadding(dp(14), dp(12), dp(14), dp(12))
         }
-        wrapper.addView(verticalGap(12))
+        val emblem = textLine("▣", 25f, accent, true)
+        header.addView(emblem)
+        header.addView(View(this), LinearLayout.LayoutParams(dp(12), 1))
+        val chosenLabel = textLine("", 17f, ink, true)
+        header.addView(chosenLabel, LinearLayout.LayoutParams(0, -2, 1f))
+        wrapper.addView(header)
+        wrapper.addView(verticalGap(16))
+        val controls = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        val prev = secondaryButton("‹") {}
+        val month = textLine("", 16f, ink, true).apply { gravity = Gravity.CENTER }
+        val next = secondaryButton("›") {}
+        controls.addView(prev, LinearLayout.LayoutParams(dp(46), dp(46)))
+        controls.addView(month, LinearLayout.LayoutParams(0, dp(46), 1f))
+        controls.addView(next, LinearLayout.LayoutParams(dp(46), dp(46)))
+        wrapper.addView(controls)
+        wrapper.addView(verticalGap(10))
+        val grid = GridLayout(this).apply { columnCount = 7 }
+        wrapper.addView(grid)
+        wrapper.addView(verticalGap(16))
+        val footer = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         wrapper.addView(footer)
         val dialog = AlertDialog.Builder(this).setView(wrapper).create()
+        val format = java.text.SimpleDateFormat("EEE, d MMM yyyy 'г.'", java.util.Locale("ru"))
         fun refresh() {
+            chosenLabel.text = format.format(chosen.time).replaceFirstChar { it.uppercase() }
             month.text = java.text.SimpleDateFormat("LLLL yyyy", java.util.Locale("ru"))
                 .format(visible.time).replaceFirstChar { it.uppercase() }
             grid.removeAllViews()
-            val cellWidth = ((resources.displayMetrics.widthPixels - dp(92)) / 7).coerceAtMost(dp(46))
-            listOf("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс").forEach { day ->
-                grid.addView(textLine(day, 12f, muted).apply { gravity = Gravity.CENTER },
-                    android.view.ViewGroup.LayoutParams(cellWidth, dp(36)))
+            val availableWidth = (resources.displayMetrics.widthPixels - dp(94)).coerceAtMost(dp(350))
+            val cellWidth = availableWidth / 7
+            val dayNames = listOf("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")
+            dayNames.forEachIndexed { index, day ->
+                grid.addView(textLine(day, 12f, if (index >= 5) accent else muted, true).apply {
+                    gravity = Gravity.CENTER
+                }, android.view.ViewGroup.LayoutParams(cellWidth, dp(36)))
             }
-            val start = (visible.get(Calendar.DAY_OF_WEEK) + 5) % 7
-            repeat(start) {
-                grid.addView(View(this), android.view.ViewGroup.LayoutParams(cellWidth, dp(45)))
+            val offset = (visible.get(Calendar.DAY_OF_WEEK) + 5) % 7
+            repeat(offset) {
+                grid.addView(View(this), android.view.ViewGroup.LayoutParams(cellWidth, dp(46)))
             }
             val days = visible.getActualMaximum(Calendar.DAY_OF_MONTH)
             for (day in 1..days) {
-                val isSelected = selected.get(Calendar.YEAR) == visible.get(Calendar.YEAR) &&
-                    selected.get(Calendar.MONTH) == visible.get(Calendar.MONTH) &&
-                    selected.get(Calendar.DAY_OF_MONTH) == day
-                grid.addView(TextView(this).apply {
-                    text = day.toString()
+                val active = chosen.get(Calendar.YEAR) == visible.get(Calendar.YEAR) &&
+                    chosen.get(Calendar.MONTH) == visible.get(Calendar.MONTH) &&
+                    chosen.get(Calendar.DAY_OF_MONTH) == day
+                val weekend = ((offset + day - 1) % 7) >= 5
+                val cell = LinearLayout(this).apply {
                     gravity = Gravity.CENTER
-                    textSize = 15f
-                    setTextColor(if (isSelected) Color.WHITE else ink)
-                    background = rounded(if (isSelected) accent else softAccent, 12)
-                    setOnClickListener {
-                        selected.set(visible.get(Calendar.YEAR), visible.get(Calendar.MONTH), day, 9, 0, 0)
-                        selected.set(Calendar.MILLISECOND, 0)
-                        onSelected()
-                        dialog.dismiss()
-                    }
-                }, android.view.ViewGroup.LayoutParams(cellWidth, dp(45)))
+                    setPadding(dp(3), dp(3), dp(3), dp(3))
+                }
+                val label = textLine(day.toString(), 15f,
+                    if (active) Color.WHITE else if (weekend) accent else ink, active).apply {
+                    gravity = Gravity.CENTER
+                    background = rounded(if (active) accent else surface, 24)
+                }
+                cell.addView(label, LinearLayout.LayoutParams(-1, -1))
+                cell.setOnClickListener {
+                    chosen.set(visible.get(Calendar.YEAR), visible.get(Calendar.MONTH), day, 9, 0, 0)
+                    chosen.set(Calendar.MILLISECOND, 0)
+                    refresh()
+                }
+                grid.addView(cell, android.view.ViewGroup.LayoutParams(cellWidth, dp(46)))
             }
         }
         prev.setOnClickListener { visible.add(Calendar.MONTH, -1); refresh() }
         next.setOnClickListener { visible.add(Calendar.MONTH, 1); refresh() }
         footer.addView(secondaryButton("Отмена") { dialog.dismiss() },
             LinearLayout.LayoutParams(0, dp(50), 1f))
+        footer.addView(View(this), LinearLayout.LayoutParams(dp(10), 1))
+        footer.addView(primaryButton("ОК") {
+            selected.timeInMillis = chosen.timeInMillis
+            onSelected()
+            dialog.dismiss()
+        }, LinearLayout.LayoutParams(0, dp(50), 1f))
         refresh()
-        dialog.setOnShowListener { dialog.window?.setBackgroundDrawable(rounded(surface, 20)) }
+        dialog.setOnShowListener { dialog.window?.setBackgroundDrawable(rounded(surface, 24)) }
         dialog.show()
     }
 
