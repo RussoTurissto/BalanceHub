@@ -1,5 +1,9 @@
 package com.github.russoturissto.buttonapp.app
 
+import android.app.AlarmManager
+import android.app.PendingIntent
+import java.util.Calendar
+import org.json.JSONArray
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.BroadcastReceiver
@@ -35,6 +39,45 @@ class PaymentReminderReceiver : BroadcastReceiver() {
             )
         } catch (_: SecurityException) {
             // Notifications are disabled or permission has not been granted.
+        }
+        scheduleNextOccurrence(context, intent)
+    }
+    private fun scheduleNextOccurrence(context: Context, intent: Intent) {
+        val recurrence = intent.getStringExtra("recurrence") ?: "once"
+        if (recurrence != "weekly" && recurrence != "monthly") return
+        val id = intent.getStringExtra("id") ?: return
+        val preferences = context.getSharedPreferences("balancehub_data", Context.MODE_PRIVATE)
+        val records = JSONArray(preferences.getString("payment_reminders", "[]") ?: "[]")
+        val now = System.currentTimeMillis()
+        for (index in 0 until records.length()) {
+            val record = records.getJSONObject(index)
+            if (record.optString("id") != id || record.optString("recurrence", "once") != recurrence) continue
+            val originalDue = record.getLong("dueAt")
+            if (originalDue != intent.getLongExtra("dueAt", -1L)) return
+            val leadDays = record.getInt("leadDays")
+            val date = Calendar.getInstance().apply { timeInMillis = originalDue }
+            var nextTrigger: Long
+            do {
+                if (recurrence == "weekly") date.add(Calendar.DAY_OF_YEAR, 7)
+                else date.add(Calendar.MONTH, 1)
+                nextTrigger = date.timeInMillis - leadDays * 86400000L
+            } while (nextTrigger <= now)
+            record.put("dueAt", date.timeInMillis)
+            preferences.edit().putString("payment_reminders", records.toString()).apply()
+            val nextIntent = Intent(context, PaymentReminderReceiver::class.java).apply {
+                putExtra("id", id)
+                putExtra("title", record.getString("title"))
+                putExtra("amount", record.getString("amount"))
+                putExtra("currency", record.getString("currency"))
+                putExtra("leadDays", leadDays)
+                putExtra("dueAt", date.timeInMillis)
+                putExtra("recurrence", recurrence)
+            }
+            val pending = PendingIntent.getBroadcast(context, id.hashCode(), nextIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            (context.getSystemService(Context.ALARM_SERVICE) as AlarmManager)
+                .setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, nextTrigger, pending)
+            return
         }
     }
 }
