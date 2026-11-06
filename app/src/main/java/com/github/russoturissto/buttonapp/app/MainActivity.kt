@@ -53,6 +53,7 @@ class MainActivity : AppCompatActivity() {
     private var operatorDetailsOpen = false
     private var selectedOperatorId: Int? = null
     private var sessionAutoRefreshStarted = false
+    private var tutorialStep = -1
     // Match the approved header position on every tab and in every theme.
     // Never derive this padding from transient window insets during recreation.
     private val headerTopPadding get() = dp(36)
@@ -73,6 +74,8 @@ class MainActivity : AppCompatActivity() {
         mobileSettingsOpen = savedInstanceState?.getBoolean("mobile_settings_open") ?: false
         operatorDetailsOpen = savedInstanceState?.getBoolean("operator_details_open") ?: false
         selectedOperatorId = savedInstanceState?.getInt("selected_operator_id", Int.MIN_VALUE)?.takeIf { it != Int.MIN_VALUE }
+        tutorialStep = savedInstanceState?.getInt("tutorial_step") ?:
+            if (preferences.getBoolean("onboarding_completed", false)) -1 else 0
         loadPayments()
         T2Balance.sims(this).forEach { syncMobilePayment(it) }
         showDashboard()
@@ -107,6 +110,7 @@ class MainActivity : AppCompatActivity() {
         outState.putBoolean("mobile_settings_open", mobileSettingsOpen)
         outState.putBoolean("operator_details_open", operatorDetailsOpen)
         selectedOperatorId?.let { outState.putInt("selected_operator_id", it) }
+        outState.putInt("tutorial_step", tutorialStep)
         super.onSaveInstanceState(outState)
     }
 
@@ -238,6 +242,7 @@ class MainActivity : AppCompatActivity() {
     private fun selectTab(index: Int) {
         if (index == currentTab) return
         currentTab = index
+        if (tutorialStep == 0 && index == 1) tutorialStep = 1
         if (index != 3) mobileSettingsOpen = false
         if (index != 1) operatorDetailsOpen = false
         tabViews.forEachIndexed { position, tab ->
@@ -255,11 +260,158 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderTab() {
         contentContainer.removeAllViews()
+        if (tutorialStep >= 0) {
+            contentContainer.addView(tutorialCoach())
+            contentContainer.addView(verticalGap(14))
+        }
         when (currentTab) {
             0 -> renderHome()
             1 -> renderBalances()
             2 -> renderPaymentScreen()
             else -> renderSettings()
+        }
+        if (tutorialStep == 0 && tabViews.size > 1) {
+            highlightTutorialTarget(tabViews[1])
+        }
+    }
+
+    /** In-context coach: it never covers the actual buttons the user must tap. */
+    private fun highlightTutorialTarget(target: View) {
+        val gold = Color.rgb(235, 200, 94)
+        target.background = GradientDrawable().apply {
+            setColor(if (isNight) Color.rgb(44, 75, 67) else Color.rgb(220, 238, 225))
+            cornerRadius = dp(13).toFloat()
+            setStroke(dp(2), gold)
+        }
+        target.elevation = dp(9).toFloat()
+    }
+
+    private fun completeTutorial() {
+        preferences.edit().putBoolean("onboarding_completed", true).apply()
+        tutorialStep = -1
+        renderTab()
+    }
+
+    private fun restartTutorial() {
+        tutorialStep = 0
+        operatorDetailsOpen = false
+        mobileSettingsOpen = false
+        if (currentTab == 0) renderTab() else selectTab(0)
+    }
+
+    private fun backTutorial() {
+        when (tutorialStep) {
+            1 -> {
+                tutorialStep = 0
+                operatorDetailsOpen = false
+                if (currentTab == 0) renderTab() else selectTab(0)
+            }
+            2 -> {
+                tutorialStep = 1
+                operatorDetailsOpen = false
+                if (currentTab == 1) renderTab() else selectTab(1)
+            }
+            3 -> {
+                tutorialStep = 2
+                operatorDetailsOpen = true
+                mobileSettingsOpen = false
+                if (currentTab == 1) renderTab() else selectTab(1)
+            }
+            else -> {
+                tutorialStep = (tutorialStep - 1).coerceAtLeast(0)
+                renderTab()
+            }
+        }
+    }
+
+    private fun tutorialCoach(): LinearLayout {
+        val gold = Color.rgb(235, 200, 94)
+        val data = listOf(
+            Triple("Нажмите «Балансы»",
+                "Откройте вкладку с мобильными операторами в нижней панели.", "Балансы"),
+            Triple("Выберите оператора",
+                "Нажмите на подсвеченную карточку нужной SIM-карты.", "Карточка оператора"),
+            Triple("Откройте настройки тарифа",
+                "В подробной информации нажмите «Настроить абонентскую плату и дату».",
+                "Настроить тариф"),
+            Triple("Введите абонентскую плату",
+                "Укажите сумму списания в рублях и нажмите «Сохранить сумму».",
+                "Сохранить сумму"),
+            Triple("Укажите дату списания",
+                "Выберите дату следующего платежа и подтвердите её в календаре.",
+                "Указать дату"),
+            Triple("Включите напоминание",
+                "Проверьте ежемесячный платёж и напоминание за один день. " +
+                    "После этого завершите обучение.", "Предстоящие платежи")
+        )
+        val position = tutorialStep.coerceIn(0, data.lastIndex)
+        val (headline, advice, target) = data[position]
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(15), dp(16), dp(14))
+            elevation = dp(11).toFloat()
+            background = GradientDrawable().apply {
+                setColor(if (isNight) Color.rgb(31, 57, 57)
+                    else Color.rgb(232, 245, 239))
+                cornerRadius = dp(18).toFloat()
+                setStroke(dp(2), gold)
+            }
+            val heading = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            heading.addView(textLine("✦", 24f, gold, true),
+                LinearLayout.LayoutParams(dp(33), -2))
+            val headingText = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(textLine("Помощник BalanceHub", 16f,
+                    if (isNight) gold else Color.rgb(99, 80, 11), true))
+                addView(textLine("Подскажу, что сделать дальше", 12f, muted))
+            }
+            heading.addView(headingText, LinearLayout.LayoutParams(0, -2, 1f))
+            heading.addView(textLine("Шаг " + (position + 1) + "/6", 12f, muted))
+            addView(heading)
+            addView(verticalGap(10))
+            addView(View(this@MainActivity).apply {
+                background = rounded(gold, 2)
+            }, LinearLayout.LayoutParams(-1, dp(1)))
+            addView(verticalGap(10))
+            addView(textLine(headline, 19f, ink, true))
+            addView(verticalGap(5))
+            addView(textLine(advice, 14f, ink))
+            addView(verticalGap(9))
+            addView(textLine("✦ Нужный элемент выделен золотистой рамкой: " +
+                target, 12f, if (isNight) gold else accent, true))
+            addView(verticalGap(10))
+            val buttons = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+            }
+            buttons.addView(secondaryButton("Пропустить") {
+                completeTutorial()
+            }, LinearLayout.LayoutParams(0, dp(44), 1f))
+            if (position > 0) {
+                buttons.addView(View(this@MainActivity),
+                    LinearLayout.LayoutParams(dp(8), 1))
+                buttons.addView(secondaryButton("‹ Назад") {
+                    backTutorial()
+                }, LinearLayout.LayoutParams(0, dp(44), 1f))
+            }
+            if (position == 5) {
+                buttons.addView(View(this@MainActivity),
+                    LinearLayout.LayoutParams(dp(8), 1))
+                val sim = currentSim()
+                val canFinish = sim != null && payments.any {
+                    it.id == paymentIdFor(sim)
+                }
+                buttons.addView(primaryButton("Готово") {
+                    if (canFinish) completeTutorial()
+                    else Toast.makeText(this@MainActivity,
+                        "Сначала сохраните сумму, дату и включите платёж",
+                        Toast.LENGTH_LONG).show()
+                }.apply { isEnabled = canFinish },
+                    LinearLayout.LayoutParams(0, dp(44), 1f))
+            }
+            addView(buttons)
         }
     }
 
@@ -403,9 +555,11 @@ class MainActivity : AppCompatActivity() {
             }
             mobile.setOnClickListener {
                 selectedOperatorId = sim.subscriptionId
+                if (tutorialStep == 1) tutorialStep = 2
                 operatorDetailsOpen = true
                 renderTab()
             }
+            if (tutorialStep == 1 && sim == sims.first()) highlightTutorialTarget(mobile)
             contentContainer.addView(mobile)
             contentContainer.addView(verticalGap(12))
         }
@@ -598,12 +752,15 @@ class MainActivity : AppCompatActivity() {
             showManualBalanceDialog(sim)
         })
         controls.addView(verticalGap(9))
-        controls.addView(secondaryButton("Настроить абонентскую плату и дату") {
+        val configureButton = secondaryButton("Настроить абонентскую плату и дату") {
+            if (tutorialStep == 2) tutorialStep = 3
             operatorDetailsOpen = false
             selectedOperatorId = sim.subscriptionId
             mobileSettingsOpen = true
             selectTab(3)
-        })
+        }
+        if (tutorialStep == 2) highlightTutorialTarget(configureButton)
+        controls.addView(configureButton)
         contentContainer.addView(controls)
     }
 
@@ -828,6 +985,19 @@ class MainActivity : AppCompatActivity() {
             13f, muted
         ))
         contentContainer.addView(info)
+        contentContainer.addView(verticalGap(14))
+        val help = card()
+        help.addView(textLine("Помощь", 18f, ink, true))
+        help.addView(verticalGap(6))
+        help.addView(textLine(
+            "Пошаговая настройка абонентской платы, даты и напоминаний",
+            13f, muted
+        ))
+        help.addView(verticalGap(10))
+        help.addView(secondaryButton("Пройти обучение повторно") {
+            restartTutorial()
+        })
+        contentContainer.addView(help)
     }
 
     private fun renderMobileSettings() {
@@ -981,7 +1151,7 @@ class MainActivity : AppCompatActivity() {
         }
         billing.addView(feeInput)
         billing.addView(verticalGap(9))
-        billing.addView(primaryButton("Сохранить сумму") {
+        val saveFeeButton = primaryButton("Сохранить сумму") {
             val fee = feeInput.text.toString().trim().replace(',', '.')
             if (!fee.matches(Regex("""\d{1,7}(?:\.\d{1,2})?""")) ||
                 fee.toBigDecimalOrNull()?.signum() != 1
@@ -991,11 +1161,17 @@ class MainActivity : AppCompatActivity() {
             } else {
                 preferences.edit().putString(feeKeyFor(sim), fee).apply()
                 syncMobilePayment(sim)
+                if (tutorialStep == 3) tutorialStep = 4
                 Toast.makeText(this, "Абонентская плата сохранена", Toast.LENGTH_SHORT).show()
                 requestNotificationPermissionIfNeeded()
                 renderTab()
             }
-        })
+        }
+        if (tutorialStep == 3) {
+            highlightTutorialTarget(feeInput)
+            highlightTutorialTarget(saveFeeButton)
+        }
+        billing.addView(saveFeeButton)
         billing.addView(verticalGap(14))
         val manualDate = preferences.getLong(dateKeyFor(sim), 0L)
         billing.addView(textLine("Следующее списание: " +
@@ -1009,16 +1185,19 @@ class MainActivity : AppCompatActivity() {
             12f, muted
         ))
         billing.addView(verticalGap(10))
-        billing.addView(secondaryButton("Указать дату списания") {
+        val chooseDebitButton = secondaryButton("Указать дату списания") {
             val chosen = Calendar.getInstance().apply {
                 timeInMillis = operatorDueAt(sim) ?: System.currentTimeMillis()
             }
             showThemedCalendar(chosen) {
                 preferences.edit().putLong(dateKeyFor(sim), chosen.timeInMillis).apply()
                 syncMobilePayment(sim)
+                if (tutorialStep == 4) tutorialStep = 5
                 renderTab()
             }
-        })
+        }
+        if (tutorialStep == 4) highlightTutorialTarget(chooseDebitButton)
+        billing.addView(chooseDebitButton)
         if (manualDate > 0L && isT2(sim)) {
             billing.addView(verticalGap(6))
             billing.addView(secondaryButton("Вернуть расчётную дату") {
@@ -1034,15 +1213,18 @@ class MainActivity : AppCompatActivity() {
         }
         row.addView(textLine("Добавлять в предстоящие платежи", 14f, ink),
             LinearLayout.LayoutParams(0, -2, 1f))
-        row.addView(androidx.appcompat.widget.SwitchCompat(this).apply {
+        val paymentSwitch = androidx.appcompat.widget.SwitchCompat(this).apply {
             isChecked = preferences.getBoolean(enabledKeyFor(sim), true)
             contentDescription = "Автоматически создавать ежемесячный платёж"
             setOnCheckedChangeListener { _, enabled ->
                 preferences.edit().putBoolean(enabledKeyFor(sim), enabled).apply()
                 syncMobilePayment(sim)
                 if (enabled) requestNotificationPermissionIfNeeded()
+                if (tutorialStep == 5) renderTab()
             }
-        })
+        }
+        if (tutorialStep == 5) highlightTutorialTarget(row)
+        row.addView(paymentSwitch)
         billing.addView(row)
         billing.addView(verticalGap(7))
         billing.addView(textLine(
