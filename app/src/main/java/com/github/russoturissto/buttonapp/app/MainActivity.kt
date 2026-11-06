@@ -7,6 +7,7 @@ import android.view.Gravity
 import android.view.View
 import android.app.AlarmManager
 import android.app.DatePickerDialog
+import android.app.AlertDialog
 import android.app.PendingIntent
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -43,6 +44,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var listContainer: LinearLayout
     private lateinit var contentContainer: LinearLayout
     private var currentTab = 0
+    private var editingId: String? = null
     private var dueDate = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, 7) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -98,6 +100,14 @@ class MainActivity : AppCompatActivity() {
         elevation = dp(1).toFloat()
     }
 
+    private fun secondaryButton(label: String, action: () -> Unit) = Button(this).apply {
+        text = label
+        isAllCaps = false
+        setTextColor(ink)
+        background = rounded(softAccent, 12)
+        setOnClickListener { action() }
+    }
+
     private fun primaryButton(label: String, action: () -> Unit) = Button(this).apply {
         text = label
         isAllCaps = false
@@ -127,6 +137,8 @@ class MainActivity : AppCompatActivity() {
         val scroll = android.widget.ScrollView(this).apply {
             isFillViewport = true
             isVerticalScrollBarEnabled = false
+            isHorizontalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_NEVER
         }
         contentContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -370,8 +382,14 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "Проверьте название, сумму, валюту и срок напоминания", Toast.LENGTH_LONG).show()
             return
         }
-        val reminder = PaymentReminder(UUID.randomUUID().toString(), title, amount, currency, dueDate.timeInMillis, leadDays)
+        val old = payments.firstOrNull { it.id == editingId }
+        if (old != null) {
+            cancelReminder(old)
+            payments.removeAll { it.id == old.id }
+        }
+        val reminder = PaymentReminder(old?.id ?: UUID.randomUUID().toString(), title, amount, currency, dueDate.timeInMillis, leadDays)
         payments.add(reminder)
+        editingId = null
         persistPayments()
         scheduleReminder(reminder)
         renderPayments()
@@ -399,18 +417,34 @@ class MainActivity : AppCompatActivity() {
             item.addView(textLine("${payment.amount} ${payment.currency} · оплатить ${date}", 14f, muted))
             item.addView(textLine("Напомнить за ${payment.leadDays} дн.", 13f, muted))
             item.addView(verticalGap(8))
-            item.addView(Button(this).apply {
-                text = "Удалить"
-                isAllCaps = false
-                setTextColor(accent)
-                background = rounded(Color.rgb(233, 243, 242), 12)
-                setOnClickListener {
-                    payments.removeAll { it.id == payment.id }
-                    cancelReminder(payment)
-                    persistPayments()
-                    renderPayments()
-                }
-            })
+            val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            actions.addView(secondaryButton("Изменить") {
+                editingId = payment.id
+                titleInput.setText(payment.title)
+                amountInput.setText(payment.amount)
+                currencyInput.setText(payment.currency)
+                leadDaysInput.setText(payment.leadDays.toString())
+                dueDate = Calendar.getInstance().apply { timeInMillis = payment.dueAt }
+                updateDateButton()
+                (contentContainer.parent as? android.widget.ScrollView)?.smoothScrollTo(0, 0)
+                titleInput.requestFocus()
+            }, LinearLayout.LayoutParams(0, -2, 1f))
+            actions.addView(View(this), LinearLayout.LayoutParams(dp(8), 1))
+            actions.addView(secondaryButton("Удалить") {
+                AlertDialog.Builder(this)
+                    .setTitle("Удалить платёж?")
+                    .setMessage(payment.title)
+                    .setNegativeButton("Отмена", null)
+                    .setPositiveButton("Удалить") { _, _ ->
+                        payments.removeAll { it.id == payment.id }
+                        cancelReminder(payment)
+                        if (editingId == payment.id) editingId = null
+                        persistPayments()
+                        renderPayments()
+                    }
+                    .show()
+            }, LinearLayout.LayoutParams(0, -2, 1f))
+            item.addView(actions)
             listContainer.addView(item)
             listContainer.addView(verticalGap(10))
         }
