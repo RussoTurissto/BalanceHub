@@ -1,5 +1,7 @@
 <resources>
     <string name="app_name">BalanceHub</string>
+    <string name="payment_due_date">Дата оплаты: %1$s</string>
+    <string name="settings_title">Настройки</string>
     <string name="title">BalanceHub</string>
     <string name="description">Контроль балансов и напоминания о платежах</string>
     <string name="compose_version">BalanceHub</string>
