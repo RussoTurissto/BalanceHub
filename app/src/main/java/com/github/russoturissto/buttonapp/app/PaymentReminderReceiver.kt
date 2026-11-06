@@ -54,17 +54,33 @@ class PaymentReminderReceiver : BroadcastReceiver() {
             val record = records.getJSONObject(index)
             if (record.optString("id") != id || record.optString("recurrence", "once") != recurrence) continue
             val originalDue = record.getLong("dueAt")
-            if (originalDue != intent.getLongExtra("dueAt", -1L)) return
+            val remindedDue = intent.getLongExtra("dueAt", -1L)
+            val isT2 = id.startsWith("t2_subscription_")
+            // Auto-generated T2 payments keep the current debit visible until
+            // it passes, even after the reminder is delivered the day before.
+            if ((isT2 && remindedDue < originalDue) ||
+                (!isT2 && originalDue != remindedDue)) return
             val leadDays = record.getInt("leadDays")
-            val date = Calendar.getInstance().apply { timeInMillis = originalDue }
+            val date = Calendar.getInstance().apply { timeInMillis = remindedDue }
             var nextTrigger: Long
             do {
                 if (recurrence == "weekly") date.add(Calendar.DAY_OF_YEAR, 7)
                 else date.add(Calendar.MONTH, 1)
                 nextTrigger = date.timeInMillis - leadDays * 86400000L
             } while (nextTrigger <= now)
-            record.put("dueAt", date.timeInMillis)
-            preferences.edit { putString("payment_reminders", records.toString()) }
+            if (isT2) {
+                if (originalDue <= now) {
+                    val upcoming = Calendar.getInstance().apply {
+                        timeInMillis = originalDue
+                    }
+                    while (upcoming.timeInMillis <= now) upcoming.add(Calendar.MONTH, 1)
+                    record.put("dueAt", upcoming.timeInMillis)
+                    preferences.edit { putString("payment_reminders", records.toString()) }
+                }
+            } else {
+                record.put("dueAt", date.timeInMillis)
+                preferences.edit { putString("payment_reminders", records.toString()) }
+            }
             val nextIntent = Intent(context, PaymentReminderReceiver::class.java).apply {
                 putExtra("id", id)
                 putExtra("title", record.getString("title"))

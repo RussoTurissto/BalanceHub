@@ -1357,7 +1357,13 @@ class MainActivity : AppCompatActivity() {
             val date = Calendar.getInstance().apply { timeInMillis = item.getLong("dueAt") }
             var paymentAdvanced = false
             if (recurrence == "weekly" || recurrence == "monthly") {
-                while (date.timeInMillis - lead * 86400000L <= System.currentTimeMillis()) {
+                // T2 stays in "upcoming" until the actual estimated debit date;
+                // receiving a one-day-before alert must not hide that payment.
+                val isT2 = item.getString("id").startsWith("t2_subscription_")
+                while ((if (isT2) date.timeInMillis
+                        else date.timeInMillis - lead * 86400000L
+                    ) <= System.currentTimeMillis()
+                ) {
                     if (recurrence == "weekly") date.add(Calendar.DAY_OF_YEAR, 7)
                     else date.add(Calendar.MONTH, 1)
                     advanced = true
