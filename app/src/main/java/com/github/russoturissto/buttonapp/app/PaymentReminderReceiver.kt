@@ -10,6 +10,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import androidx.core.content.edit
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 
@@ -63,7 +64,7 @@ class PaymentReminderReceiver : BroadcastReceiver() {
                 nextTrigger = date.timeInMillis - leadDays * 86400000L
             } while (nextTrigger <= now)
             record.put("dueAt", date.timeInMillis)
-            preferences.edit().putString("payment_reminders", records.toString()).apply()
+            preferences.edit { putString("payment_reminders", records.toString()) }
             val nextIntent = Intent(context, PaymentReminderReceiver::class.java).apply {
                 putExtra("id", id)
                 putExtra("title", record.getString("title"))
