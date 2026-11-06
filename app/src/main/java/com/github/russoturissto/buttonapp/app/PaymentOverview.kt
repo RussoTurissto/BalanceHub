@@ -19,7 +19,7 @@ internal object PaymentOverview {
         val format = DecimalFormat("#,##0.##", DecimalFormatSymbols(Locale("ru")))
         return totals.entries.sortedWith(compareBy({ it.key != "RUB" }, { it.key }))
             .joinToString("\n") { (code, amount) ->
-                "\${format.format(amount)} \${PaymentCurrencyFormatter.currencyLabel(code)}"
+                "${format.format(amount)} ${PaymentCurrencyFormatter.currencyLabel(code)}"
             }
     }
 }
