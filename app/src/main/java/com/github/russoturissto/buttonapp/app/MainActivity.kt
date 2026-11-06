@@ -98,7 +98,7 @@ class MainActivity : AppCompatActivity() {
         screen.addView(header)
 
         val scroll = android.widget.ScrollView(this).apply {
-            fillViewport = true
+            isFillViewport = true
             isVerticalScrollBarEnabled = false
         }
         contentContainer = LinearLayout(this).apply {
