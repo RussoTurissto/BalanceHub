@@ -14,6 +14,19 @@ class RussianMobileOperatorsTest {
         assertEquals("T2 (Tele2)", RussianMobileOperators.find("25020", "")?.displayName)
     }
 
+    @Test fun recognizesMirandaAndMks() {
+        assertEquals("Миранда", RussianMobileOperators.find("25054", "Miranda")?.displayName)
+        assertEquals("МКС (Лугаком)", RussianMobileOperators.find("", "МКС")?.displayName)
+        assertEquals("*101#", RussianMobileOperators.find("", "МКС")?.balanceUssd)
+        assertEquals("*100#", RussianMobileOperators.find("", "Miranda")?.balanceUssd)
+    }
+
+    @Test fun allNamedOperatorsHaveDistinctStyleIcons() {
+        assertTrue(RussianMobileOperators.all.size >= 18)
+        assertTrue(RussianMobileOperators.all.all { it.shortLabel.isNotBlank() &&
+            it.colorHex.startsWith("#") })
+    }
+
     @Test fun recognizesOtherOperators() {
         assertEquals("МТС", RussianMobileOperators.find("", "МТС")?.displayName)
         assertEquals("Билайн", RussianMobileOperators.find("", "Beeline")?.displayName)

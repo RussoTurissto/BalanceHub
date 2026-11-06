@@ -12,7 +12,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import java.util.Locale
 
-internal data class MobileSim(val subscriptionId: Int, val label: String, val operator: String, val isT2: Boolean)
+internal data class MobileSim(val subscriptionId: Int, val label: String, val operator: String, val isT2: Boolean, val networkCode: String = "")
 
 internal object T2Balance {
     private const val PREFS = "balancehub_data"
@@ -24,18 +24,18 @@ internal object T2Balance {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) {
             val name = tm.simOperatorName.orEmpty()
             val code = tm.simOperator.orEmpty()
-            return listOf(MobileSim(-1, "SIM", name.ifBlank { "Оператор не определён" }, isT2(name, code)))
+            return listOf(MobileSim(-1, "SIM", name.ifBlank { "Оператор не определён" }, isT2(name, code), code))
         }
         return try {
             val manager = context.getSystemService(Context.TELEPHONY_SUBSCRIPTION_SERVICE) as SubscriptionManager
             val active = manager.activeSubscriptionInfoList.orEmpty()
             if (active.isEmpty()) {
                 val name = tm.simOperatorName.orEmpty()
-                listOf(MobileSim(-1, "SIM", name.ifBlank { "Оператор не определён" }, isT2(name, tm.simOperator.orEmpty())))
+                listOf(MobileSim(-1, "SIM", name.ifBlank { "Оператор не определён" }, isT2(name, tm.simOperator.orEmpty()), tm.simOperator.orEmpty()))
             } else active.map { sub ->
                 val scoped = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) tm.createForSubscriptionId(sub.subscriptionId) else tm
                 val name = sub.carrierName?.toString().orEmpty().ifBlank { scoped.simOperatorName.orEmpty() }
-                MobileSim(sub.subscriptionId, "SIM ${sub.simSlotIndex + 1}", name, isT2(name, scoped.simOperator.orEmpty()))
+                MobileSim(sub.subscriptionId, "SIM ${sub.simSlotIndex + 1}", name, isT2(name, scoped.simOperator.orEmpty()), scoped.simOperator.orEmpty())
             }
         } catch (_: SecurityException) { emptyList() }
     }
