@@ -119,12 +119,46 @@ class MainActivity : AppCompatActivity() {
     private val isNight: Boolean
         get() = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
             Configuration.UI_MODE_NIGHT_YES
-    private val ink: Int get() = if (isNight) Color.rgb(232, 239, 240) else Color.rgb(36, 49, 61)
-    private val muted: Int get() = if (isNight) Color.rgb(160, 177, 182) else Color.rgb(111, 125, 136)
-    private val accent: Int get() = if (isNight) Color.rgb(77, 135, 139) else Color.rgb(57, 107, 111)
-    private val surface: Int get() = if (isNight) Color.rgb(35, 47, 54) else Color.WHITE
-    private val backdrop: Int get() = if (isNight) Color.rgb(22, 31, 37) else Color.rgb(246, 248, 248)
-    private val softAccent: Int get() = if (isNight) Color.rgb(43, 67, 71) else Color.rgb(233, 243, 242)
+    private val ink: Int get() = if (isNight) Color.rgb(239, 249, 247) else Color.rgb(30, 57, 59)
+    private val muted: Int get() = if (isNight) Color.rgb(165, 189, 191) else Color.rgb(104, 129, 130)
+    private val accent: Int get() = if (isNight) Color.rgb(87, 169, 167) else Color.rgb(35, 131, 131)
+    private val surface: Int get() = if (isNight) Color.rgb(32, 54, 60) else Color.WHITE
+    private val backdrop: Int get() = if (isNight) Color.rgb(17, 33, 40) else Color.rgb(237, 248, 246)
+    private val softAccent: Int get() = if (isNight) Color.rgb(38, 77, 78) else Color.rgb(223, 244, 239)
+
+    private val balanceHubTypeface: Typeface by lazy {
+        Typeface.createFromAsset(assets, "fonts/montserrat_bold.ttf")
+    }
+
+    private fun screenGradient() = GradientDrawable(
+        GradientDrawable.Orientation.TOP_BOTTOM,
+        if (isNight) intArrayOf(Color.rgb(19, 42, 49), Color.rgb(17, 31, 38))
+        else intArrayOf(Color.rgb(238, 250, 247), Color.rgb(245, 249, 249))
+    )
+
+    private fun cardGradient(): GradientDrawable = GradientDrawable(
+        GradientDrawable.Orientation.TL_BR,
+        if (isNight) intArrayOf(Color.rgb(37, 63, 67), Color.rgb(31, 48, 57))
+        else intArrayOf(Color.WHITE, Color.rgb(235, 247, 245))
+    ).apply {
+        cornerRadius = dp(20).toFloat()
+        setStroke(dp(1), if (isNight) Color.rgb(66, 102, 104)
+            else Color.rgb(205, 229, 225))
+    }
+
+    private fun filledButtonGradient(): GradientDrawable = GradientDrawable(
+        GradientDrawable.Orientation.LEFT_RIGHT,
+        if (isNight) intArrayOf(Color.rgb(47, 131, 136), Color.rgb(40, 158, 142))
+        else intArrayOf(Color.rgb(48, 145, 150), Color.rgb(36, 143, 125))
+    ).apply { cornerRadius = dp(14).toFloat() }
+
+    private fun tabBackground(selected: Boolean): GradientDrawable =
+        if (selected) filledButtonGradient() else GradientDrawable().apply {
+            setColor(if (isNight) Color.rgb(23, 41, 48) else Color.rgb(245, 252, 250))
+            cornerRadius = dp(13).toFloat()
+            setStroke(dp(1), if (isNight) Color.rgb(112, 151, 151)
+                else Color.rgb(143, 181, 181))
+        }
 
     private fun rounded(color: Int, radius: Int = 18): GradientDrawable =
         GradientDrawable().apply { setColor(color); cornerRadius = dp(radius).toFloat() }
@@ -144,15 +178,21 @@ class MainActivity : AppCompatActivity() {
     private fun card(): LinearLayout = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
         setPadding(dp(18), dp(18), dp(18), dp(18))
-        background = rounded(surface)
-        elevation = dp(1).toFloat()
+        background = cardGradient()
+        elevation = dp(2).toFloat()
     }
 
     private fun secondaryButton(label: String, action: () -> Unit) = Button(this).apply {
         text = label
         isAllCaps = false
         setTextColor(ink)
-        background = rounded(softAccent, 12)
+        background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
+            if (isNight) intArrayOf(Color.rgb(49, 84, 85), Color.rgb(40, 73, 74))
+            else intArrayOf(Color.rgb(229, 247, 242), Color.rgb(214, 240, 234))
+        ).apply {
+            cornerRadius = dp(12).toFloat()
+            setStroke(dp(1), accent)
+        }
         setOnClickListener { action() }
     }
 
@@ -160,21 +200,25 @@ class MainActivity : AppCompatActivity() {
         text = label
         isAllCaps = false
         setTextColor(Color.WHITE)
-        background = rounded(accent, 14)
+        background = filledButtonGradient()
+        elevation = dp(2).toFloat()
         setOnClickListener { action() }
     }
 
     private fun showDashboard() {
         val screen = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(backdrop)
+            background = screenGradient()
         }
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), headerTopPadding, dp(20), dp(12))
-            setBackgroundColor(accent)
+            background = BalanceHubHeaderDrawable(isNight)
         }
-        header.addView(textLine("BalanceHub", 21f, Color.WHITE, true))
+        header.addView(textLine("BalanceHub", 21f, Color.WHITE, true).apply {
+            typeface = balanceHubTypeface
+            letterSpacing = -0.015f
+        })
         screen.addView(header)
 
         val scroll = android.widget.ScrollView(this).apply {
@@ -193,7 +237,10 @@ class MainActivity : AppCompatActivity() {
         val tabs = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(dp(6), dp(8), dp(6), dp(8))
-            setBackgroundColor(backdrop)
+            background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
+                if (isNight) intArrayOf(Color.rgb(19, 39, 44), Color.rgb(17, 35, 40))
+                else intArrayOf(Color.rgb(234, 247, 244), Color.rgb(224, 243, 239))
+            )
         }
         val names = listOf("Главная", "Балансы", "Платежи", "Настройки")
         val buttons = mutableListOf<TextView>()
@@ -206,11 +253,7 @@ class MainActivity : AppCompatActivity() {
                 setTextColor(if (index == currentTab) Color.WHITE else ink)
                 val selected = index == currentTab
                 if (selected) setTypeface(null, Typeface.BOLD)
-                background = GradientDrawable().apply {
-                    setColor(if (selected) accent else backdrop)
-                    cornerRadius = dp(12).toFloat()
-                    setStroke(dp(1), if (selected) accent else muted)
-                }
+                background = tabBackground(selected)
                 setOnClickListener { selectTab(index) }
             }
             buttons.add(tab)
@@ -251,11 +294,7 @@ class MainActivity : AppCompatActivity() {
             val selected = position == index
             tab.setTextColor(if (selected) Color.WHITE else ink)
             tab.setTypeface(null, if (selected) Typeface.BOLD else Typeface.NORMAL)
-            tab.background = GradientDrawable().apply {
-                setColor(if (selected) accent else backdrop)
-                cornerRadius = dp(12).toFloat()
-                setStroke(dp(1), if (selected) accent else muted)
-            }
+            tab.background = tabBackground(selected)
         }
         renderTab()
     }
@@ -848,7 +887,7 @@ class MainActivity : AppCompatActivity() {
         dateButton = Button(this).apply {
             isAllCaps = false
             setTextColor(accent)
-            background = rounded(Color.rgb(233, 243, 242), 12)
+            background = rounded(softAccent, 12)
             setOnClickListener { chooseDate() }
         }
         updateDateButton()
@@ -926,7 +965,7 @@ class MainActivity : AppCompatActivity() {
             val cell = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER
-                setPadding(dp(3), dp(9), dp(3), dp(9))
+                setPadding(dp(3), dp(8), dp(3), dp(8))
                 background = GradientDrawable().apply {
                     setColor(if (chosen) softAccent else surface)
                     cornerRadius = dp(12).toFloat()
@@ -948,12 +987,12 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
-            cell.addView(textLine(glyph, 20f, accent, true).apply {
+            cell.addView(textLine(glyph, 19f, if (chosen) ink else accent, true).apply {
                 gravity = Gravity.CENTER
                 layoutParams = LinearLayout.LayoutParams(dp(28), dp(28))
             })
             cell.addView(verticalGap(4))
-            cell.addView(textLine(label, 12f, if (chosen) accent else ink, chosen).apply {
+            cell.addView(textLine(label, 12f, ink, chosen).apply {
                 gravity = Gravity.CENTER
             })
             if (chosen) cell.addView(textLine("✓", 11f, accent, true))
@@ -963,31 +1002,6 @@ class MainActivity : AppCompatActivity() {
         }
         appearanceCard.addView(choices)
         appearanceCard.addView(verticalGap(12))
-        // A small live preview reflects the current day/night palette.
-        val themePreview = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            background = rounded(backdrop, 12)
-            setPadding(dp(12), dp(10), dp(12), dp(10))
-        }
-        themePreview.addView(textLine("Предпросмотр", 12f, muted))
-        themePreview.addView(verticalGap(7))
-        val previewRow = LinearLayout(this).apply {
-            gravity = Gravity.CENTER_VERTICAL
-            background = rounded(surface, 10)
-            setPadding(dp(9), dp(8), dp(9), dp(8))
-        }
-        previewRow.addView(textLine("t2", 16f, Color.WHITE, true).apply {
-            gravity = Gravity.CENTER
-            background = rounded(Color.rgb(8, 41, 42), 8)
-        }, LinearLayout.LayoutParams(dp(32), dp(32)))
-        previewRow.addView(textLine("T2 · мобильный баланс", 12f, ink, true),
-            LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(8) })
-        previewRow.addView(textLine("509,80 ₽", 12f, Color.rgb(23, 55, 33), true).apply {
-            setPadding(dp(6), dp(5), dp(6), dp(5))
-            background = rounded(Color.rgb(191, 239, 104), 8)
-        })
-        themePreview.addView(previewRow)
-        appearanceCard.addView(themePreview)
         contentContainer.addView(appearanceCard)
         contentContainer.addView(verticalGap(14))
 
