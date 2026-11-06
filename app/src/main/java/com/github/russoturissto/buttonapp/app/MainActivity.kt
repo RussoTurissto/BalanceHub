@@ -488,14 +488,7 @@ class MainActivity : AppCompatActivity() {
         }
         val date = Calendar.getInstance().apply { timeInMillis = payment.dueAt }
         val dateControl = secondaryButton("Дата: " +
-            DateFormat.getDateInstance(DateFormat.MEDIUM).format(date.time)) {
-            DatePickerDialog(this, { _, year, month, day ->
-                date.set(year, month, day, 9, 0, 0)
-                date.set(Calendar.MILLISECOND, 0)
-                // The date button is updated by the dialog below.
-            }, date.get(Calendar.YEAR), date.get(Calendar.MONTH),
-                date.get(Calendar.DAY_OF_MONTH)).show()
-        }
+            DateFormat.getDateInstance(DateFormat.MEDIUM).format(date.time)) {}
         dateControl.setOnClickListener {
             DatePickerDialog(this, { _, year, month, day ->
                 date.set(year, month, day, 9, 0, 0)
