@@ -55,6 +55,12 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Run automated checks before release build
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew --no-daemon --console=plain :app:compileReleaseKotlin :app:lintRelease :app:testDebugUnitTest
+
       - name: Build signed release APK (retry transient Maven errors)
         shell: bash
         run: |
@@ -63,7 +69,7 @@ jobs:
             echo "Build attempt $attempt of 4"
             if ./gradlew --no-daemon --console=plain :app:assembleRelease \
               -PAPP_VERSION_CODE=${{ github.run_number }} \
-              -PAPP_VERSION_NAME=1.0.${{ github.run_number }}; then
+              -PAPP_VERSION_NAME=1.0.${{ github.run_number }} 2>&1 | tee "$RUNNER_TEMP/balancehub-build.log"; then
               exit 0
             fi
             if grep -Eq "Compilation error|Unresolved reference|Too many arguments|e: file://" "$RUNNER_TEMP/balancehub-build.log"; then
@@ -83,6 +89,21 @@ jobs:
           ORG_GRADLE_PROJECT_BALANCEHUB_KEYSTORE_PASSWORD: ${{ secrets.BALANCEHUB_KEYSTORE_PASSWORD }}
           ORG_GRADLE_PROJECT_BALANCEHUB_KEY_ALIAS: ${{ secrets.BALANCEHUB_KEY_ALIAS }}
           ORG_GRADLE_PROJECT_BALANCEHUB_KEY_PASSWORD: ${{ secrets.BALANCEHUB_KEY_PASSWORD }}
+
+      - name: Verify signed APK and signing certificate
+        shell: bash
+        env:
+          KEY_ALIAS: ${{ secrets.BALANCEHUB_KEY_ALIAS }}
+          KEYSTORE_PASSWORD: ${{ secrets.BALANCEHUB_KEYSTORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          APK="app/build/outputs/apk/release/app-release.apk"
+          test -s "$APK"
+          BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$APK" | tee "$RUNNER_TEMP/balancehub-signature.txt"
+          grep -q "Verified using v2 scheme (APK Signature Scheme v2): true" "$RUNNER_TEMP/balancehub-signature.txt"
+          "$BUILD_TOOLS/aapt" dump badging "$APK" | grep -m1 "^package: name='com.github.russoturissto.buttonapp.app'"
+          keytool -list -v -keystore "$RUNNER_TEMP/balancehub-upload.jks" -alias "$KEY_ALIAS" -storepass "$KEYSTORE_PASSWORD" | grep "SHA256:" | head -n 1
 
       - name: Rename APK to BalanceHub.apk
         shell: bash
