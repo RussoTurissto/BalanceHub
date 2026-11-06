@@ -295,7 +295,8 @@ class MainActivity : AppCompatActivity() {
         mobile.addView(verticalGap(12))
         mobile.addView(secondaryButton("Настроить проверку") {
             Toast.makeText(this, "Настройки → Мобильная связь", Toast.LENGTH_SHORT).show()
-            renderTab(3)
+            currentTab = 3
+            showDashboard()
         })
         contentContainer.addView(mobile)
         contentContainer.addView(verticalGap(14))
