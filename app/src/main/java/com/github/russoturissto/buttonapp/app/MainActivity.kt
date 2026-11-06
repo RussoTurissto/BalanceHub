@@ -896,13 +896,11 @@ class MainActivity : AppCompatActivity() {
             ?.getInsets(WindowInsetsCompat.Type.navigationBars())?.bottom ?: dp(24)
 
     private fun statusBarHeight(): Int {
-        // On Activity recreation (including theme changes), the root window
-        // can return top=0 before it is attached. Use the system bar dimension.
-        val resourceId = resources.getIdentifier("status_bar_height", "dimen", "android")
-        val stableHeight = if (resourceId != 0) resources.getDimensionPixelSize(resourceId) else dp(24)
+        // Theme recreation can report top=0 before the window is attached.
+        // The insets listener on the header applies the actual size after attach.
         val windowInset = ViewCompat.getRootWindowInsets(window.decorView)
             ?.getInsets(WindowInsetsCompat.Type.statusBars())?.top ?: 0
-        return maxOf(stableHeight, windowInset)
+        return maxOf(dp(24), windowInset)
     }
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
