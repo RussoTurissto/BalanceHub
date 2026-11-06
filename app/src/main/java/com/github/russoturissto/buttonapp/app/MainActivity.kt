@@ -5,8 +5,6 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.View
-import android.widget.FrameLayout
-import android.widget.HorizontalScrollView
 import android.app.AlarmManager
 import android.app.DatePickerDialog
 import android.app.PendingIntent
@@ -91,10 +89,10 @@ class MainActivity : AppCompatActivity() {
         }
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(22), dp(20), dp(22), dp(12))
+            setPadding(dp(20), dp(12), dp(20), dp(12))
+            setBackgroundColor(accent)
         }
-        header.addView(textLine("BalanceHub", 27f, ink, true))
-        header.addView(textLine("Всё важное под контролем", 13f, muted))
+        header.addView(textLine("BalanceHub", 21f, Color.WHITE, true))
         screen.addView(header)
 
         val scroll = android.widget.ScrollView(this).apply {
@@ -103,7 +101,7 @@ class MainActivity : AppCompatActivity() {
         }
         contentContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(10), dp(18), dp(24))
+            setPadding(dp(18), dp(18), dp(18), dp(24))
         }
         scroll.addView(contentContainer)
         screen.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
