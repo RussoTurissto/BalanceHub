@@ -15,6 +15,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 jobs:
   build:
@@ -116,3 +117,28 @@ jobs:
           path: app/build/outputs/apk/release/BalanceHub.apk
           if-no-files-found: error
           retention-days: 30
+
+      - name: Notify build result in GitHub issue
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const status = '${{ job.status }}';
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const resultText = status === 'success' ? '✅ APK собран и проверки пройдены' : status === 'cancelled' ? '⚪ Сборка отменена' : '❌ Ошибка сборки APK';
+            const body = [
+              '@RussoTurissto',
+              `**${resultText}**`,
+              `Запуск: ${runUrl}`,
+              `Коммит: \`${context.sha.slice(0, 12)}\``,
+              status === 'success' ? 'APK: откройте запуск → Artifacts → BalanceHub.' : 'Диагностика: откройте журнал неуспешного шага сборки.',
+              'Автоматический журнал: этот комментарий создаёт GitHub Actions сразу после завершения запуска.'
+            ].join('\n\n');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 1,
+              body
+            });
