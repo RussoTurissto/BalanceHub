@@ -18,6 +18,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.text.DateFormat
 import java.util.Calendar
+import java.util.Date
 import java.util.UUID
 
 class MainActivity : AppCompatActivity() {
@@ -151,7 +152,7 @@ class MainActivity : AppCompatActivity() {
                 setTypeface(null, android.graphics.Typeface.BOLD)
             })
             item.addView(TextView(this).apply {
-                val date = DateFormat.getDateInstance(DateFormat.MEDIUM).format(payment.dueAt)
+                val date = DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(payment.dueAt))
                 text = "${payment.amount} ${payment.currency} · оплатить ${date} · напомнить за ${payment.leadDays} дн."
                 textSize = 14f
             })
