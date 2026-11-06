@@ -33,7 +33,7 @@ internal object T2Balance {
                 val name = tm.simOperatorName.orEmpty()
                 listOf(MobileSim(-1, "SIM", name.ifBlank { "Оператор не определён" }, isT2(name, tm.simOperator.orEmpty())))
             } else active.map { sub ->
-                val scoped = tm.createForSubscriptionId(sub.subscriptionId)
+                val scoped = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) tm.createForSubscriptionId(sub.subscriptionId) else tm
                 val name = sub.carrierName?.toString().orEmpty().ifBlank { scoped.simOperatorName.orEmpty() }
                 MobileSim(sub.subscriptionId, "SIM ${sub.simSlotIndex + 1}", name, isT2(name, scoped.simOperator.orEmpty()))
             }
