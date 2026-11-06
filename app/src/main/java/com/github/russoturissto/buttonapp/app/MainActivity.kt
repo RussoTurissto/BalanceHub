@@ -127,11 +127,9 @@ class MainActivity : AppCompatActivity() {
             setBackgroundColor(accent)
         }
         header.addView(textLine("BalanceHub", 21f, Color.WHITE, true))
-        ViewCompat.setOnApplyWindowInsetsListener(header) { view, insets ->
-            val top = insets.getInsets(WindowInsetsCompat.Type.statusBars()).top
-            view.setPadding(dp(20), top + dp(12), dp(20), dp(12))
-            insets
-        }
+        // Use a stable status-bar height. Insets may be dispatched as zero when
+        // the view hierarchy is recreated during bottom-tab navigation.
+        header.setPadding(dp(20), statusBarHeight() + dp(12), dp(20), dp(12))
         screen.addView(header)
 
         val scroll = android.widget.ScrollView(this).apply {
@@ -516,6 +514,11 @@ class MainActivity : AppCompatActivity() {
             })
         }
         preferences.edit().putString("payment_reminders", array.toString()).apply()
+    }
+
+    private fun statusBarHeight(): Int {
+        val id = resources.getIdentifier("status_bar_height", "dimen", "android")
+        return if (id > 0) resources.getDimensionPixelSize(id) else dp(24)
     }
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
