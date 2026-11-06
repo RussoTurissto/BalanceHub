@@ -78,6 +78,10 @@ class MainActivity : AppCompatActivity() {
             text = "Сохранить напоминание"
             setOnClickListener { saveReminder() }
         })
+        root.addView(Button(this).apply {
+            text = "Проверить уведомление"
+            setOnClickListener { sendTestNotification() }
+        })
         root.addView(TextView(this).apply {
             text = "Предстоящие платежи"
             textSize = 20f
@@ -190,6 +194,24 @@ class MainActivity : AppCompatActivity() {
         }
         return PendingIntent.getBroadcast(this, payment.id.hashCode(), intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    }
+
+    private fun sendTestNotification() {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestNotificationPermissionIfNeeded()
+            Toast.makeText(this, "Разрешите уведомления и нажмите кнопку ещё раз", Toast.LENGTH_LONG).show()
+            return
+        }
+        val intent = Intent(this, PaymentReminderReceiver::class.java).apply {
+            putExtra("title", "Тест BalanceHub")
+            putExtra("amount", "1")
+            putExtra("currency", "RUB")
+            putExtra("id", "balancehub-test-notification")
+        }
+        sendBroadcast(intent)
+        Toast.makeText(this, "Тестовое уведомление отправлено", Toast.LENGTH_SHORT).show()
     }
 
     private fun requestNotificationPermissionIfNeeded() {
