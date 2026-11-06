@@ -15,6 +15,9 @@ import android.os.Bundle
 import android.content.res.Configuration
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.view.WindowCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -51,7 +54,7 @@ class MainActivity : AppCompatActivity() {
         }
         AppCompatDelegate.setDefaultNightMode(mode)
         super.onCreate(savedInstanceState)
-        WindowCompat.setDecorFitsSystemWindows(window, true)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         currentTab = savedInstanceState?.getInt("current_tab") ?: 0
         loadPayments()
         showDashboard()
@@ -114,6 +117,11 @@ class MainActivity : AppCompatActivity() {
             setBackgroundColor(accent)
         }
         header.addView(textLine("BalanceHub", 21f, Color.WHITE, true))
+        ViewCompat.setOnApplyWindowInsetsListener(header) { view, insets ->
+            val top = insets.getInsets(WindowInsetsCompat.Type.statusBars()).top
+            view.setPadding(dp(20), top + dp(12), dp(20), dp(12))
+            insets
+        }
         screen.addView(header)
 
         val scroll = android.widget.ScrollView(this).apply {
@@ -139,11 +147,11 @@ class MainActivity : AppCompatActivity() {
                 textSize = 12f
                 gravity = Gravity.CENTER
                 setPadding(dp(3), dp(12), dp(3), dp(12))
-                setTextColor(if (index == currentTab) accent else muted)
+                setTextColor(if (index == currentTab) Color.WHITE else ink)
                 val selected = index == currentTab
                 if (selected) setTypeface(null, Typeface.BOLD)
                 background = GradientDrawable().apply {
-                    setColor(if (selected) softAccent else backdrop)
+                    setColor(if (selected) accent else backdrop)
                     cornerRadius = dp(12).toFloat()
                     setStroke(dp(1), if (selected) accent else muted)
                 }
@@ -151,13 +159,23 @@ class MainActivity : AppCompatActivity() {
                     currentTab = index
                     showDashboard()
                 }
-            }, LinearLayout.LayoutParams(0, -2, 1f))
+            }, LinearLayout.LayoutParams(0, -2, 1f).apply {
+                marginStart = dp(3)
+                marginEnd = dp(3)
+            })
+        }
+        ViewCompat.setOnApplyWindowInsetsListener(tabs) { view, insets ->
+            val bottom = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
+            view.setPadding(dp(6), dp(8), dp(6), bottom + dp(8))
+            insets
         }
         screen.addView(tabs)
-        window.statusBarColor = accent
+        window.statusBarColor = Color.TRANSPARENT
         window.navigationBarColor = backdrop
-        window.decorView.systemUiVisibility =
-            if (isNight) 0 else View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            isAppearanceLightStatusBars = false
+            isAppearanceLightNavigationBars = !isNight
+        }
         setContentView(screen)
         renderTab()
     }
