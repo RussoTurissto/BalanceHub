@@ -91,7 +91,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun field(hintText: String) = EditText(this).apply {
         hint = hintText
-        singleLine = true
+        setSingleLine(true)
         textSize = 16f
     }
 
