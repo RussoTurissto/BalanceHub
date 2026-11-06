@@ -48,6 +48,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var listContainer: LinearLayout
     private lateinit var contentContainer: LinearLayout
     private var currentTab = 0
+    // Capture the initial system-bar inset once: later tab rebuilds can report a
+    // different transient value and make the BalanceHub title jump vertically.
+    private val initialStatusBarHeight by lazy { statusBarHeight() }
     private var editingId: String? = null
     private var dueDate = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, 7) }
 
@@ -136,9 +139,8 @@ class MainActivity : AppCompatActivity() {
             setBackgroundColor(accent)
         }
         header.addView(textLine("BalanceHub", 21f, Color.WHITE, true))
-        // Use a stable status-bar height. Insets may be dispatched as zero when
-        // the view hierarchy is recreated during bottom-tab navigation.
-        header.setPadding(dp(20), statusBarHeight() + dp(12), dp(20), dp(12))
+        // Keep the title at the same vertical offset as on the first screen.
+        header.setPadding(dp(20), initialStatusBarHeight + dp(12), dp(20), dp(12))
         screen.addView(header)
 
         val scroll = android.widget.ScrollView(this).apply {
