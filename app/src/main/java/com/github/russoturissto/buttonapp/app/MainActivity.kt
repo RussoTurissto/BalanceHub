@@ -48,8 +48,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var listContainer: LinearLayout
     private lateinit var contentContainer: LinearLayout
     private var currentTab = 0
-    // Capture the initial system-bar inset once: later tab rebuilds can report a
-    // different transient value and make the BalanceHub title jump vertically.
+    // Cache a reliable status-bar height for tab changes and theme recreations.
+    // An unattached window may temporarily report zero insets.
     private val initialStatusBarHeight by lazy { statusBarHeight() }
     private var editingId: String? = null
     private var dueDate = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, 7) }
@@ -139,8 +139,18 @@ class MainActivity : AppCompatActivity() {
             setBackgroundColor(accent)
         }
         header.addView(textLine("BalanceHub", 21f, Color.WHITE, true))
-        // Keep the title at the same vertical offset as on the first screen.
+        // Use a non-zero stable offset even before Android dispatches window insets.
         header.setPadding(dp(20), initialStatusBarHeight + dp(12), dp(20), dp(12))
+        // When the view is attached, account for real status-bar/cutout insets,
+        // but never let a transient zero collapse the header after a theme change.
+        ViewCompat.setOnApplyWindowInsetsListener(header) { view, insets ->
+            val actualInset = insets.getInsets(WindowInsetsCompat.Type.statusBars()).top
+            val topPadding = maxOf(initialStatusBarHeight, actualInset) + dp(12)
+            if (view.paddingTop != topPadding) {
+                view.setPadding(dp(20), topPadding, dp(20), dp(12))
+            }
+            insets
+        }
         screen.addView(header)
 
         val scroll = android.widget.ScrollView(this).apply {
@@ -196,6 +206,7 @@ class MainActivity : AppCompatActivity() {
             isAppearanceLightNavigationBars = !isNight
         }
         setContentView(screen)
+        ViewCompat.requestApplyInsets(header)
         renderTab()
     }
 
@@ -884,9 +895,15 @@ class MainActivity : AppCompatActivity() {
         ViewCompat.getRootWindowInsets(window.decorView)
             ?.getInsets(WindowInsetsCompat.Type.navigationBars())?.bottom ?: dp(24)
 
-    private fun statusBarHeight(): Int =
-        ViewCompat.getRootWindowInsets(window.decorView)
-            ?.getInsets(WindowInsetsCompat.Type.statusBars())?.top ?: dp(24)
+    private fun statusBarHeight(): Int {
+        // On Activity recreation (including theme changes), the root window
+        // can return top=0 before it is attached. Use the system bar dimension.
+        val resourceId = resources.getIdentifier("status_bar_height", "dimen", "android")
+        val stableHeight = if (resourceId != 0) resources.getDimensionPixelSize(resourceId) else dp(24)
+        val windowInset = ViewCompat.getRootWindowInsets(window.decorView)
+            ?.getInsets(WindowInsetsCompat.Type.statusBars())?.top ?: 0
+        return maxOf(stableHeight, windowInset)
+    }
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 }
