@@ -15,6 +15,8 @@ import android.os.Build
 import android.os.Bundle
 import android.content.res.Configuration
 import androidx.appcompat.app.AppCompatDelegate
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import android.widget.Button
@@ -876,15 +878,13 @@ class MainActivity : AppCompatActivity() {
         preferences.edit().putString("payment_reminders", array.toString()).apply()
     }
 
-    private fun navigationBarHeight(): Int {
-        val id = resources.getIdentifier("navigation_bar_height", "dimen", "android")
-        return if (id > 0) resources.getDimensionPixelSize(id) else dp(24)
-    }
+    private fun navigationBarHeight(): Int =
+        ViewCompat.getRootWindowInsets(window.decorView)
+            ?.getInsets(WindowInsetsCompat.Type.navigationBars())?.bottom ?: dp(24)
 
-    private fun statusBarHeight(): Int {
-        val id = resources.getIdentifier("status_bar_height", "dimen", "android")
-        return if (id > 0) resources.getDimensionPixelSize(id) else dp(24)
-    }
+    private fun statusBarHeight(): Int =
+        ViewCompat.getRootWindowInsets(window.decorView)
+            ?.getInsets(WindowInsetsCompat.Type.statusBars())?.top ?: dp(24)
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 }
