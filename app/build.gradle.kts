@@ -68,6 +68,14 @@ android {
         warningsAsErrors = true
         abortOnError = true
         disable.add("GradleDependency")
+        // API 36 remains the tested target; upgrade only after behavioral QA for newer targets.
+        disable.add("OldTargetApi")
+        // Unreferenced resources and legacy raster launchers are inherited from the template.
+        // Keep these cosmetic diagnostics separate from correctness/security lint checks.
+        disable.add("UnusedResources")
+        disable.add("IconLauncherShape")
+        disable.add("IconDipSize")
+        disable.add("IconDuplicates")
     }
 }
 
