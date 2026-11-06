@@ -66,6 +66,10 @@ jobs:
               -PAPP_VERSION_NAME=1.0.${{ github.run_number }}; then
               exit 0
             fi
+            if grep -Eq "Compilation error|Unresolved reference|Too many arguments|e: file://" "$RUNNER_TEMP/balancehub-build.log"; then
+              echo "::error::Kotlin compilation failed; skipping retries because code errors are not transient"
+              exit 1
+            fi
             if [ "$attempt" -eq 4 ]; then
               echo "::error::Gradle build failed after four attempts"
               exit 1
