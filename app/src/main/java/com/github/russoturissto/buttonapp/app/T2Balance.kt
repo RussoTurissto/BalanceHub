@@ -17,7 +17,7 @@ internal object T2Balance {
     private const val PREFS = "balancehub_data"
     private const val DAY = 24L * 60L * 60L * 1000L
     private const val MIN_GAP = 60L * 1000L
-    private val amountRegex = Regex("""(?i)(?:баланс|остаток\\s+средств|на\\s+счет[еу])[^\\d-]{0,55}(-?\\d[\\d ]*(?:[.,]\\d{1,2})?)\\s*(?:₽|руб(?:лей|ля|\\.)?)?""")
+    private val amountRegex = Regex("""(?i)(?:баланс|остаток\s+средств|на\s+счет[еу])[^\d-]{0,55}(-?\d[\d ]*(?:[.,]\d{1,2})?)\s*(?:₽|руб(?:лей|ля|\.)?)?""")
 
     fun sims(context: Context): List<MobileSim> {
         val tm = context.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
