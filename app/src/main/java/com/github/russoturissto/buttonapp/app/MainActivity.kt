@@ -103,7 +103,8 @@ class MainActivity : AppCompatActivity() {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == 510 && (currentTab == 1 || (currentTab == 3 && mobileSettingsOpen))) renderTab()
+        if ((requestCode == 510 || requestCode == 511) &&
+            (currentTab == 1 || (currentTab == 3 && mobileSettingsOpen))) renderTab()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -346,7 +347,15 @@ class MainActivity : AppCompatActivity() {
                     "После этого завершите обучение.", "Предстоящие платежи")
         )
         val position = tutorialStep.coerceIn(0, data.lastIndex)
-        val (headline, advice, target) = data[position]
+        val needsSimPermission = position == 1 &&
+            androidx.core.content.ContextCompat.checkSelfPermission(
+                this, android.Manifest.permission.READ_PHONE_STATE
+            ) != PackageManager.PERMISSION_GRANTED
+        val (headline, advice, target) = if (needsSimPermission) Triple(
+            "Разрешите доступ к SIM-картам",
+            "Это нужно, чтобы показать все SIM и определить оператора каждой из них.",
+            "Разрешить доступ к SIM"
+        ) else data[position]
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(15), dp(16), dp(14))
@@ -419,6 +428,13 @@ class MainActivity : AppCompatActivity() {
     private fun renderHome() {
         contentContainer.addView(textLine("Обзор", 23f, ink, true))
         contentContainer.addView(verticalGap(14))
+        val startOfToday = Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        val upcomingPayments = payments.filter { it.dueAt >= startOfToday }
         val summary = card()
         summary.addView(textLine("Предстоящие платежи", 14f, muted))
         summary.addView(verticalGap(10))
@@ -428,7 +444,7 @@ class MainActivity : AppCompatActivity() {
         }
         val count = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            addView(textLine(payments.size.toString(), 34f, ink, true))
+            addView(textLine(upcomingPayments.size.toString(), 34f, ink, true))
             addView(textLine("Запланировано\nнапоминаний", 12f, muted))
         }
         totals.addView(count, LinearLayout.LayoutParams(0, -2, 1f))
@@ -442,7 +458,7 @@ class MainActivity : AppCompatActivity() {
             gravity = Gravity.END
         }
         val amount = PaymentOverview.totalLabel(
-            payments.map { it.amount to it.currency }
+            upcomingPayments.map { it.amount to it.currency }
         )
         valueColumn.addView(textLine(amount, 20f, ink, true).apply {
             gravity = Gravity.END
@@ -457,7 +473,7 @@ class MainActivity : AppCompatActivity() {
         contentContainer.addView(verticalGap(16))
         contentContainer.addView(textLine("Ближайшие платежи", 19f, ink, true))
         contentContainer.addView(verticalGap(10))
-        val upcoming = payments.sortedBy { it.dueAt }.take(3)
+        val upcoming = upcomingPayments.sortedBy { it.dueAt }.take(3)
         if (upcoming.isEmpty()) {
             val empty = card()
             empty.addView(textLine("Пока нет платежей", 16f, ink, true))
@@ -496,6 +512,29 @@ class MainActivity : AppCompatActivity() {
         contentContainer.addView(verticalGap(14))
 
         val sims = connectedSims()
+        if (androidx.core.content.ContextCompat.checkSelfPermission(
+                this, android.Manifest.permission.READ_PHONE_STATE
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            val permissions = card()
+            permissions.addView(textLine("Доступ к SIM-картам", 17f, ink, true))
+            permissions.addView(verticalGap(6))
+            permissions.addView(textLine(
+                "Разрешите определение SIM, чтобы видеть каждого оператора отдельно. " +
+                    "Без разрешения доступен ручной ввод.",
+                13f, muted
+            ))
+            permissions.addView(verticalGap(9))
+            val request = primaryButton("Разрешить доступ к SIM") {
+                androidx.core.app.ActivityCompat.requestPermissions(
+                    this, arrayOf(android.Manifest.permission.READ_PHONE_STATE), 511
+                )
+            }
+            if (tutorialStep == 1) highlightTutorialTarget(request)
+            permissions.addView(request)
+            contentContainer.addView(permissions)
+            contentContainer.addView(verticalGap(12))
+        }
         if (sims.isEmpty()) {
             contentContainer.addView(card().apply {
                 addView(textLine("Активные SIM-карты не обнаружены", 15f, ink))
@@ -560,7 +599,11 @@ class MainActivity : AppCompatActivity() {
                 operatorDetailsOpen = true
                 renderTab()
             }
-            if (tutorialStep == 1 && sim == sims.first()) highlightTutorialTarget(mobile)
+            if (tutorialStep == 1 && sim == sims.first() &&
+                androidx.core.content.ContextCompat.checkSelfPermission(
+                    this, android.Manifest.permission.READ_PHONE_STATE
+                ) == PackageManager.PERMISSION_GRANTED
+            ) highlightTutorialTarget(mobile)
             contentContainer.addView(mobile)
             contentContainer.addView(verticalGap(12))
         }
