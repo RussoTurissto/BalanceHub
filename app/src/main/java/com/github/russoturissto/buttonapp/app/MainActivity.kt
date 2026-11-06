@@ -446,16 +446,7 @@ class MainActivity : AppCompatActivity() {
             item.addView(verticalGap(8))
             val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
             actions.addView(secondaryButton("Изменить") {
-                editingId = payment.id
-                titleInput.setText(payment.title)
-                amountInput.setText(payment.amount)
-                currencyInput.setText(payment.currency)
-                leadDaysInput.setText(payment.leadDays.toString())
-                dueDate = Calendar.getInstance().apply { timeInMillis = payment.dueAt }
-                updateDateButton()
-                recurrenceInput.setSelection(listOf("once", "weekly", "monthly").indexOf(payment.recurrence).coerceAtLeast(0))
-                (contentContainer.parent as? android.widget.ScrollView)?.smoothScrollTo(0, 0)
-                titleInput.requestFocus()
+                showEditPaymentDialog(payment)
             }, LinearLayout.LayoutParams(0, -2, 1f))
             actions.addView(View(this), LinearLayout.LayoutParams(dp(8), 1))
             actions.addView(secondaryButton("Удалить") {
@@ -476,6 +467,120 @@ class MainActivity : AppCompatActivity() {
             listContainer.addView(item)
             listContainer.addView(verticalGap(10))
         }
+    }
+
+    private fun showEditPaymentDialog(payment: PaymentReminder) {
+        val editor = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(12), dp(20), dp(8))
+            background = rounded(surface, 18)
+        }
+        fun editField(value: String, hintText: String): EditText =
+            field(hintText).apply { setText(value) }
+        val name = editField(payment.title, "Название")
+        val amount = editField(payment.amount, "Сумма").apply {
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER or
+                android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+        }
+        val currency = editField(payment.currency, "Валюта")
+        val days = editField(payment.leadDays.toString(), "Дней до напоминания").apply {
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+        }
+        val date = Calendar.getInstance().apply { timeInMillis = payment.dueAt }
+        val dateControl = secondaryButton("Дата: " +
+            DateFormat.getDateInstance(DateFormat.MEDIUM).format(date.time)) {
+            DatePickerDialog(this, { _, year, month, day ->
+                date.set(year, month, day, 9, 0, 0)
+                date.set(Calendar.MILLISECOND, 0)
+                // The date button is updated by the dialog below.
+            }, date.get(Calendar.YEAR), date.get(Calendar.MONTH),
+                date.get(Calendar.DAY_OF_MONTH)).show()
+        }
+        dateControl.setOnClickListener {
+            DatePickerDialog(this, { _, year, month, day ->
+                date.set(year, month, day, 9, 0, 0)
+                date.set(Calendar.MILLISECOND, 0)
+                dateControl.text = "Дата: " +
+                    DateFormat.getDateInstance(DateFormat.MEDIUM).format(date.time)
+            }, date.get(Calendar.YEAR), date.get(Calendar.MONTH),
+                date.get(Calendar.DAY_OF_MONTH)).show()
+        }
+        val options = listOf("Единоразовый", "Еженедельный", "Ежемесячный")
+        val recurrence = Spinner(this).apply {
+            adapter = object : ArrayAdapter<String>(
+                this@MainActivity, android.R.layout.simple_spinner_item, options
+            ) {
+                override fun getView(position: Int, convertView: View?,
+                    parent: android.view.ViewGroup): View =
+                    textLine(options[position], 16f, ink).apply {
+                        setPadding(dp(14), dp(14), dp(14), dp(14))
+                    }
+                override fun getDropDownView(position: Int, convertView: View?,
+                    parent: android.view.ViewGroup): View =
+                    textLine(options[position], 16f, ink).apply {
+                        setPadding(dp(14), dp(14), dp(14), dp(14))
+                        setBackgroundColor(surface)
+                    }
+            }
+            background = rounded(softAccent, 12)
+            setSelection(listOf("once", "weekly", "monthly")
+                .indexOf(payment.recurrence).coerceAtLeast(0))
+        }
+        editor.addView(textLine("Название", 13f, muted))
+        editor.addView(name)
+        editor.addView(verticalGap(8))
+        editor.addView(textLine("Сумма", 13f, muted))
+        editor.addView(amount)
+        editor.addView(verticalGap(8))
+        editor.addView(textLine("Валюта", 13f, muted))
+        editor.addView(currency)
+        editor.addView(verticalGap(12))
+        editor.addView(dateControl)
+        editor.addView(verticalGap(12))
+        editor.addView(textLine("Повторение", 13f, muted))
+        editor.addView(verticalGap(6))
+        editor.addView(recurrence)
+        editor.addView(verticalGap(12))
+        editor.addView(textLine("Напомнить за (дней)", 13f, muted))
+        editor.addView(days)
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Изменить платёж")
+            .setView(android.widget.ScrollView(this).apply {
+                setBackgroundColor(surface)
+                addView(editor)
+            })
+            .setNegativeButton("Отмена", null)
+            .setPositiveButton("Сохранить", null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.window?.setBackgroundDrawable(rounded(surface, 20))
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(accent)
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.setTextColor(ink)
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setOnClickListener {
+                val newTitle = name.text.toString().trim()
+                val newAmount = amount.text.toString().trim().replace(',', '.')
+                val newCurrency = currency.text.toString().trim().uppercase()
+                val newDays = days.text.toString().toIntOrNull()
+                if (newTitle.isBlank() || newAmount.toBigDecimalOrNull() == null ||
+                    !newCurrency.matches(Regex("[A-Z]{3}")) ||
+                    newDays == null || newDays !in 0..30) {
+                    Toast.makeText(this, "Проверьте данные платежа", Toast.LENGTH_LONG).show()
+                    return@setOnClickListener
+                }
+                cancelReminder(payment)
+                payments.removeAll { it.id == payment.id }
+                val updated = payment.copy(title = newTitle, amount = newAmount,
+                    currency = newCurrency, dueAt = date.timeInMillis,
+                    leadDays = newDays,
+                    recurrence = listOf("once", "weekly", "monthly")[recurrence.selectedItemPosition])
+                payments.add(updated)
+                persistPayments()
+                scheduleReminder(updated)
+                renderPayments()
+                dialog.dismiss()
+            }
+        }
+        dialog.show()
     }
 
     private fun recurrenceLabel(value: String) = when (value) {
