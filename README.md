@@ -1,30 +1,28 @@
 # BalanceHub
 
-Android app for tracking mobile and bank account balances and upcoming recurring payments.
+Android app for tracking mobile and bank account balances and upcoming payments.
 
-> BalanceHub is being integrated incrementally into the existing Kotlin Android project. Provider integrations are not active yet; automatic refresh will be implemented only through official, permitted APIs.
+## Current MVP
 
-## Product scope
+- The Android application and Gradle root project are named **BalanceHub**.
+- Add payment reminders manually: title, amount, ISO currency code, due date and reminder lead time (0–30 days).
+- Reminders are stored locally on the device and can be deleted from the upcoming-payments list.
+- Android schedules a local notification for the selected reminder date. Android 13+ asks for notification permission.
+- Initial mobile-account targets: MTS and Tele2; multiple bank accounts are in the product scope.
+- No income/expense ledger.
 
-- Track multiple mobile accounts (initial targets: MTS and Tele2).
-- Track bank accounts from multiple banks.
-- Show balances with currency and last-updated time.
-- Remind about recurring subscription fees and other scheduled payments.
-- No income/expense ledger in the initial scope.
-- Automatic refresh where a supported official integration exists; manual fallback otherwise.
+Provider integrations are not active yet. Automatic balance refresh will be implemented only through official, permitted APIs; manual entry remains available otherwise.
 
 ## Technology
 
 - Kotlin, Android, Gradle Kotlin DSL, Java 17.
-- Existing application module and package are preserved.
-- Planned UI: Jetpack Compose.
-- Planned local persistence: Room.
-- Planned background refresh: WorkManager.
-- Planned payment reminders: Android notifications and scheduling APIs.
+- Existing application ID and package are preserved.
+- Local reminder storage currently uses Android SharedPreferences; the data layer can be migrated to Room as the MVP expands.
+- Payment notifications use Android AlarmManager and NotificationCompat.
 
 ## Repository status
 
-The `feature/balancehub-foundation` branch contains the initial architecture, provider policy and domain models.
+The feature/balancehub-foundation branch contains the initial BalanceHub implementation.
 
 - [Architecture and integration plan](docs/BALANCEHUB_ARCHITECTURE.md)
 - [Provider capability matrix](docs/BALANCEHUB_PROVIDER_MATRIX.md)
@@ -32,20 +30,20 @@ The `feature/balancehub-foundation` branch contains the initial architecture, pr
 
 ## Build
 
-Open the repository in Android Studio and run the `app` configuration. The repository's existing Gradle wrapper and CI setup are retained.
+Open the repository in Android Studio and run the app configuration. The repository's existing Gradle wrapper and CI setup are retained.
 
 ## Security
 
 - Do not store bank passwords, SMS one-time codes or card CVV values.
 - Prefer read-only official bank integrations.
-- Keep local data on-device by default.
+- Keep personal data on-device by default.
 - Display the timestamp and source of every balance.
 - Never present stale or manually entered data as a live provider result.
 
 ## Roadmap
 
 1. Foundation and domain model.
-2. Compose dashboard and local account/payment management.
-3. Local persistence and payment reminders.
+2. Manual payment reminders with local persistence and Android notifications.
+3. Balance dashboard and manual mobile/bank account management.
 4. Official provider integrations, where available.
 5. Tests, privacy review and release build.
