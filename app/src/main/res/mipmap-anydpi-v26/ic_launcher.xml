@@ -1,8 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@color/balancehub_icon_background" />
-    <!-- The approved artwork includes its own full-bleed green gradient.
-         No inset or rounded-square foreground is applied. -->
-    <foreground android:drawable="@drawable/balancehub_icon_centered" />
+    <!-- Keep the entire approved bell inside Android's adaptive-icon safe area. -->
+    <foreground android:drawable="@drawable/balancehub_icon_inset" />
     <monochrome android:drawable="@drawable/balancehub_icon_monochrome" />
 </adaptive-icon>
