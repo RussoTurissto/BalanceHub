@@ -12,6 +12,11 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.content.res.Configuration
+import androidx.appcompat.app.AppCompatDelegate
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -40,17 +45,29 @@ class MainActivity : AppCompatActivity() {
     private var dueDate = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, 7) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        val mode = when (getSharedPreferences("balancehub_data", MODE_PRIVATE)
+            .getString("appearance", "system")) {
+            "day" -> AppCompatDelegate.MODE_NIGHT_NO
+            "night" -> AppCompatDelegate.MODE_NIGHT_YES
+            else -> AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
+        }
+        AppCompatDelegate.setDefaultNightMode(mode)
         super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         loadPayments()
         showDashboard()
     }
 
 
-    private val ink = Color.rgb(36, 49, 61)
-    private val muted = Color.rgb(111, 125, 136)
-    private val accent = Color.rgb(57, 107, 111)
-    private val surface = Color.WHITE
-    private val backdrop = Color.rgb(246, 248, 248)
+    private val isNight: Boolean
+        get() = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+            Configuration.UI_MODE_NIGHT_YES
+    private val ink: Int get() = if (isNight) Color.rgb(232, 239, 240) else Color.rgb(36, 49, 61)
+    private val muted: Int get() = if (isNight) Color.rgb(160, 177, 182) else Color.rgb(111, 125, 136)
+    private val accent: Int get() = if (isNight) Color.rgb(77, 135, 139) else Color.rgb(57, 107, 111)
+    private val surface: Int get() = if (isNight) Color.rgb(35, 47, 54) else Color.WHITE
+    private val backdrop: Int get() = if (isNight) Color.rgb(22, 31, 37) else Color.rgb(246, 248, 248)
+    private val softAccent: Int get() = if (isNight) Color.rgb(43, 67, 71) else Color.rgb(233, 243, 242)
 
     private fun rounded(color: Int, radius: Int = 18): GradientDrawable =
         GradientDrawable().apply { setColor(color); cornerRadius = dp(radius).toFloat() }
@@ -93,6 +110,11 @@ class MainActivity : AppCompatActivity() {
             setBackgroundColor(accent)
         }
         header.addView(textLine("BalanceHub", 21f, Color.WHITE, true))
+        ViewCompat.setOnApplyWindowInsetsListener(header) { view, insets ->
+            val top = insets.getInsets(WindowInsetsCompat.Type.statusBars()).top
+            view.setPadding(dp(20), top + dp(12), dp(20), dp(12))
+            insets
+        }
         screen.addView(header)
 
         val scroll = android.widget.ScrollView(this).apply {
@@ -121,7 +143,7 @@ class MainActivity : AppCompatActivity() {
                 setTextColor(if (index == currentTab) accent else muted)
                 if (index == currentTab) {
                     setTypeface(null, Typeface.BOLD)
-                    background = rounded(Color.rgb(233, 243, 242), 12)
+                    background = rounded(softAccent, 12)
                 }
                 setOnClickListener {
                     currentTab = index
@@ -129,7 +151,16 @@ class MainActivity : AppCompatActivity() {
                 }
             }, LinearLayout.LayoutParams(0, -2, 1f))
         }
+        ViewCompat.setOnApplyWindowInsetsListener(tabs) { view, insets ->
+            val bottom = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
+            view.setPadding(dp(6), dp(8), dp(6), bottom + dp(8))
+            insets
+        }
         screen.addView(tabs)
+        window.statusBarColor = accent
+        window.navigationBarColor = surface
+        window.decorView.systemUiVisibility =
+            if (isNight) 0 else View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
         setContentView(screen)
         renderTab()
     }
@@ -237,6 +268,44 @@ class MainActivity : AppCompatActivity() {
     private fun renderSettings() {
         contentContainer.addView(textLine("Настройки", 23f, ink, true))
         contentContainer.addView(verticalGap(16))
+        val appearanceCard = card()
+        appearanceCard.addView(textLine("Оформление", 18f, ink, true))
+        appearanceCard.addView(verticalGap(6))
+        appearanceCard.addView(textLine("Выберите удобный режим отображения", 14f, muted))
+        appearanceCard.addView(verticalGap(12))
+        val selected = preferences.getString("appearance", "system") ?: "system"
+        listOf(
+            "system" to "Как в системе",
+            "day" to "День",
+            "night" to "Ночь"
+        ).forEach { (value, label) ->
+            val active = value == selected
+            appearanceCard.addView(TextView(this).apply {
+                text = (if (active) "✓  " else "     ") + label
+                textSize = 16f
+                setTextColor(if (active) accent else ink)
+                setPadding(dp(14), dp(13), dp(14), dp(13))
+                if (active) {
+                    setTypeface(null, Typeface.BOLD)
+                    background = rounded(softAccent, 12)
+                }
+                setOnClickListener {
+                    if (value != preferences.getString("appearance", "system")) {
+                        preferences.edit().putString("appearance", value).apply()
+                        val mode = when (value) {
+                            "day" -> AppCompatDelegate.MODE_NIGHT_NO
+                            "night" -> AppCompatDelegate.MODE_NIGHT_YES
+                            else -> AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
+                        }
+                        AppCompatDelegate.setDefaultNightMode(mode)
+                        recreate()
+                    }
+                }
+            })
+            appearanceCard.addView(verticalGap(3))
+        }
+        contentContainer.addView(appearanceCard)
+        contentContainer.addView(verticalGap(14))
         val notificationCard = card()
         notificationCard.addView(textLine("Уведомления", 18f, ink, true))
         notificationCard.addView(verticalGap(7))
@@ -258,6 +327,7 @@ class MainActivity : AppCompatActivity() {
         textSize = 16f
         setTextColor(ink)
         setHintTextColor(muted)
+        backgroundTintList = android.content.res.ColorStateList.valueOf(accent)
     }
 
     private fun chooseDate() {
