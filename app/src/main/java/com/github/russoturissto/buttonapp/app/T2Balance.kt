@@ -18,7 +18,6 @@ internal object T2Balance {
     private const val PREFS = "balancehub_data"
     private const val DAY = 24L * 60L * 60L * 1000L
     private const val MIN_GAP = 60L * 1000L
-    private val amountRegex = Regex("""(?i)(?:баланс|остаток\s+средств|на\s+счет[еу])[^\d-]{0,55}(-?\d[\d ]*(?:[.,]\d{1,2})?)\s*(?:₽|руб(?:лей|ля|\.)?)?""")
 
     fun sims(context: Context): List<MobileSim> {
         val tm = context.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
@@ -53,6 +52,29 @@ internal object T2Balance {
         return if (timestamp > 0 && amount != null) amount to timestamp else null
     }
 
+    data class PackageInfo(
+        val planMinutes: String?,
+        val planGigabytes: String?,
+        val savedMinutes: String?,
+        val savedGigabytes: String?,
+        val packagesExpireAt: Long?,
+        val updatedAt: Long
+    )
+
+    fun packages(context: Context, id: Int): PackageInfo? {
+        val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val updatedAt = p.getLong("t2_package_update_$id", 0L)
+        if (updatedAt == 0L) return null
+        val expires = p.getLong("t2_package_expires_$id", 0L).takeIf { it > 0 }
+        return PackageInfo(
+            p.getString("t2_plan_minutes_$id", null),
+            p.getString("t2_plan_gb_$id", null),
+            p.getString("t2_saved_minutes_$id", null),
+            p.getString("t2_saved_gb_$id", null),
+            expires, updatedAt
+        )
+    }
+
     fun check(context: Context, sim: MobileSim, force: Boolean, result: (String) -> Unit) {
         val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         if (!sim.isT2) { result("USSD поддерживается пока только для T2"); return }
@@ -73,15 +95,35 @@ internal object T2Balance {
         try {
             scoped.sendUssdRequest("*105#", object : TelephonyManager.UssdResponseCallback() {
                 override fun onReceiveUssdResponse(telephonyManager: TelephonyManager, request: String, response: CharSequence) {
-                    val raw = response.toString()
-                    val value = amountRegex.find(raw)?.groupValues?.get(1)?.replace(" ", "")?.replace(',', '.')
-                    if (value != null) {
-                        p.edit {
-                            putString("t2_amount_${sim.subscriptionId}", value)
-                            putLong("t2_success_${sim.subscriptionId}", System.currentTimeMillis())
+                    val snapshot = T2UssdParser.parse(response.toString())
+                    if (!snapshot.hasRecognizedData) {
+                        result("Ответ T2 получен, но данные не распознаны. Проверьте формат ответа.")
+                        return
+                    }
+                    val updated = System.currentTimeMillis()
+                    p.edit {
+                        snapshot.balance?.let {
+                            putString("t2_amount_" + sim.subscriptionId, it)
+                            putLong("t2_success_" + sim.subscriptionId, updated)
                         }
-                        result("Баланс обновлён: $value ₽")
-                    } else result("Ответ T2 получен, но сумма не распознана: ${raw.take(180)}")
+                        if (snapshot.planMinutes != null || snapshot.planGigabytes != null ||
+                            snapshot.savedMinutes != null || snapshot.savedGigabytes != null ||
+                            snapshot.packagesExpireAt != null
+                        ) {
+                            snapshot.planMinutes?.let { putString("t2_plan_minutes_" + sim.subscriptionId, it) }
+                            snapshot.planGigabytes?.let { putString("t2_plan_gb_" + sim.subscriptionId, it) }
+                            snapshot.savedMinutes?.let { putString("t2_saved_minutes_" + sim.subscriptionId, it) }
+                            snapshot.savedGigabytes?.let { putString("t2_saved_gb_" + sim.subscriptionId, it) }
+                            snapshot.packagesExpireAt?.let { putLong("t2_package_expires_" + sim.subscriptionId, it) }
+                            putLong("t2_package_update_" + sim.subscriptionId, updated)
+                        }
+                    }
+                    result(if (snapshot.balance != null) {
+                        "Баланс обновлён: " + snapshot.balance + " ₽" +
+                            (if (snapshot.packagesExpireAt != null) "; пакеты обновлены" else "")
+                    } else {
+                        "Остатки пакетов обновлены; в ответе нет суммы баланса"
+                    })
                 }
                 override fun onReceiveUssdResponseFailed(telephonyManager: TelephonyManager, request: String, failureCode: Int) {
                     result("USSD не выполнен (код $failureCode). Проверьте сеть и SIM.")
