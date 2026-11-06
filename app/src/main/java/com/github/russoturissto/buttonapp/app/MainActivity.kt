@@ -16,8 +16,6 @@ import android.os.Bundle
 import android.content.res.Configuration
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.view.WindowCompat
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import android.widget.Button
 import android.widget.EditText
@@ -174,11 +172,9 @@ class MainActivity : AppCompatActivity() {
                 marginEnd = dp(3)
             })
         }
-        ViewCompat.setOnApplyWindowInsetsListener(tabs) { view, insets ->
-            val bottom = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
-            view.setPadding(dp(6), dp(8), dp(6), bottom + dp(8))
-            insets
-        }
+        // A constant navigation-bar inset prevents the bottom tabs from
+        // jumping when Android re-dispatches insets after tab changes.
+        tabs.setPadding(dp(6), dp(8), dp(6), navigationBarHeight() + dp(8))
         screen.addView(tabs)
         window.statusBarColor = Color.TRANSPARENT
         window.navigationBarColor = backdrop
@@ -514,6 +510,11 @@ class MainActivity : AppCompatActivity() {
             })
         }
         preferences.edit().putString("payment_reminders", array.toString()).apply()
+    }
+
+    private fun navigationBarHeight(): Int {
+        val id = resources.getIdentifier("navigation_bar_height", "dimen", "android")
+        return if (id > 0) resources.getDimensionPixelSize(id) else dp(24)
     }
 
     private fun statusBarHeight(): Int {
