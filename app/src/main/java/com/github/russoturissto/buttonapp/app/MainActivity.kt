@@ -517,11 +517,27 @@ class MainActivity : AppCompatActivity() {
 
     private fun loadPayments() {
         val array = JSONArray(preferences.getString("payment_reminders", "[]") ?: "[]")
+        var advanced = false
         for (i in 0 until array.length()) {
             val item = array.getJSONObject(i)
-            payments.add(PaymentReminder(item.getString("id"), item.getString("title"),
-                item.getString("amount"), item.getString("currency"), item.getLong("dueAt"), item.getInt("leadDays"), item.optString("recurrence", "once")) )
+            val recurrence = item.optString("recurrence", "once")
+            val lead = item.getInt("leadDays")
+            val date = Calendar.getInstance().apply { timeInMillis = item.getLong("dueAt") }
+            var paymentAdvanced = false
+            if (recurrence == "weekly" || recurrence == "monthly") {
+                while (date.timeInMillis - lead * 86400000L <= System.currentTimeMillis()) {
+                    if (recurrence == "weekly") date.add(Calendar.DAY_OF_YEAR, 7)
+                    else date.add(Calendar.MONTH, 1)
+                    advanced = true
+                    paymentAdvanced = true
+                }
+            }
+            val payment = PaymentReminder(item.getString("id"), item.getString("title"),
+                item.getString("amount"), item.getString("currency"), date.timeInMillis, lead, recurrence)
+            payments.add(payment)
+            if (paymentAdvanced) scheduleReminder(payment)
         }
+        if (advanced) persistPayments()
     }
 
     private fun persistPayments() {
