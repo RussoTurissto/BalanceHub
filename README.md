@@ -47,3 +47,31 @@ Open the repository in Android Studio and run the app configuration. The reposit
 3. Balance dashboard and manual mobile/bank account management.
 4. Official provider integrations, where available.
 5. Tests, privacy review and release build.
+
+
+## Installing updates without reinstalling
+
+BalanceHub release APKs must always use the same private signing keystore. The application ID is intentionally kept stable. The signed APK workflow increments `versionCode` for every run and uploads an installable APK artifact.
+
+Before the first signed release, create a private upload keystore on a trusted computer and keep a secure backup:
+
+```bash
+keytool -genkeypair -v -keystore balancehub-upload.jks -keyalg RSA -keysize 2048 -validity 10000 -alias balancehub
+```
+
+Add these GitHub Actions repository secrets in **Settings → Secrets and variables → Actions**:
+
+- `BALANCEHUB_KEYSTORE_BASE64` — base64-encoded contents of `balancehub-upload.jks`
+- `BALANCEHUB_KEYSTORE_PASSWORD` — keystore password
+- `BALANCEHUB_KEY_ALIAS` — `balancehub` (or the alias chosen during key generation)
+- `BALANCEHUB_KEY_PASSWORD` — private-key password
+
+To create the base64 value:
+- macOS/Linux: `base64 -w 0 balancehub-upload.jks` (on macOS, use `base64 balancehub-upload.jks | tr -d '\\n'`)
+- PowerShell: `[Convert]::ToBase64String([IO.File]::ReadAllBytes("balancehub-upload.jks"))`
+
+Never commit the keystore, passwords, or base64 value to Git. Losing the keystore means Android will not accept future APKs as updates to installations signed with that key.
+
+After adding the secrets, run **Actions → Build BalanceHub update APK → Run workflow**. Download the `BalanceHub-...-signed-apk` artifact and install the APK. Later builds from this workflow use the same signing key and a higher version code.
+
+If an earlier APK on the phone was signed with a different key (for example, a debug key), Android may require a one-time uninstall before installing the first APK signed with this release key. Back up any important app data first. After the first signed release is installed, subsequent APKs from this workflow install as updates and preserve app data.
