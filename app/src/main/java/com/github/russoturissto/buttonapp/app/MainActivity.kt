@@ -276,15 +276,35 @@ class MainActivity : AppCompatActivity() {
         form.addView(amountInput)
         form.addView(currencyInput)
         form.addView(dateButton)
-        form.addView(textLine("Повторение платежа", 13f, muted))
+        form.addView(verticalGap(12))
+        form.addView(textLine("Повторение платежа", 14f, muted))
+        form.addView(verticalGap(8))
+        val recurrenceOptions = listOf("Единоразовый", "Еженедельный", "Ежемесячный")
+        val recurrenceAdapter = object : ArrayAdapter<String>(
+            this, android.R.layout.simple_spinner_item, recurrenceOptions
+        ) {
+            override fun getView(position: Int, convertView: View?, parent: android.view.ViewGroup): View {
+                return textLine(recurrenceOptions[position], 16f, ink, true).apply {
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(16), dp(14), dp(16), dp(14))
+                }
+            }
+            override fun getDropDownView(position: Int, convertView: View?, parent: android.view.ViewGroup): View {
+                return textLine(recurrenceOptions[position], 16f, ink).apply {
+                    setBackgroundColor(surface)
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(18), dp(15), dp(18), dp(15))
+                }
+            }
+        }
         recurrenceInput = Spinner(this).apply {
-            adapter = ArrayAdapter(this@MainActivity,
-                android.R.layout.simple_spinner_dropdown_item,
-                listOf("Единоразовый", "Еженедельный", "Ежемесячный"))
-            setBackgroundColor(softAccent)
+            adapter = recurrenceAdapter
+            background = rounded(softAccent, 12)
+            dropDownVerticalOffset = dp(4)
+            minimumHeight = dp(52)
         }
         form.addView(recurrenceInput)
-        form.addView(verticalGap(10))
+        form.addView(verticalGap(14))
         form.addView(textLine("За сколько дней напомнить", 13f, muted))
         form.addView(leadDaysInput)
         form.addView(verticalGap(10))
