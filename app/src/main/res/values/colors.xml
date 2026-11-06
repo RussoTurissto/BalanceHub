@@ -3,4 +3,5 @@
     <color name="colorPrimary">#396B6F</color>
     <color name="colorPrimaryDark">#305B5F</color>
     <color name="colorAccent">#396B6F</color>
+    <color name="balancehub_icon_background">#00312F</color>
 </resources>
