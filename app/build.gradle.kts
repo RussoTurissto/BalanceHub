@@ -6,9 +6,19 @@ plugins {
     kotlin("android")
 }
 
-val APP_VERSION_NAME : String by project
-val APP_VERSION_CODE : String by project
-val APP_ID : String by project
+val APP_VERSION_NAME: String by project
+val APP_VERSION_CODE: String by project
+val APP_ID: String by project
+
+// Release signing is supplied through private GitHub Actions secrets / Gradle properties.
+// Never commit the keystore or passwords to the repository.
+val releaseStoreFile = providers.gradleProperty("BALANCEHUB_KEYSTORE_PATH").orNull
+val releaseStorePassword = providers.gradleProperty("BALANCEHUB_KEYSTORE_PASSWORD").orNull
+val releaseKeyAlias = providers.gradleProperty("BALANCEHUB_KEY_ALIAS").orNull
+val releaseKeyPassword = providers.gradleProperty("BALANCEHUB_KEY_PASSWORD").orNull
+val releaseSigningConfigured = listOf(
+    releaseStoreFile, releaseStorePassword, releaseKeyAlias, releaseKeyPassword
+).all { !it.isNullOrBlank() }
 
 android {
     compileSdk = libs.versions.compile.sdk.version.get().toInt()
@@ -16,12 +26,23 @@ android {
     defaultConfig {
         minSdk = libs.versions.min.sdk.version.get().toInt()
         namespace = APP_ID
-
         applicationId = APP_ID
         versionCode = APP_VERSION_CODE.toInt()
         versionName = APP_VERSION_NAME
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
+
+    if (releaseSigningConfigured) {
+        signingConfigs {
+            create("release") {
+                storeFile = file(requireNotNull(releaseStoreFile))
+                storePassword = requireNotNull(releaseStorePassword)
+                keyAlias = requireNotNull(releaseKeyAlias)
+                keyPassword = requireNotNull(releaseKeyPassword)
+            }
+        }
+    }
+
     buildFeatures {
         viewBinding = true
     }
@@ -32,6 +53,9 @@ android {
     buildTypes {
         getByName("release") {
             isMinifyEnabled = false
+            if (releaseSigningConfigured) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -44,19 +68,6 @@ android {
         abortOnError = true
         disable.add("GradleDependency")
     }
-
-    // Use this block to configure different flavors
-//    flavorDimensions("version")
-//    productFlavors {
-//        create("full") {
-//            dimension = "version"
-//            applicationIdSuffix = ".full"
-//        }
-//        create("demo") {
-//            dimension = "version"
-//            applicationIdSuffix = ".demo"
-//        }
-//    }
 }
 
 tasks.withType<KotlinCompile>().configureEach {
@@ -69,13 +80,10 @@ dependencies {
     implementation(projects.libraryAndroid)
     implementation(projects.libraryCompose)
     implementation(projects.libraryKotlin)
-
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.constraint.layout)
     implementation(libs.androidx.core.ktx)
-
     testImplementation(libs.junit)
-
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.test.ext.junit.ktx)
     androidTestImplementation(libs.androidx.test.rules)
