@@ -237,19 +237,73 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderBalances() {
         contentContainer.addView(textLine("Балансы", 23f, ink, true))
-        contentContainer.addView(verticalGap(6))
-        contentContainer.addView(textLine("Здесь будут собраны счета и мобильная связь.", 14f, muted))
-        contentContainer.addView(verticalGap(18))
-        listOf("Мобильная связь" to "Tele2 и МТС", "Банковские счета" to "Подключение счетов").forEach { (title, subtitle) ->
-            val item = card()
-            item.addView(textLine(title, 17f, ink, true))
-            item.addView(verticalGap(7))
-            item.addView(textLine(subtitle, 14f, muted))
-            item.addView(verticalGap(9))
-            item.addView(textLine("Автоматическое получение баланса пока не подключено", 12f, accent))
-            contentContainer.addView(item)
-            contentContainer.addView(verticalGap(12))
+        contentContainer.addView(verticalGap(8))
+        contentContainer.addView(textLine("Мобильная связь · информационный вид", 14f, muted))
+        contentContainer.addView(verticalGap(14))
+        val mobile = card()
+        mobile.addView(textLine("Мобильная связь", 19f, ink, true))
+        mobile.addView(verticalGap(10))
+        val manager = getSystemService(android.content.Context.TELEPHONY_SERVICE)
+            as android.telephony.TelephonyManager
+        val operator = manager.simOperatorName?.takeIf { it.isNotBlank() }
+            ?: "Оператор не определён"
+        val operatorCode = manager.simOperator.orEmpty()
+        val known = RussianMobileOperators.find(operatorCode, operator)
+        val operatorRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
         }
+        val emblem = textLine(known?.shortLabel ?: "SIM", 17f, Color.WHITE, true).apply {
+            gravity = Gravity.CENTER
+            background = rounded(Color.rgb(8, 41, 42), 14)
+        }
+        operatorRow.addView(emblem, LinearLayout.LayoutParams(dp(66), dp(62)))
+        operatorRow.addView(View(this), LinearLayout.LayoutParams(dp(12), 1))
+        val details = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        details.addView(textLine(known?.displayName ?: operator, 17f, ink, true))
+        details.addView(textLine("Номер: не определён", 13f, muted))
+        details.addView(textLine("Оператор SIM · $operatorCode", 12f, muted))
+        operatorRow.addView(details, LinearLayout.LayoutParams(0, -2, 1f))
+        mobile.addView(operatorRow)
+        mobile.addView(verticalGap(16))
+        mobile.addView(textLine("Баланс", 13f, muted))
+        mobile.addView(textLine("Нет данных", 23f, ink, true))
+        mobile.addView(verticalGap(10))
+        val metrics = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val internet = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            background = rounded(softAccent, 12)
+            addView(textLine("Интернет", 13f, ink, true))
+            addView(textLine("Нет данных", 12f, muted))
+        }
+        val minutes = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            background = rounded(softAccent, 12)
+            addView(textLine("Минуты", 13f, ink, true))
+            addView(textLine("Нет данных", 12f, muted))
+        }
+        metrics.addView(internet, LinearLayout.LayoutParams(0, -2, 1f))
+        metrics.addView(View(this), LinearLayout.LayoutParams(dp(8), 1))
+        metrics.addView(minutes, LinearLayout.LayoutParams(0, -2, 1f))
+        mobile.addView(metrics)
+        mobile.addView(verticalGap(12))
+        mobile.addView(textLine("Проверка при открытии: включена · В фоне: каждые 24 ч", 12f, muted))
+        mobile.addView(verticalGap(8))
+        mobile.addView(textLine("USSD-запросы пока не активированы. Данные не выдумываются.", 12f, accent))
+        mobile.addView(verticalGap(12))
+        mobile.addView(secondaryButton("Настроить проверку") {
+            Toast.makeText(this, "Настройки → Мобильная связь", Toast.LENGTH_SHORT).show()
+            renderTab(3)
+        })
+        contentContainer.addView(mobile)
+        contentContainer.addView(verticalGap(14))
+        val bank = card()
+        bank.addView(textLine("Банковские счета", 17f, ink, true))
+        bank.addView(verticalGap(6))
+        bank.addView(textLine("Подключение банковских счетов появится позже.", 13f, muted))
+        contentContainer.addView(bank)
     }
 
     private fun renderPaymentScreen() {
@@ -359,6 +413,18 @@ class MainActivity : AppCompatActivity() {
             appearanceCard.addView(verticalGap(3))
         }
         contentContainer.addView(appearanceCard)
+        contentContainer.addView(verticalGap(14))
+        val mobileSettings = card()
+        mobileSettings.addView(textLine("Мобильная связь", 18f, ink, true))
+        mobileSettings.addView(verticalGap(8))
+        mobileSettings.addView(textLine("Автоматическая проверка при открытии: включена", 14f, ink))
+        mobileSettings.addView(verticalGap(5))
+        mobileSettings.addView(textLine("Фоновая проверка: каждые 24 часа", 14f, ink))
+        mobileSettings.addView(verticalGap(5))
+        mobileSettings.addView(textLine("Только Wi-Fi: нет", 14f, ink))
+        mobileSettings.addView(verticalGap(9))
+        mobileSettings.addView(textLine("Параметры согласованы. USSD и фоновое расписание будут подключены отдельно после проверки совместимости.", 12f, muted))
+        contentContainer.addView(mobileSettings)
         contentContainer.addView(verticalGap(14))
         val notificationCard = card()
         notificationCard.addView(textLine("Уведомления", 18f, ink, true))
