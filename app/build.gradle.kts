@@ -25,6 +25,7 @@ android {
 
     defaultConfig {
         minSdk = libs.versions.min.sdk.version.get().toInt()
+        targetSdk = libs.versions.target.sdk.version.get().toInt()
         namespace = APP_ID
         applicationId = APP_ID
         versionCode = APP_VERSION_CODE.toInt()
