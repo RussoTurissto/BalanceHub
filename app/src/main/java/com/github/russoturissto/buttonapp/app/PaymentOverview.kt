@@ -10,8 +10,8 @@ internal object PaymentOverview {
     fun totalLabel(items: List<Pair<String, String>>): String {
         if (items.isEmpty()) return "0 Руб."
         val totals = linkedMapOf<String, BigDecimal>()
-        items.forEach { (amount, currency) ->
-            val value = amount.replace(',', '.').toBigDecimalOrNull() ?: return@forEach
+        for ((amount, currency) in items) {
+            val value = amount.replace(',', '.').toBigDecimalOrNull() ?: continue
             val code = currency.uppercase(Locale.ROOT)
             totals[code] = (totals[code] ?: BigDecimal.ZERO).add(value)
         }

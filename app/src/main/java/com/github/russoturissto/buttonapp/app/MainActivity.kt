@@ -15,6 +15,7 @@ import android.os.Build
 import android.os.Bundle
 import android.content.res.Configuration
 import androidx.appcompat.app.AppCompatDelegate
+import androidx.core.graphics.toColorInt
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowCompat
@@ -77,7 +78,7 @@ class MainActivity : AppCompatActivity() {
         tutorialStep = savedInstanceState?.getInt("tutorial_step") ?:
             if (preferences.getBoolean("onboarding_completed", false)) -1 else 0
         loadPayments()
-        T2Balance.sims(this).forEach { syncMobilePayment(it) }
+        for (sim in T2Balance.sims(this)) syncMobilePayment(sim)
         showDashboard()
         onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -463,7 +464,7 @@ class MainActivity : AppCompatActivity() {
             empty.addView(verticalGap(5))
             empty.addView(textLine("Добавьте первый платёж во вкладке «Платежи».", 14f, muted))
             contentContainer.addView(empty)
-        } else upcoming.forEach { payment ->
+        } else for (payment in upcoming) {
             val item = card()
             item.addView(textLine(payment.title, 16f, ink, true))
             item.addView(verticalGap(5))
@@ -501,7 +502,7 @@ class MainActivity : AppCompatActivity() {
             })
             return
         }
-        sims.forEach { sim ->
+        for (sim in sims) {
             val op = MobileBalanceService.operator(this, sim)
             val name = MobileBalanceService.displayName(this, sim)
             val cached = MobileBalanceService.cached(this, sim)
@@ -518,7 +519,7 @@ class MainActivity : AppCompatActivity() {
                 true
             ).apply {
                 gravity = Gravity.CENTER
-                background = rounded(Color.parseColor(op?.colorHex ?: "#174F50"), 14)
+                background = rounded((op?.colorHex ?: "#174F50").toColorInt(), 14)
             }
             row.addView(emblem, LinearLayout.LayoutParams(dp(54), dp(54)))
             row.addView(View(this), LinearLayout.LayoutParams(dp(10), 1))
@@ -1314,7 +1315,7 @@ class MainActivity : AppCompatActivity() {
             listContainer.addView(empty)
             return
         }
-        payments.sortedBy { it.dueAt }.forEach { payment ->
+        for (payment in payments.sortedBy { it.dueAt }) {
             val item = card()
             item.addView(textLine(payment.title, 17f, ink, true))
             item.addView(verticalGap(6))
@@ -1682,7 +1683,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun persistPayments() {
         val array = JSONArray()
-        payments.forEach { payment ->
+        for (payment in payments) {
             array.put(JSONObject().apply {
                 put("id", payment.id); put("title", payment.title); put("amount", payment.amount)
                 put("currency", payment.currency); put("dueAt", payment.dueAt); put("leadDays", payment.leadDays)
