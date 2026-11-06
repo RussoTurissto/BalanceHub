@@ -60,7 +60,25 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ./gradlew --no-daemon --console=plain :app:compileReleaseKotlin :app:lintRelease :app:testDebugUnitTest
+          if ! ./gradlew --no-daemon --console=plain :app:compileReleaseKotlin :app:lintRelease :app:testDebugUnitTest; then
+            REPORT="app/build/intermediates/lint_intermediate_text_report/release/lintReportRelease/lint-results-release.txt"
+            if [ -f "$REPORT" ]; then
+              echo "::group::Full Android Lint report"
+              cat "$REPORT"
+              echo "::endgroup::"
+            fi
+            exit 1
+          fi
+
+      - name: Upload Lint diagnostics on failure
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: BalanceHub-lint-report
+          path: |
+            app/build/reports/lint-results-release.html
+            app/build/intermediates/lint_intermediate_text_report/release/lintReportRelease/lint-results-release.txt
+          if-no-files-found: ignore
 
       - name: Build signed release APK (retry transient Maven errors)
         shell: bash
@@ -104,7 +122,14 @@ jobs:
           "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$APK" | tee "$RUNNER_TEMP/balancehub-signature.txt"
           grep -q "Verified using v2 scheme (APK Signature Scheme v2): true" "$RUNNER_TEMP/balancehub-signature.txt"
           "$BUILD_TOOLS/aapt" dump badging "$APK" | grep -m1 "^package: name='com.github.russoturissto.buttonapp.app'"
-          keytool -list -v -keystore "$RUNNER_TEMP/balancehub-upload.jks" -alias "$KEY_ALIAS" -storepass "$KEYSTORE_PASSWORD" | grep "SHA256:" | head -n 1
+          APK_SHA="$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "$RUNNER_TEMP/balancehub-signature.txt" | tr -d '[:space:]:' | tr '[:upper:]' '[:lower:]')"
+          keytool -list -v -keystore "$RUNNER_TEMP/balancehub-upload.jks" -alias "$KEY_ALIAS" -storepass "$KEYSTORE_PASSWORD" > "$RUNNER_TEMP/balancehub-keystore-info.txt"
+          KEY_SHA="$(sed -n 's/.*SHA256: //p' "$RUNNER_TEMP/balancehub-keystore-info.txt" | tr -d '[:space:]:' | tr '[:upper:]' '[:lower:]')"
+          if [ -z "$APK_SHA" ] || [ -z "$KEY_SHA" ] || [ "$APK_SHA" != "$KEY_SHA" ]; then
+            echo "::error::APK signing certificate SHA-256 does not match the release keystore"
+            exit 1
+          fi
+          echo "APK signing certificate SHA-256 verified: $APK_SHA"
 
       - name: Rename APK to BalanceHub.apk
         shell: bash
