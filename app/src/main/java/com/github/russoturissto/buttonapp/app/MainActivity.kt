@@ -4,10 +4,11 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.app.AlarmManager
 import android.app.DatePickerDialog
-import android.app.AlertDialog
+import androidx.appcompat.app.AlertDialog
 import android.app.PendingIntent
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -205,6 +206,69 @@ class MainActivity : AppCompatActivity() {
         setOnClickListener { action() }
     }
 
+
+    private fun themedDialogBuilder(): AlertDialog.Builder =
+        AlertDialog.Builder(this,
+            if (isNight) R.style.BalanceHubDialogDark else R.style.BalanceHubDialogLight)
+
+    private fun dialogGradient(): GradientDrawable = GradientDrawable(
+        GradientDrawable.Orientation.TL_BR,
+        if (isNight) intArrayOf(Color.rgb(36, 66, 70), Color.rgb(26, 46, 54))
+        else intArrayOf(Color.WHITE, Color.rgb(233, 247, 243))
+    ).apply {
+        cornerRadius = dp(22).toFloat()
+        setStroke(dp(1), if (isNight) Color.rgb(72, 132, 127)
+            else Color.rgb(172, 217, 208))
+    }
+
+    private fun showThemedChoices(
+        title: String, labels: List<String>, selectedIndex: Int,
+        onSelected: (Int) -> Unit
+    ) {
+        val adapter = object : ArrayAdapter<String>(
+            this, android.R.layout.simple_list_item_1, labels
+        ) {
+            override fun getView(position: Int, convertView: View?,
+                                 parent: android.view.ViewGroup): View {
+                val active = position == selectedIndex
+                return TextView(this@MainActivity).apply {
+                    text = (if (active) "✓    " else "      ") + labels[position]
+                    textSize = 16f
+                    setTextColor(if (active) ink else ink)
+                    if (active) setTypeface(null, Typeface.BOLD)
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(20), dp(15), dp(16), dp(15))
+                    if (active) {
+                        background = GradientDrawable().apply {
+                            setColor(softAccent)
+                            cornerRadius = dp(12).toFloat()
+                            setStroke(dp(1), accent)
+                        }
+                    } else background = GradientDrawable().apply {
+                        setColor(Color.TRANSPARENT)
+                    }
+                }
+            }
+        }
+        val dialog = themedDialogBuilder().setTitle(title)
+            .setAdapter(adapter) { _, index -> onSelected(index) }
+            .setNegativeButton("Отмена", null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.window?.setBackgroundDrawable(dialogGradient())
+        }
+        dialog.show()
+    }
+
+    private fun swipeToTab(nextTab: Int, direction: Int) {
+        if (nextTab !in 0..3 || nextTab == currentTab) return
+        contentContainer.animate().cancel()
+        selectTab(nextTab)
+        contentContainer.translationX = (if (direction > 0) dp(22) else -dp(22)).toFloat()
+        contentContainer.alpha = 0.84f
+        contentContainer.animate().translationX(0f).alpha(1f).setDuration(175L).start()
+    }
+
     private fun showDashboard() {
         val screen = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -221,7 +285,45 @@ class MainActivity : AppCompatActivity() {
         })
         screen.addView(header)
 
-        val scroll = android.widget.ScrollView(this).apply {
+        // Horizontal gestures switch tabs while normal vertical scrolling
+        // and child taps retain their original behavior.
+        val scroll = object : android.widget.ScrollView(this) {
+            private var downX = 0f
+            private var downY = 0f
+            private var downTime = 0L
+
+            override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        downX = event.x
+                        downY = event.y
+                        downTime = event.eventTime
+                    }
+                    MotionEvent.ACTION_UP -> {
+                        val deltaX = event.x - downX
+                        val deltaY = event.y - downY
+                        val editingField = contentContainer.findFocus() is EditText
+                        if (!editingField &&
+                            kotlin.math.abs(deltaX) >= dp(88) &&
+                            kotlin.math.abs(deltaX) > kotlin.math.abs(deltaY) * 1.5f &&
+                            event.eventTime - downTime in 0L..850L
+                        ) {
+                            val direction = if (deltaX < 0) 1 else -1
+                            val destination = (currentTab + direction).coerceIn(0, 3)
+                            if (destination != currentTab) {
+                                val cancellation = MotionEvent.obtain(event)
+                                cancellation.action = MotionEvent.ACTION_CANCEL
+                                super.dispatchTouchEvent(cancellation)
+                                cancellation.recycle()
+                                post { swipeToTab(destination, direction) }
+                                return true
+                            }
+                        }
+                    }
+                }
+                return super.dispatchTouchEvent(event)
+            }
+        }.apply {
             isFillViewport = true
             isVerticalScrollBarEnabled = false
             isHorizontalScrollBarEnabled = false
@@ -853,7 +955,7 @@ class MainActivity : AppCompatActivity() {
                 android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
             setText(MobileBalanceService.cached(this@MainActivity, sim)?.first ?: "")
         }
-        AlertDialog.Builder(this)
+        themedDialogBuilder()
             .setTitle("Указать мобильный баланс")
             .setView(LinearLayout(this).apply {
                 setPadding(dp(22), dp(12), dp(22), dp(12))
@@ -1084,14 +1186,16 @@ class MainActivity : AppCompatActivity() {
             simsCard.addView(textLine("Выбранная SIM: " + sim.label, 17f, ink, true))
             simsCard.addView(verticalGap(9))
             simsCard.addView(secondaryButton("Выбрать другую SIM") {
-                AlertDialog.Builder(this)
-                    .setTitle("SIM-карта")
-                    .setItems(sims.map {
+                showThemedChoices(
+                    "SIM-карта",
+                    sims.map {
                         it.label + " · " + MobileBalanceService.displayName(this, it)
-                    }.toTypedArray()) { _, index ->
-                        selectedOperatorId = sims[index].subscriptionId
-                        renderTab()
-                    }.show()
+                    },
+                    sims.indexOfFirst { it.subscriptionId == sim.subscriptionId }
+                ) { index ->
+                    selectedOperatorId = sims[index].subscriptionId
+                    renderTab()
+                }
             })
             contentContainer.addView(simsCard)
             contentContainer.addView(verticalGap(12))
@@ -1106,8 +1210,12 @@ class MainActivity : AppCompatActivity() {
             val entries = listOf("Определять автоматически") +
                 RussianMobileOperators.all.map { it.displayName } +
                 listOf("Другой оператор…")
-            AlertDialog.Builder(this).setTitle("Оператор мобильной связи")
-                .setItems(entries.toTypedArray()) { _, index ->
+            val selected = preferences.getString("mobile_operator_$id", null)
+            showThemedChoices(
+                "Оператор мобильной связи", entries,
+                if (selected == null) 0 else entries.indexOf(selected).takeIf { it >= 0 }
+                    ?: entries.lastIndex
+            ) { index ->
                     when (index) {
                         0 -> {
                             preferences.edit().remove("mobile_operator_$id").apply()
@@ -1116,7 +1224,7 @@ class MainActivity : AppCompatActivity() {
                         }
                         entries.lastIndex -> {
                             val input = field("Название оператора")
-                            AlertDialog.Builder(this).setTitle("Другой оператор")
+                            themedDialogBuilder().setTitle("Другой оператор")
                                 .setView(LinearLayout(this).apply {
                                     setPadding(dp(20), dp(10), dp(20), dp(10))
                                     addView(input)
@@ -1139,7 +1247,7 @@ class MainActivity : AppCompatActivity() {
                             renderTab()
                         }
                     }
-                }.show()
+            }
         })
         operatorCard.addView(verticalGap(10))
         operatorCard.addView(textLine("Баланс: " +
@@ -1416,14 +1524,14 @@ class MainActivity : AppCompatActivity() {
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(24), dp(24), dp(24), dp(20))
-            background = rounded(surface, 22)
+            background = dialogGradient()
         }
         panel.addView(textLine("Удалить платёж?", 21f, ink, true))
         panel.addView(verticalGap(12))
         panel.addView(textLine("«${payment.title}» будет удалён без возможности восстановления.", 15f, muted))
         panel.addView(verticalGap(24))
         val buttons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        val dialog = AlertDialog.Builder(this).setView(panel).create()
+        val dialog = themedDialogBuilder().setView(panel).create()
         buttons.addView(secondaryButton("Отмена") { dialog.dismiss() },
             LinearLayout.LayoutParams(0, dp(52), 1f))
         buttons.addView(View(this), LinearLayout.LayoutParams(dp(10), 1))
@@ -1436,7 +1544,7 @@ class MainActivity : AppCompatActivity() {
             dialog.dismiss()
         }, LinearLayout.LayoutParams(0, dp(52), 1f))
         panel.addView(buttons)
-        dialog.setOnShowListener { dialog.window?.setBackgroundDrawable(rounded(surface, 22)) }
+        dialog.setOnShowListener { dialog.window?.setBackgroundDrawable(dialogGradient()) }
         dialog.show()
     }
 
@@ -1446,7 +1554,7 @@ class MainActivity : AppCompatActivity() {
         val wrapper = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(18), dp(18), dp(18))
-            background = rounded(surface, 24)
+            background = dialogGradient()
         }
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -1475,7 +1583,7 @@ class MainActivity : AppCompatActivity() {
         wrapper.addView(verticalGap(16))
         val footer = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         wrapper.addView(footer)
-        val dialog = AlertDialog.Builder(this).setView(wrapper).create()
+        val dialog = themedDialogBuilder().setView(wrapper).create()
         val format = java.text.SimpleDateFormat("EEE, d MMM yyyy 'г.'", java.util.Locale("ru"))
         fun refresh() {
             chosenLabel.text = format.format(chosen.time).replaceFirstChar { it.uppercase() }
@@ -1529,7 +1637,7 @@ class MainActivity : AppCompatActivity() {
             dialog.dismiss()
         }, LinearLayout.LayoutParams(0, dp(50), 1f))
         refresh()
-        dialog.setOnShowListener { dialog.window?.setBackgroundDrawable(rounded(surface, 24)) }
+        dialog.setOnShowListener { dialog.window?.setBackgroundDrawable(dialogGradient()) }
         dialog.show()
     }
 
@@ -1537,7 +1645,7 @@ class MainActivity : AppCompatActivity() {
         val editor = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(12), dp(20), dp(8))
-            background = rounded(surface, 18)
+            background = dialogGradient()
         }
         fun editField(value: String, hintText: String): EditText =
             field(hintText).apply { setText(value) }
@@ -1597,7 +1705,7 @@ class MainActivity : AppCompatActivity() {
         editor.addView(verticalGap(12))
         editor.addView(textLine("Напомнить за (дней)", 13f, muted))
         editor.addView(days)
-        val dialog = AlertDialog.Builder(this)
+        val dialog = themedDialogBuilder()
             .setCustomTitle(textLine("Изменить платёж", 21f, ink, true).apply {
                 setBackgroundColor(surface)
                 setPadding(dp(24), dp(22), dp(20), dp(12))
@@ -1610,7 +1718,7 @@ class MainActivity : AppCompatActivity() {
             .setPositiveButton("Сохранить", null)
             .create()
         dialog.setOnShowListener {
-            dialog.window?.setBackgroundDrawable(rounded(surface, 20))
+            dialog.window?.setBackgroundDrawable(dialogGradient())
             dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(accent)
             dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.setTextColor(ink)
             dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setOnClickListener {

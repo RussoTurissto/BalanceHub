@@ -2,13 +2,32 @@
 
     <!-- Base application theme. -->
     <style name="AppTheme" parent="Theme.AppCompat.Light.NoActionBar">
-        <!-- Customize your theme here. -->
         <item name="colorPrimary">@color/colorPrimary</item>
         <item name="colorPrimaryDark">@color/colorPrimaryDark</item>
         <item name="colorAccent">@color/colorAccent</item>
         <item name="android:statusBarColor">@color/colorPrimaryDark</item>
         <item name="android:navigationBarColor">#FFFFFF</item>
         <item name="android:windowLightStatusBar">false</item>
+    </style>
+
+    <!-- Explicit dialogs are independent of AppTheme's legacy Light parent.
+         They switch with the user's BalanceHub dark/light/system setting. -->
+    <style name="BalanceHubDialogDark" parent="Theme.AppCompat.Dialog.Alert">
+        <item name="android:windowBackground">@drawable/balancehub_dialog_dark</item>
+        <item name="android:colorBackground">#213B40</item>
+        <item name="android:textColorPrimary">#F1F9F7</item>
+        <item name="android:textColorSecondary">#B0C9C8</item>
+        <item name="colorAccent">#62B9B1</item>
+        <item name="colorControlActivated">#62B9B1</item>
+    </style>
+
+    <style name="BalanceHubDialogLight" parent="Theme.AppCompat.Light.Dialog.Alert">
+        <item name="android:windowBackground">@drawable/balancehub_dialog_light</item>
+        <item name="android:colorBackground">#F7FCFA</item>
+        <item name="android:textColorPrimary">#213C3D</item>
+        <item name="android:textColorSecondary">#647D7D</item>
+        <item name="colorAccent">#287F7A</item>
+        <item name="colorControlActivated">#287F7A</item>
     </style>
 
 </resources>
