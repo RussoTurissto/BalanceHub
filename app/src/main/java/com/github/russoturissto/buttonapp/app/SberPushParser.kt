@@ -68,7 +68,13 @@ internal object SberPushParser {
                 val clause = if (clauseBreak == null) tail
                     else tail.substring(0, clauseBreak.range.first)
                 val amount = moneyPattern.find(clause) ?: continue
-                if (bonuses.containsMatchIn(clause.substring(0, amount.range.first))) continue
+                val between = clause.substring(0, amount.range.first)
+                if (bonuses.containsMatchIn(between)) continue
+                // In playful titles such as "Баланс распушился — перевод +10 ₽",
+                // "Баланс" is a headline, not a label for the transaction amount.
+                if (match.value.equals("баланс", ignoreCase = true) &&
+                    Regex("""(?iu)\\b(?:распушил\\w*|перевод\\w*|поступлени\\w*|пополнени\\w*|покупк\\w*|списани\\w*|увеличил\\w*|вырос|подрос)\\b""")
+                        .containsMatchIn(between)) continue
                 // The balance should be attached to the label. A distant amount
                 // is much more likely to be a transaction or marketing number.
                 if (amount.range.first > 38) continue
