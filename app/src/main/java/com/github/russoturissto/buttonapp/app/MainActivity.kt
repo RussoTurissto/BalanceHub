@@ -1074,14 +1074,11 @@ class MainActivity : AppCompatActivity() {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
             }
-            val emblem = textLine(
-                op?.shortLabel ?: "SIM",
-                if ((op?.shortLabel?.length ?: 3) > 3) 13f else 19f,
-                if (op?.colorHex == "#E4B714") Color.BLACK else Color.WHITE,
-                true
-            ).apply {
-                gravity = Gravity.CENTER
-                background = rounded((op?.colorHex ?: "#174F50").toColorInt(), 14)
+            // Use the bundled graphic for every provider; never a text tile.
+            val emblem = android.widget.ImageView(this).apply {
+                setImageDrawable(OperatorBrandLogoDrawable(op))
+                scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
+                contentDescription = "Логотип оператора " + name
             }
             row.addView(emblem, LinearLayout.LayoutParams(dp(54), dp(54)))
             row.addView(View(this), LinearLayout.LayoutParams(dp(10), 1))
