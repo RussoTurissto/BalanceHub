@@ -9,6 +9,8 @@ import android.graphics.PixelFormat
 import android.graphics.RectF
 import android.graphics.SweepGradient
 import android.graphics.drawable.Drawable
+import androidx.core.graphics.withScale
+import androidx.core.graphics.withTranslation
 
 /**
  * Offline adaptation of the user-selected gradient Sber logo (variant C):
@@ -21,10 +23,9 @@ internal class SberBrandLogoDrawable : Drawable() {
     private var tintFilter: ColorFilter? = null
     override fun draw(canvas: Canvas) {
         if (bounds.isEmpty) return
-        val save = canvas.save()
-        canvas.translate(bounds.left.toFloat(), bounds.top.toFloat())
-        canvas.scale(bounds.width() / 100f, bounds.height() / 100f)
-        val ring = RectF(17f, 17f, 83f, 83f)
+        canvas.withTranslation(bounds.left.toFloat(), bounds.top.toFloat()) {
+            withScale(bounds.width() / 100f, bounds.height() / 100f) {
+                val ring = RectF(17f, 17f, 83f, 83f)
         paint.reset()
         paint.isAntiAlias = true
         paint.isDither = true
@@ -55,7 +56,8 @@ internal class SberBrandLogoDrawable : Drawable() {
             lineTo(76f, 32f)
         }
         canvas.drawPath(check, paint)
-        canvas.restoreToCount(save)
+            }
+        }
     }
     override fun setAlpha(alpha: Int) { alphaValue = alpha; invalidateSelf() }
     override fun setColorFilter(colorFilter: ColorFilter?) {
