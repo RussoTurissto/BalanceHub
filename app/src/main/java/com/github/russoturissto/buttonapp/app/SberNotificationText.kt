@@ -26,7 +26,8 @@ internal object SberNotificationText {
         val fieldsMask: Int,
         val rubleFieldsMask: Int = 0,
         val cueFieldsMask: Int = 0,
-        val accountFieldsMask: Int = 0
+        val accountFieldsMask: Int = 0,
+        val fieldLengths: List<Int> = emptyList()
     ) {
         val hasReadableText: Boolean get() = titles.isNotEmpty() || bodies.isNotEmpty()
         val hasBody: Boolean get() = bodies.isNotEmpty()
@@ -39,12 +40,14 @@ internal object SberNotificationText {
         var ruble = 0
         var cue = 0
         var account = 0
+        val lengths = IntArray(Field.entries.size)
 
         fun add(field: Field, value: CharSequence?, isTitle: Boolean = false) {
             val text = value?.toString()?.trim().orEmpty()
             if (text.isBlank() || text.length > 8_192) return
             val signals = SberPushSignals.inspect(text)
             mask = mask or field.mask
+            lengths[field.ordinal] = maxOf(lengths[field.ordinal], text.length)
             if (signals.money) ruble = ruble or field.mask
             if (signals.balanceCue) cue = cue or field.mask
             if (signals.maskedAccount) account = account or field.mask
@@ -87,6 +90,7 @@ internal object SberNotificationText {
             }
         }
         add(Field.TICKER, notification.tickerText)
-        return Payload(titles.distinct(), bodies.distinct(), mask, ruble, cue, account)
+        return Payload(titles.distinct(), bodies.distinct(), mask, ruble, cue, account,
+            lengths.toList())
     }
 }

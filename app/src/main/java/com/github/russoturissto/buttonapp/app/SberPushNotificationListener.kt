@@ -10,11 +10,7 @@ import android.os.PowerManager
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 
-/**
- * Receives bank Push independently of Activity lifecycle, including when the
- * phone is locked or the screen is off, subject to Android system restrictions.
- * No raw text is stored, transmitted, logged, or included in the broadcast.
- */
+/** Only reads the ordinary, opt-in Android listener API. Never bypasses redaction. */
 class SberPushNotificationListener : NotificationListenerService() {
     companion object {
         const val ACTION_BALANCE_UPDATED =
@@ -26,8 +22,6 @@ class SberPushNotificationListener : NotificationListenerService() {
     override fun onListenerConnected() {
         super.onListenerConnected()
         if (!SberBalanceStore.isEnabled(this)) return
-        // Recover a recent active notification when Android reconnects the
-        // listener after an OS process restart, but never treat old Push as new.
         val cutoff = System.currentTimeMillis() - 15L * 60L * 1_000L
         try {
             activeNotifications?.asSequence()
@@ -35,9 +29,7 @@ class SberPushNotificationListener : NotificationListenerService() {
                     it.postTime >= cutoff }
                 ?.sortedBy { it.postTime }
                 ?.forEach { processBankNotification(it) }
-        } catch (_: SecurityException) {
-            // Access may have been revoked while Android was reconnecting.
-        }
+        } catch (_: SecurityException) { /* Access was revoked */ }
     }
 
     override fun onListenerDisconnected() {
@@ -46,7 +38,7 @@ class SberPushNotificationListener : NotificationListenerService() {
             SberBalanceStore.isEnabled(this) && SberBalanceStore.isAccessGranted(this)) {
             try {
                 requestRebind(ComponentName(this, SberPushNotificationListener::class.java))
-            } catch (_: SecurityException) { /* OS may deny rebinding */ }
+            } catch (_: SecurityException) { /* Android may deny rebinding */ }
         }
     }
 
@@ -54,41 +46,64 @@ class SberPushNotificationListener : NotificationListenerService() {
         if (sbn != null) processBankNotification(sbn)
     }
 
-    private fun deliveryState(): Int {
+    private fun state(): Int {
         val keyguard = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
         val power = getSystemService(Context.POWER_SERVICE) as PowerManager
-        var state = 0
-        if (keyguard.isKeyguardLocked) state = state or STATE_LOCKED
-        if (!power.isInteractive) state = state or STATE_SCREEN_OFF
-        return state
+        return (if (keyguard.isKeyguardLocked) STATE_LOCKED else 0) or
+            (if (!power.isInteractive) STATE_SCREEN_OFF else 0)
     }
 
     private fun processBankNotification(sbn: StatusBarNotification) {
         if (!SberBalanceStore.isEnabled(this) ||
             sbn.packageName != SberPushParser.SBER_PACKAGE) return
-        if ((sbn.notification.flags and (Notification.FLAG_ONGOING_EVENT or
-                Notification.FLAG_GROUP_SUMMARY)) != 0) return
-
-        val payload = SberNotificationText.extract(sbn.notification)
-        val assessment = SberPushEvaluation.analyze(sbn.packageName, payload)
+        val n = sbn.notification
+        val remoteFlags = (if (n.contentView != null) 1 else 0) or
+            (if (n.bigContentView != null) 2 else 0) or
+            (if (n.headsUpContentView != null) 4 else 0)
+        val ignored = when {
+            (n.flags and Notification.FLAG_GROUP_SUMMARY) != 0 ->
+                SberPushDiagnostics.Outcome.IGNORED_GROUP
+            (n.flags and Notification.FLAG_ONGOING_EVENT) != 0 ->
+                SberPushDiagnostics.Outcome.IGNORED_ONGOING
+            else -> null
+        }
+        val payload = if (ignored != null) SberNotificationText.Payload(
+            emptyList(), emptyList(), 0
+        ) else SberNotificationText.extract(n)
+        val privacy = if (ignored != null) SberNotificationPrivacy.Evidence.NONE
+            else SberNotificationPrivacy.detect(
+                payload.titles, payload.bodies, payload.rubleFieldsMask,
+                payload.cueFieldsMask, payload.accountFieldsMask,
+                SberNotificationPrivacy.localizedSystemMessage()
+            )
+        val result = if (ignored != null || privacy ==
+            SberNotificationPrivacy.Evidence.SYSTEM_REDACTION) null
+            else SberPushEvaluation.analyze(sbn.packageName, payload)
         val outcome = when {
+            ignored != null -> ignored
+            privacy == SberNotificationPrivacy.Evidence.SYSTEM_REDACTION ->
+                SberPushDiagnostics.Outcome.SYSTEM_REDACTED
             !payload.hasReadableText -> SberPushDiagnostics.Outcome.EMPTY_NOTIFICATION
-            !payload.hasBody && assessment.result == null ->
+            !payload.hasBody && result?.result == null ->
                 SberPushDiagnostics.Outcome.TITLE_ONLY
-            assessment.reason == SberPushParser.Reason.AMBIGUOUS_BALANCE ->
+            result?.reason == SberPushParser.Reason.AMBIGUOUS_BALANCE ->
                 SberPushDiagnostics.Outcome.AMBIGUOUS_BALANCE
-            assessment.reason == SberPushParser.Reason.AMBIGUOUS_ACCOUNT ->
+            result?.reason == SberPushParser.Reason.AMBIGUOUS_ACCOUNT ->
                 SberPushDiagnostics.Outcome.AMBIGUOUS_ACCOUNT
-            assessment.reason == SberPushParser.Reason.INVALID_BALANCE ->
+            result?.reason == SberPushParser.Reason.INVALID_BALANCE ->
                 SberPushDiagnostics.Outcome.INVALID_BALANCE
-            assessment.result == null -> SberPushDiagnostics.Outcome.NO_BALANCE
-            SberBalanceStore.save(this, assessment.result, sbn.postTime) ->
+            result?.result == null &&
+                privacy == SberNotificationPrivacy.Evidence.POSSIBLE_REDACTION ->
+                SberPushDiagnostics.Outcome.POSSIBLY_REDACTED
+            result?.result == null -> SberPushDiagnostics.Outcome.NO_BALANCE
+            SberBalanceStore.save(this, result.result, sbn.postTime) ->
                 SberPushDiagnostics.Outcome.UPDATED
             else -> SberPushDiagnostics.Outcome.OLD_NOTIFICATION
         }
-        SberPushDiagnostics.record(this, sbn.postTime, outcome, payload.fieldsMask,
-            payload.rubleFieldsMask, payload.cueFieldsMask, payload.accountFieldsMask,
-            deliveryState())
+        SberPushDiagnostics.record(this, sbn.postTime, outcome,
+            payload.fieldsMask, payload.rubleFieldsMask, payload.cueFieldsMask,
+            payload.accountFieldsMask, state(), sbn.id, privacy,
+            payload.fieldLengths, remoteFlags)
         sendBroadcast(Intent(ACTION_BALANCE_UPDATED).setPackage(packageName))
     }
 }

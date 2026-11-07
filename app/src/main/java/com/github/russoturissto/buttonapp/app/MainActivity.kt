@@ -1226,6 +1226,10 @@ class MainActivity : AppCompatActivity() {
             val state = when {
                 !enabled -> "Источник не подключён"
                 !granted -> "Нет доступа к уведомлениям Android"
+                snapshot == null &&
+                    SberPushDiagnostics.latest(this)?.outcome ==
+                        SberPushDiagnostics.Outcome.SYSTEM_REDACTED ->
+                    "Android скрыл банковский текст от BalanceHub"
                 snapshot == null -> "Ожидание Push с указанием остатка в рублях"
                 else -> "Источник: Push СберБанк Онлайн, не онлайн-запрос"
             }
@@ -1784,96 +1788,123 @@ class MainActivity : AppCompatActivity() {
             12f, muted
         ))
         diagnostics.addView(verticalGap(6))
-        val lastEvent = if (enabled) SberPushDiagnostics.latest(this) else null
+        val events = if (enabled) SberPushDiagnostics.recent(this) else emptyList()
+        val lastEvent = events.firstOrNull()
         if (lastEvent == null) {
-            diagnostics.addView(textLine("Последний Push: ещё не обнаружен", 13f, muted))
+            diagnostics.addView(textLine("Последний Push: ещё не получен", 13f, muted))
         } else {
-            val formatted = DateFormat.getDateTimeInstance(
-                DateFormat.SHORT, DateFormat.SHORT
-            ).format(Date(lastEvent.time))
-            diagnostics.addView(textLine("Последний Push: $formatted", 13f, ink))
-            val fields = SberNotificationText.Field.entries
-                .filter { (lastEvent.fieldsMask and it.mask) != 0 }
-                .map { it.label }
-            diagnostics.addView(verticalGap(6))
+            val formatter = DateFormat.getDateTimeInstance(
+                DateFormat.SHORT, DateFormat.SHORT)
             diagnostics.addView(textLine(
-                "Доступные поля: " +
-                    if (fields.isEmpty()) "не обнаружены" else fields.joinToString(", "),
-                12f, muted
+                "Последний Push: " + formatter.format(Date(lastEvent.receivedAt)),
+                13f, ink
             ))
-            diagnostics.addView(verticalGap(5))
-            val fieldFlags = SberNotificationText.Field.entries.filter {
+            val fields = SberNotificationText.Field.entries.filter {
                 (lastEvent.fieldsMask and it.mask) != 0
             }
-            fieldFlags.forEach { field ->
-                val amount = (lastEvent.rubleFieldsMask and field.mask) != 0
+            diagnostics.addView(verticalGap(6))
+            diagnostics.addView(textLine(
+                "Доступные поля: " + if (fields.isEmpty()) "нет"
+                    else fields.joinToString(", ") { it.label }, 12f, muted
+            ))
+            fields.forEach { field ->
+                val size = lastEvent.lengths.getOrNull(field.ordinal)
+                val money = (lastEvent.rubleFieldsMask and field.mask) != 0
                 val cue = (lastEvent.cueFieldsMask and field.mask) != 0
                 val account = (lastEvent.accountFieldsMask and field.mask) != 0
-                val signals = listOf(
-                    if (amount) "рубли: есть" else "рубли: нет",
-                    if (cue) "остаток: признак есть" else "остаток: нет",
-                    if (account) "счёт: маска есть" else "счёт: нет"
-                ).joinToString(" · ")
-                diagnostics.addView(textLine(field.label + " — " + signals, 11f, muted))
+                diagnostics.addView(textLine(
+                    field.label + " — длина: " + (size?.toString() ?: "?") +
+                        " · рубли: " + if (money) "да" else "нет",
+                    11f, muted
+                ))
+                diagnostics.addView(textLine(
+                    "   Признак остатка: " + if (cue) "есть" else "нет",
+                    11f, muted
+                ))
+                diagnostics.addView(textLine(
+                    "   Маска счёта: " + if (account) "есть" else "нет",
+                    11f, muted
+                ))
             }
             diagnostics.addView(verticalGap(6))
+            diagnostics.addView(textLine(
+                "RemoteViews: " + if (lastEvent.remoteFlags != 0)
+                    "обнаружены (не доказывает нестандартный макет)"
+                    else "не обнаружены", 12f, muted
+            ))
             val environment = when {
-                lastEvent.deliveryState < 0 -> "не определено (старый формат диагностики)"
                 (lastEvent.deliveryState and
                     SberPushNotificationListener.STATE_SCREEN_OFF) != 0 ->
-                    "экран был выключен"
+                    "экран выключен"
                 (lastEvent.deliveryState and
                     SberPushNotificationListener.STATE_LOCKED) != 0 ->
-                    "экран был заблокирован"
-                else -> "экран был активен"
+                    "экран заблокирован"
+                lastEvent.deliveryState < 0 -> "не определено"
+                else -> "экран активен"
             }
-            diagnostics.addView(textLine("При получении Push: $environment", 12f, muted))
+            diagnostics.addView(textLine("При получении: " + environment, 12f, muted))
+            val explanation = when (lastEvent.outcome) {
+                SberPushDiagnostics.Outcome.UPDATED -> "Баланс обновлён"
+                SberPushDiagnostics.Outcome.SYSTEM_REDACTED ->
+                    "Подтверждена системная подмена текста Android"
+                SberPushDiagnostics.Outcome.POSSIBLY_REDACTED ->
+                    "Возможна системная фильтрация (не доказана)"
+                SberPushDiagnostics.Outcome.NO_BALANCE -> "Остаток в тексте не найден"
+                SberPushDiagnostics.Outcome.AMBIGUOUS_BALANCE ->
+                    "Неоднозначные суммы остатка"
+                SberPushDiagnostics.Outcome.AMBIGUOUS_ACCOUNT ->
+                    "Нельзя определить нужный счёт"
+                SberPushDiagnostics.Outcome.INVALID_BALANCE -> "Некорректная сумма"
+                SberPushDiagnostics.Outcome.OLD_NOTIFICATION -> "Старое уведомление"
+                SberPushDiagnostics.Outcome.SAVE_FAILED -> "Не удалось сохранить остаток"
+                SberPushDiagnostics.Outcome.EMPTY_NOTIFICATION -> "Нет читаемого текста"
+                SberPushDiagnostics.Outcome.TITLE_ONLY -> "Доступен только заголовок"
+                SberPushDiagnostics.Outcome.IGNORED_GROUP ->
+                    "Групповое уведомление (не операция)"
+                SberPushDiagnostics.Outcome.IGNORED_ONGOING ->
+                    "Постоянное уведомление (не операция)"
+            }
+            diagnostics.addView(verticalGap(6))
+            diagnostics.addView(textLine("Распознавание: " + explanation, 13f, muted))
             diagnostics.addView(verticalGap(5))
             diagnostics.addView(textLine(
-                if (fields.isEmpty()) "Содержимое Push не передано Android"
-                else if (fields.all {
-                    it == SberNotificationText.Field.TITLE.label ||
-                        it == SberNotificationText.Field.BIG_TITLE.label
-                }) "Доступен только заголовок уведомления"
-                else "Есть доступный текст уведомления",
+                lastEvent.lastSuccessAt?.let {
+                    "Последний подтверждённый баланс: " + formatter.format(Date(it))
+                } ?: "Успешного обновления ещё не было",
                 12f, muted
             ))
-            diagnostics.addView(verticalGap(6))
-            val explanation = when (lastEvent.outcome) {
-                SberPushDiagnostics.Outcome.UPDATED -> "Остаток успешно обновлён"
-                SberPushDiagnostics.Outcome.NO_BALANCE ->
-                    "Явный остаток в рублях не найден"
-                SberPushDiagnostics.Outcome.AMBIGUOUS_BALANCE ->
-                    "Несколько разных сумм остатка — обновление отклонено"
-                SberPushDiagnostics.Outcome.AMBIGUOUS_ACCOUNT ->
-                    "Несколько счетов — нельзя безопасно определить нужный"
-                SberPushDiagnostics.Outcome.INVALID_BALANCE ->
-                    "Сумма остатка имеет неверный формат"
-                SberPushDiagnostics.Outcome.OLD_NOTIFICATION ->
-                    "Повторное или более старое уведомление"
-                SberPushDiagnostics.Outcome.SAVE_FAILED ->
-                    "Не удалось сохранить остаток"
-                SberPushDiagnostics.Outcome.EMPTY_NOTIFICATION ->
-                    "Android передал уведомление без читаемого текста"
-                SberPushDiagnostics.Outcome.TITLE_ONLY ->
-                    "Есть только заголовок, остаток не найден"
+            if (lastEvent.outcome == SberPushDiagnostics.Outcome.SYSTEM_REDACTED) {
+                diagnostics.addView(verticalGap(7))
+                diagnostics.addView(textLine(
+                    "Android передал скрытую версию уведомления. BalanceHub не " +
+                        "может восстановить остаток из такого Push.",
+                    12f, muted
+                ))
             }
-            diagnostics.addView(textLine("Распознавание: $explanation", 13f, muted))
-            val lastSuccess = lastEvent.lastSuccessAt
-            diagnostics.addView(verticalGap(6))
-            diagnostics.addView(textLine(
-                if (lastSuccess != null) {
-                    "Последнее успешное обновление: " +
-                        DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
-                            .format(Date(lastSuccess))
-                } else "Успешного обновления ещё не было",
-                12f, muted
-            ))
+            if (events.size > 1) {
+                diagnostics.addView(verticalGap(10))
+                diagnostics.addView(textLine("Последние события", 14f, ink, true))
+                events.take(5).forEach { item ->
+                    val status = when (item.outcome) {
+                        SberPushDiagnostics.Outcome.UPDATED -> "баланс обновлён"
+                        SberPushDiagnostics.Outcome.SYSTEM_REDACTED -> "текст скрыт"
+                        SberPushDiagnostics.Outcome.POSSIBLY_REDACTED ->
+                            "вероятная фильтрация"
+                        SberPushDiagnostics.Outcome.NO_BALANCE -> "остаток не найден"
+                        SberPushDiagnostics.Outcome.IGNORED_GROUP -> "группа"
+                        else -> item.outcome.name.lowercase(Locale.ROOT)
+                    }
+                    diagnostics.addView(textLine(
+                        formatter.format(Date(item.receivedAt)) + " — " + status,
+                        12f, muted
+                    ))
+                }
+            }
         }
         diagnostics.addView(verticalGap(8))
         diagnostics.addView(textLine(
-            "Храним только время, признаки доступных полей и результат распознавания. " +
-                "Тексты Push, суммы операций и личные данные не сохраняются.",
+            "Хранятся только времена, длины полей и результаты до шести событий. " +
+                "Тексты Push, суммы операций и номера счетов не сохраняются.",
             12f, muted
         ))
         diagnostics.addView(verticalGap(10))
