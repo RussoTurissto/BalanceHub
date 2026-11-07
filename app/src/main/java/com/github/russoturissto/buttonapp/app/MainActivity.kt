@@ -54,6 +54,8 @@ class MainActivity : AppCompatActivity() {
     private var mobileSettingsOpen = false
     private var operatorDetailsOpen = false
     private var archiveOpen = false
+    private var upcomingListExpanded = true
+    private var expandedPaymentId: String? = null
     private var selectedOperatorId: Int? = null
     private var sessionAutoRefreshStarted = false
     private var tutorialStep = -1
@@ -77,6 +79,9 @@ class MainActivity : AppCompatActivity() {
         mobileSettingsOpen = savedInstanceState?.getBoolean("mobile_settings_open") ?: false
         operatorDetailsOpen = savedInstanceState?.getBoolean("operator_details_open") ?: false
         archiveOpen = savedInstanceState?.getBoolean("archive_open") ?: false
+        upcomingListExpanded = savedInstanceState?.getBoolean("payments_list_expanded")
+            ?: preferences.getBoolean("payments_list_expanded", true)
+        expandedPaymentId = savedInstanceState?.getString("expanded_payment_id")
         selectedOperatorId = savedInstanceState?.getInt("selected_operator_id", Int.MIN_VALUE)?.takeIf { it != Int.MIN_VALUE }
         tutorialStep = savedInstanceState?.getInt("tutorial_step") ?:
             if (preferences.getBoolean("onboarding_completed", false)) -1 else 0
@@ -132,6 +137,8 @@ class MainActivity : AppCompatActivity() {
         outState.putBoolean("mobile_settings_open", mobileSettingsOpen)
         outState.putBoolean("operator_details_open", operatorDetailsOpen)
         outState.putBoolean("archive_open", archiveOpen)
+        outState.putBoolean("payments_list_expanded", upcomingListExpanded)
+        outState.putString("expanded_payment_id", expandedPaymentId)
         selectedOperatorId?.let { outState.putInt("selected_operator_id", it) }
         outState.putInt("tutorial_step", tutorialStep)
         super.onSaveInstanceState(outState)
@@ -422,7 +429,10 @@ class MainActivity : AppCompatActivity() {
         if (tutorialStep == 0 && index == 1) tutorialStep = 1
         if (index != 3) mobileSettingsOpen = false
         if (index != 1) operatorDetailsOpen = false
-        if (index != 2) archiveOpen = false
+        if (index != 2) {
+            archiveOpen = false
+            expandedPaymentId = null
+        }
         tabViews.forEachIndexed { position, tab ->
             val selected = position == index
             tab.setTextColor(if (selected) Color.WHITE else ink)
@@ -1014,35 +1024,6 @@ class MainActivity : AppCompatActivity() {
     private fun renderPaymentScreen() {
         contentContainer.addView(textLine("Платежи", 23f, ink, true))
         contentContainer.addView(verticalGap(12))
-        val archivedCount = PaymentArchiveStore.archived(this).size
-        val folder = card()
-        folder.contentDescription = "Папка Архив платежей, записей: $archivedCount"
-        folder.isClickable = true
-        folder.isFocusable = true
-        val folderRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        folderRow.addView(textLine("📁", 29f, accent, true))
-        folderRow.addView(View(this), LinearLayout.LayoutParams(dp(12), 1))
-        val folderLabels = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            addView(textLine("Архив платежей", 17f, ink, true))
-            addView(verticalGap(3))
-            addView(textLine(
-                "$archivedCount записей · завершённые и удалённые",
-                12f, muted
-            ))
-        }
-        folderRow.addView(folderLabels, LinearLayout.LayoutParams(0, -2, 1f))
-        folderRow.addView(textLine("›", 25f, accent, true))
-        folder.addView(folderRow)
-        folder.setOnClickListener {
-            archiveOpen = true
-            renderTab()
-        }
-        contentContainer.addView(folder)
-        contentContainer.addView(verticalGap(14))
         val form = card()
         form.addView(textLine("Новое напоминание", 18f, ink, true))
         form.addView(verticalGap(10))
@@ -1099,9 +1080,7 @@ class MainActivity : AppCompatActivity() {
         form.addView(verticalGap(10))
         form.addView(primaryButton("Сохранить напоминание") { saveReminder() })
         contentContainer.addView(form)
-        contentContainer.addView(verticalGap(22))
-        contentContainer.addView(textLine("Предстоящие платежи", 19f, ink, true))
-        contentContainer.addView(verticalGap(10))
+        contentContainer.addView(verticalGap(18))
         listContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         contentContainer.addView(listContainer)
         renderPayments()
@@ -1531,6 +1510,9 @@ class MainActivity : AppCompatActivity() {
         editingId = null
         persistPayments()
         scheduleReminder(reminder)
+        upcomingListExpanded = true
+        expandedPaymentId = reminder.id
+        preferences.edit().putBoolean("payments_list_expanded", true).apply()
         renderPayments()
         titleInput.text.clear()
         amountInput.text.clear()
@@ -1539,53 +1521,210 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderPayments() {
-        if (!::listContainer.isInitialized || currentTab != 2) return
+        if (!::listContainer.isInitialized || currentTab != 2 || archiveOpen) return
         listContainer.removeAllViews()
-        if (payments.isEmpty()) {
-            val empty = card()
-            empty.addView(textLine("Пока нет напоминаний", 15f, ink, true))
-            empty.addView(textLine("Добавьте первый платёж выше.", 13f, muted))
-            listContainer.addView(empty)
-            return
+        if (expandedPaymentId != null && payments.none { it.id == expandedPaymentId }) {
+            expandedPaymentId = null
         }
-        for (payment in payments.sortedBy { it.dueAt }) {
-            val item = card()
-            item.addView(textLine(payment.title, 17f, ink, true))
-            item.addView(verticalGap(6))
-            val date = DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(payment.dueAt))
-            item.addView(textLine("${PaymentCurrencyFormatter.amountWithCurrency(payment.amount, payment.currency)} · оплатить $date", 14f, muted))
-            item.addView(textLine("Напомнить за ${payment.leadDays} дн. · ${recurrenceLabel(payment.recurrence)}", 13f, muted))
-            item.addView(verticalGap(8))
-            val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            if (payment.id.startsWith("t2_subscription_") || payment.id.startsWith("mobile_subscription_")) {
-                actions.addView(secondaryButton("Настроить T2") {
-                    mobileSettingsOpen = true
-                    selectTab(3)
-                }, LinearLayout.LayoutParams(0, -2, 1f))
-                actions.addView(View(this), LinearLayout.LayoutParams(dp(8), 1))
-                actions.addView(secondaryButton("Отключить") {
-                    val isLegacyT2 = payment.id.startsWith("t2_subscription_")
-                    val id = payment.id.removePrefix("t2_subscription_").removePrefix("mobile_subscription_")
-                    val pref = (if (isLegacyT2) "t2_payment_enabled_" else "mobile_payment_enabled_") + id
-                    preferences.edit().putBoolean(pref, false).apply()
-                    cancelReminder(payment)
-                    payments.removeAll { it.id == payment.id }
-                    persistPayments()
-                    renderPayments()
-                }, LinearLayout.LayoutParams(0, -2, 1f))
-            } else {
-                actions.addView(secondaryButton("Изменить") {
-                    showEditPaymentDialog(payment)
-                }, LinearLayout.LayoutParams(0, -2, 1f))
-                actions.addView(View(this), LinearLayout.LayoutParams(dp(8), 1))
-                actions.addView(secondaryButton("Удалить") {
-                    showDeletePaymentDialog(payment)
-                }, LinearLayout.LayoutParams(0, -2, 1f))
+        val sorted = payments.sortedBy { it.dueAt }
+        val section = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = cardGradient()
+            elevation = dp(2).toFloat()
+        }
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(14), dp(13), dp(14), dp(13))
+            isClickable = true
+            isFocusable = true
+            contentDescription = "Предстоящие платежи, " + sorted.size +
+                if (upcomingListExpanded) ", свернуть список" else ", раскрыть список"
+        }
+        header.addView(textLine("▦", 23f, accent, true).apply {
+            gravity = Gravity.CENTER
+            background = rounded(softAccent, 11)
+        }, LinearLayout.LayoutParams(dp(38), dp(38)))
+        header.addView(View(this), LinearLayout.LayoutParams(dp(10), 1))
+        header.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(textLine("Предстоящие платежи", 17f, ink, true))
+            addView(verticalGap(3))
+            addView(textLine(
+                if (upcomingListExpanded) "Нажмите, чтобы свернуть · " + sorted.size
+                else "Нажмите, чтобы раскрыть · " + sorted.size,
+                12f, muted
+            ))
+        }, LinearLayout.LayoutParams(0, -2, 1f))
+        header.addView(textLine(if (upcomingListExpanded) "⌃" else "⌄",
+            25f, accent, true).apply { gravity = Gravity.CENTER })
+        header.setOnClickListener {
+            upcomingListExpanded = PaymentListInteraction.toggleSection(upcomingListExpanded)
+            if (!upcomingListExpanded) expandedPaymentId = null
+            preferences.edit().putBoolean("payments_list_expanded", upcomingListExpanded).apply()
+            renderPayments()
+        }
+        section.addView(header)
+
+        if (upcomingListExpanded) {
+            section.addView(View(this).apply {
+                setBackgroundColor(if (isNight) Color.rgb(63, 100, 102)
+                    else Color.rgb(201, 228, 224))
+            }, LinearLayout.LayoutParams(-1, dp(1)))
+            if (sorted.isEmpty()) {
+                section.addView(textLine(
+                    "Пока нет напоминаний. Добавьте первый платёж выше.",
+                    13f, muted
+                ).apply { setPadding(dp(15), dp(17), dp(15), dp(17)) })
             }
-            item.addView(actions)
-            listContainer.addView(item)
-            listContainer.addView(verticalGap(10))
+            for ((index, payment) in sorted.withIndex()) {
+                val expanded = expandedPaymentId == payment.id
+                val item = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    background = if (expanded) rounded(softAccent, 12)
+                        else rounded(Color.TRANSPARENT, 12)
+                }
+                val row = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(14), dp(11), dp(14), dp(11))
+                    isClickable = true
+                    isFocusable = true
+                    contentDescription = "Платёж " + payment.title +
+                        if (expanded) ", свернуть подробности" else ", раскрыть подробности"
+                }
+                val titleAndDate = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    addView(textLine(payment.title, 14f, ink, true).apply {
+                        maxLines = 2
+                        ellipsize = android.text.TextUtils.TruncateAt.END
+                    })
+                    addView(verticalGap(4))
+                    addView(textLine(DateFormat.getDateInstance(DateFormat.MEDIUM)
+                        .format(Date(payment.dueAt)), 12f, muted))
+                }
+                row.addView(titleAndDate, LinearLayout.LayoutParams(0, -2, 1f))
+                row.addView(View(this), LinearLayout.LayoutParams(dp(8), 1))
+                val right = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    gravity = Gravity.END
+                    addView(textLine(
+                        PaymentCurrencyFormatter.amountWithCurrency(
+                            payment.amount, payment.currency
+                        ), 14f, ink, true
+                    ).apply { gravity = Gravity.END })
+                    addView(verticalGap(2))
+                    addView(textLine(if (expanded) "⌃" else "⌄",
+                        18f, accent, true).apply { gravity = Gravity.END })
+                }
+                row.addView(right)
+                row.setOnClickListener {
+                    expandedPaymentId = PaymentListInteraction.toggleRow(
+                        expandedPaymentId, payment.id
+                    )
+                    renderPayments()
+                }
+                item.addView(row)
+
+                if (expanded) {
+                    val detail = LinearLayout(this).apply {
+                        orientation = LinearLayout.VERTICAL
+                        setPadding(dp(14), 0, dp(14), dp(12))
+                    }
+                    detail.addView(textLine(
+                        "Напомнить за " + payment.leadDays + " дн. · " +
+                            recurrenceLabel(payment.recurrence),
+                        13f, muted
+                    ))
+                    detail.addView(verticalGap(10))
+                    val actions = LinearLayout(this).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                    }
+                    if (payment.id.startsWith("t2_subscription_") ||
+                        payment.id.startsWith("mobile_subscription_")) {
+                        actions.addView(secondaryButton("Настроить") {
+                            val simId = payment.id.removePrefix("t2_subscription_")
+                                .removePrefix("mobile_subscription_").toIntOrNull()
+                            if (simId != null) selectedOperatorId = simId
+                            mobileSettingsOpen = true
+                            selectTab(3)
+                        }, LinearLayout.LayoutParams(0, dp(45), 1f))
+                        actions.addView(View(this), LinearLayout.LayoutParams(dp(8), 1))
+                        actions.addView(secondaryButton("Отключить") {
+                            if (PaymentArchiveStore.archiveById(
+                                    this, payment.id, PaymentArchiveStore.DELETED
+                                )) {
+                                val prefix = if (payment.id.startsWith("t2_subscription_"))
+                                    "t2_payment_enabled_" else "mobile_payment_enabled_"
+                                val sim = payment.id.removePrefix("t2_subscription_")
+                                    .removePrefix("mobile_subscription_")
+                                preferences.edit().putBoolean(prefix + sim, false).apply()
+                                cancelReminder(payment)
+                                payments.removeAll { it.id == payment.id }
+                                expandedPaymentId = null
+                                renderPayments()
+                            } else {
+                                Toast.makeText(this, "Не удалось сохранить в архив",
+                                    Toast.LENGTH_LONG).show()
+                            }
+                        }, LinearLayout.LayoutParams(0, dp(45), 1f))
+                    } else {
+                        actions.addView(secondaryButton("Изменить") {
+                            showEditPaymentDialog(payment)
+                        }, LinearLayout.LayoutParams(0, dp(45), 1f))
+                        actions.addView(View(this), LinearLayout.LayoutParams(dp(8), 1))
+                        actions.addView(secondaryButton("Удалить") {
+                            showDeletePaymentDialog(payment)
+                        }, LinearLayout.LayoutParams(0, dp(45), 1f))
+                    }
+                    detail.addView(actions)
+                    detail.startAnimation(
+                        android.view.animation.AlphaAnimation(0.5f, 1f).apply {
+                            duration = 160L
+                        }
+                    )
+                    item.addView(detail)
+                }
+                section.addView(item)
+                if (index < sorted.lastIndex) {
+                    section.addView(View(this).apply {
+                        setBackgroundColor(if (isNight) Color.rgb(54, 84, 89)
+                            else Color.rgb(213, 231, 228))
+                    }, LinearLayout.LayoutParams(-1, dp(1)))
+                }
+            }
         }
+        listContainer.addView(section)
+        val archivedCount = PaymentArchiveStore.archived(this).size
+        val folder = card()
+        folder.contentDescription = "Папка Архив платежей, записей: $archivedCount"
+        folder.isClickable = true
+        folder.isFocusable = true
+        val folderRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        folderRow.addView(textLine("📁", 29f, accent, true))
+        folderRow.addView(View(this), LinearLayout.LayoutParams(dp(12), 1))
+        val folderLabels = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(textLine("Архив платежей", 17f, ink, true))
+            addView(verticalGap(3))
+            addView(textLine(
+                "$archivedCount записей · завершённые и удалённые",
+                12f, muted
+            ))
+        }
+        folderRow.addView(folderLabels, LinearLayout.LayoutParams(0, -2, 1f))
+        folderRow.addView(textLine("›", 25f, accent, true))
+        folder.addView(folderRow)
+        folder.setOnClickListener {
+            archiveOpen = true
+            renderTab()
+        }
+        listContainer.addView(verticalGap(18))
+        listContainer.addView(folder)
+        listContainer.addView(verticalGap(22))
     }
 
     /** History is a separate folder inside the Payments tab. */
