@@ -11,8 +11,8 @@ import android.graphics.Shader
 import android.graphics.drawable.Drawable
 
 /**
- * Full-bleed teal gradient with a subtle curved wave. Drawn without changing
- * the header's measured size or the brand wordmark position.
+ * A real flowing lower edge, not a rectangular banner with an overlaid wave.
+ * Paths scale to the drawable bounds for narrow/wide devices and both themes.
  */
 internal class BalanceHubHeaderDrawable(private val isDark: Boolean) : Drawable() {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -23,6 +23,27 @@ internal class BalanceHubHeaderDrawable(private val isDark: Boolean) : Drawable(
         val width = bounds.width().toFloat()
         val height = bounds.height().toFloat()
         if (width <= 0f || height <= 0f) return
+
+        val left = bounds.left.toFloat()
+        val top = bounds.top.toFloat()
+        canvas.save()
+        canvas.translate(left, top)
+
+        val edge = Path().apply {
+            moveTo(0f, height * .90f)
+            cubicTo(width * .20f, height * .74f,
+                width * .35f, height * 1.02f, width * .53f, height * .88f)
+            cubicTo(width * .75f, height * .68f,
+                width * .88f, height * .80f, width, height * .93f)
+        }
+        val fill = Path().apply {
+            moveTo(0f, 0f)
+            lineTo(width, 0f)
+            lineTo(width, height * .93f)
+            addPath(edge)
+            lineTo(0f, height * .90f)
+            close()
+        }
         val colors = if (isDark) intArrayOf(
             Color.rgb(66, 142, 149),
             Color.rgb(33, 125, 128),
@@ -32,32 +53,26 @@ internal class BalanceHubHeaderDrawable(private val isDark: Boolean) : Drawable(
             Color.rgb(62, 151, 156),
             Color.rgb(23, 123, 122)
         )
+        paint.style = Paint.Style.FILL
         paint.shader = LinearGradient(
-            0f, 0f, width, height * .75f,
+            0f, 0f, width, height * .80f,
             colors, null, Shader.TileMode.CLAMP
         )
-        paint.colorFilter = filter
         paint.alpha = opacity
-        canvas.drawRect(bounds.left.toFloat(), bounds.top.toFloat(),
-            bounds.right.toFloat(), bounds.bottom.toFloat(), paint)
+        paint.colorFilter = filter
+        canvas.drawPath(fill, paint)
         paint.shader = null
 
-        // A low-contrast curved ribbon like the selected gradient mockup.
-        val ribbon = Path().apply {
-            moveTo(0f, height * .71f)
-            cubicTo(width * .23f, height * .64f,
-                width * .34f, height * .97f, width * .60f, height * .77f)
-            cubicTo(width * .79f, height * .61f,
-                width * .89f, height * .67f, width, height * .78f)
-            lineTo(width, height)
-            lineTo(0f, height)
-            close()
-        }
-        paint.color = if (isDark) Color.rgb(0, 67, 76) else Color.rgb(16, 112, 110)
-        paint.alpha = opacity * 70 / 255
-        canvas.drawPath(ribbon, paint)
-        paint.alpha = opacity
-        paint.colorFilter = filter
+        // Restrained cyan highlight traces the actual fluid boundary.
+        paint.color = if (isDark) Color.rgb(39, 177, 174)
+            else Color.rgb(26, 151, 149)
+        paint.alpha = opacity * 155 / 255
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = (height * .016f).coerceIn(1.2f, 2.8f)
+        paint.strokeCap = Paint.Cap.ROUND
+        canvas.drawPath(edge, paint)
+        paint.style = Paint.Style.FILL
+        canvas.restore()
     }
 
     override fun setAlpha(alpha: Int) {
