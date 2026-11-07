@@ -60,7 +60,13 @@ internal object SberPushParser {
                 val tailEnd = minOf(text.length, match.range.last + 1 + 72)
                 val tail = text.substring(match.range.last + 1, tailEnd)
                     .substringBefore('\n').substringBefore('\r')
-                val amount = moneyPattern.find(tail) ?: continue
+                // A new sentence marks a new operation: never borrow its money
+                // amount as the balance from the previous sentence.
+                val clauseBreak = Regex("""[.!?;]\\s+(?=\\p{L})""").find(tail)
+                val clause = if (clauseBreak == null) tail
+                    else tail.substring(0, clauseBreak.range.first)
+                val amount = moneyPattern.find(clause) ?: continue
+                if (bonuses.containsMatchIn(clause.substring(0, amount.range.first))) continue
                 // The balance should be attached to the label. A distant amount
                 // is much more likely to be a transaction or marketing number.
                 if (amount.range.first > 38) continue
