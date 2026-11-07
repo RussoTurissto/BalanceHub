@@ -1,5 +1,6 @@
 package com.github.russoturissto.buttonapp.app
 
+import android.annotation.SuppressLint
 import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
@@ -20,6 +21,9 @@ internal data class ArchivedPayment(
     val reason: String
 )
 
+// Synchronous commit is intentional: changing active and archived sets is one
+// durable transaction, and the return value lets callers handle write failures.
+@SuppressLint("UseKtx")
 internal object PaymentArchiveStore {
     private const val PREFS = "balancehub_data"
     private const val ACTIVE = "payment_reminders"
