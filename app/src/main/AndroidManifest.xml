@@ -21,6 +21,7 @@
             </intent-filter>
         </activity>
         <receiver android:name=".PaymentReminderReceiver" android:enabled="true" android:exported="false" />
+        <receiver android:name=".PaymentArchiveReceiver" android:enabled="true" android:exported="false" />
         <receiver android:name=".PaymentBootReceiver" android:enabled="true" android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />

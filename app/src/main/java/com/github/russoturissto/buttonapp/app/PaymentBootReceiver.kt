@@ -12,6 +12,8 @@ import org.json.JSONArray
 class PaymentBootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
+        // Process one-off payments that expired while the phone was turned off.
+        PaymentArchiveStore.archiveDue(context)
         val prefs = context.getSharedPreferences("balancehub_data", Context.MODE_PRIVATE)
         val records = try {
             JSONArray(prefs.getString("payment_reminders", "[]") ?: "[]")
@@ -34,6 +36,9 @@ class PaymentBootReceiver : BroadcastReceiver() {
                         else due.add(Calendar.DAY_OF_YEAR, 7)
                         trigger = due.timeInMillis - lead * 86400000L
                     }
+                }
+                if (recurrence == "once" && due.timeInMillis > now) {
+                    PaymentArchiveScheduler.schedule(context, id, due.timeInMillis)
                 }
                 if (trigger <= now) continue
                 val alert = Intent(context, PaymentReminderReceiver::class.java).apply {
