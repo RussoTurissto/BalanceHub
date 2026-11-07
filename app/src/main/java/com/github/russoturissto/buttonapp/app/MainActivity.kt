@@ -111,10 +111,13 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        val moved = PaymentArchiveStore.archiveDue(this)
-        if (moved.isNotEmpty() && ::contentContainer.isInitialized) {
-            payments.removeAll { it.id in moved }
-            renderTab()
+        PaymentArchiveStore.archiveDue(this)
+        // The background receiver may already have archived a payment while the
+        // activity was paused. Always reconcile the in-memory list with history.
+        val archivedIds = PaymentArchiveStore.archived(this).map { it.id }.toSet()
+        if (archivedIds.isNotEmpty() && ::contentContainer.isInitialized) {
+            val changed = payments.removeAll { it.id in archivedIds }
+            if (changed) renderTab()
         }
     }
 
