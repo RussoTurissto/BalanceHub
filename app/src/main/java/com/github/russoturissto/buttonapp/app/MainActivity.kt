@@ -1020,7 +1020,7 @@ class MainActivity : AppCompatActivity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        folderRow.addView(textLine("▣", 29f, accent, true))
+        folderRow.addView(textLine("📁", 29f, accent, true))
         folderRow.addView(View(this), LinearLayout.LayoutParams(dp(12), 1))
         val folderLabels = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -1592,7 +1592,7 @@ class MainActivity : AppCompatActivity() {
             renderTab()
         })
         contentContainer.addView(verticalGap(13))
-        contentContainer.addView(textLine("▣ Архив платежей", 23f, ink, true))
+        contentContainer.addView(textLine("📁 Архив платежей", 23f, ink, true))
         contentContainer.addView(verticalGap(5))
         contentContainer.addView(textLine(
             "Завершённые и удалённые напоминания сохраняются здесь.",
