@@ -40,8 +40,12 @@ internal class BalanceHubHeaderDrawable(private val isDark: Boolean) : Drawable(
             moveTo(0f, 0f)
             lineTo(width, 0f)
             lineTo(width, height * .93f)
-            addPath(edge)
-            lineTo(0f, height * .90f)
+            // Retrace the bezier edge backwards so the filled shape is
+            // a single closed contour with a truly curved lower boundary.
+            cubicTo(width * .88f, height * .80f,
+                width * .75f, height * .68f, width * .53f, height * .88f)
+            cubicTo(width * .35f, height * 1.02f,
+                width * .20f, height * .74f, 0f, height * .90f)
             close()
         }
         val colors = if (isDark) intArrayOf(
