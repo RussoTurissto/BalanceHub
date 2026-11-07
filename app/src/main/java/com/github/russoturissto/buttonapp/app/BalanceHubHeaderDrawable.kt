@@ -9,6 +9,7 @@ import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.Shader
 import android.graphics.drawable.Drawable
+import androidx.core.graphics.withTranslation
 
 /**
  * A real flowing lower edge, not a rectangular banner with an overlaid wave.
@@ -26,8 +27,7 @@ internal class BalanceHubHeaderDrawable(private val isDark: Boolean) : Drawable(
 
         val left = bounds.left.toFloat()
         val top = bounds.top.toFloat()
-        canvas.save()
-        canvas.translate(left, top)
+        canvas.withTranslation(left, top) {
 
         val edge = Path().apply {
             moveTo(0f, height * .90f)
@@ -76,7 +76,7 @@ internal class BalanceHubHeaderDrawable(private val isDark: Boolean) : Drawable(
         paint.strokeCap = Paint.Cap.ROUND
         canvas.drawPath(edge, paint)
         paint.style = Paint.Style.FILL
-        canvas.restore()
+        }
     }
 
     override fun setAlpha(alpha: Int) {
