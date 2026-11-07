@@ -34,6 +34,8 @@ import androidx.core.app.ActivityCompat
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.DateFormat
+import java.text.SimpleDateFormat
+import java.util.Locale
 import java.util.Calendar
 import java.util.Date
 import java.util.UUID
@@ -55,6 +57,16 @@ class MainActivity : AppCompatActivity() {
     private var operatorDetailsOpen = false
     private var archiveOpen = false
     private var upcomingListExpanded = true
+    private var homeUpcomingExpanded = false
+    private var homeExpandedPaymentId: String? = null
+    private var homeSelectedDay: Int? = null
+    private val homeCalendarMonth: Calendar = Calendar.getInstance().apply {
+        set(Calendar.DAY_OF_MONTH, 1)
+        set(Calendar.HOUR_OF_DAY, 0)
+        set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+    }
     private var expandedPaymentId: String? = null
     private var selectedOperatorId: Int? = null
     private var sessionAutoRefreshStarted = false
@@ -82,6 +94,13 @@ class MainActivity : AppCompatActivity() {
         upcomingListExpanded = savedInstanceState?.getBoolean("payments_list_expanded")
             ?: preferences.getBoolean("payments_list_expanded", true)
         expandedPaymentId = savedInstanceState?.getString("expanded_payment_id")
+        homeUpcomingExpanded = savedInstanceState?.getBoolean("home_payments_expanded")
+            ?: preferences.getBoolean("home_payments_expanded", false)
+        homeExpandedPaymentId = savedInstanceState?.getString("home_expanded_payment_id")
+        homeSelectedDay = savedInstanceState?.getInt("home_selected_day", -1)
+            ?.takeIf { it in 1..31 }
+        savedInstanceState?.getLong("home_calendar_month", 0L)
+            ?.takeIf { it > 0L }?.let { homeCalendarMonth.timeInMillis = it }
         selectedOperatorId = savedInstanceState?.getInt("selected_operator_id", Int.MIN_VALUE)?.takeIf { it != Int.MIN_VALUE }
         tutorialStep = savedInstanceState?.getInt("tutorial_step") ?:
             if (preferences.getBoolean("onboarding_completed", false)) -1 else 0
@@ -139,6 +158,10 @@ class MainActivity : AppCompatActivity() {
         outState.putBoolean("archive_open", archiveOpen)
         outState.putBoolean("payments_list_expanded", upcomingListExpanded)
         outState.putString("expanded_payment_id", expandedPaymentId)
+        outState.putBoolean("home_payments_expanded", homeUpcomingExpanded)
+        outState.putString("home_expanded_payment_id", homeExpandedPaymentId)
+        outState.putInt("home_selected_day", homeSelectedDay ?: -1)
+        outState.putLong("home_calendar_month", homeCalendarMonth.timeInMillis)
         selectedOperatorId?.let { outState.putInt("selected_operator_id", it) }
         outState.putInt("tutorial_step", tutorialStep)
         super.onSaveInstanceState(outState)
@@ -309,7 +332,7 @@ class MainActivity : AppCompatActivity() {
         }
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), headerTopPadding, dp(20), dp(12))
+            setPadding(dp(20), headerTopPadding, dp(20), dp(23))
             background = BalanceHubHeaderDrawable(isNight)
         }
         header.addView(textLine("BalanceHub", 21f, Color.WHITE, true).apply {
@@ -608,7 +631,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderHome() {
-        contentContainer.addView(textLine("Обзор", 23f, ink, true))
+        contentContainer.addView(textLine("Главная", 23f, ink, true))
         contentContainer.addView(verticalGap(14))
         val startOfToday = Calendar.getInstance().apply {
             set(Calendar.HOUR_OF_DAY, 0)
@@ -652,39 +675,331 @@ class MainActivity : AppCompatActivity() {
         totals.addView(valueColumn, LinearLayout.LayoutParams(0, -2, 1f))
         summary.addView(totals)
         contentContainer.addView(summary)
+        contentContainer.addView(verticalGap(14))
+        renderHomeCalendar(upcomingPayments)
         contentContainer.addView(verticalGap(16))
-        contentContainer.addView(textLine("Все предстоящие платежи", 19f, ink, true))
-        contentContainer.addView(verticalGap(9))
-        val upcoming = upcomingPayments.sortedBy { it.dueAt }
-        if (upcoming.isEmpty()) {
-            val empty = card()
-            empty.addView(textLine("Пока нет платежей", 16f, ink, true))
-            empty.addView(verticalGap(5))
-            empty.addView(textLine("Добавьте первый платёж во вкладке «Платежи».", 14f, muted))
-            contentContainer.addView(empty)
-        } else for (payment in upcoming) {
-            val item = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(14), dp(12), dp(14), dp(12))
-                background = cardGradient()
-                elevation = dp(1).toFloat()
-            }
-            item.addView(textLine(payment.title, 15f, ink, true))
-            item.addView(verticalGap(3))
-            item.addView(textLine(
-                PaymentCurrencyFormatter.amountWithCurrency(payment.amount, payment.currency) +
-                    " · " + DateFormat.getDateInstance(DateFormat.MEDIUM)
-                        .format(Date(payment.dueAt)), 13f, muted
-            ))
-            contentContainer.addView(item)
-            contentContainer.addView(verticalGap(7))
-        }
-        contentContainer.addView(verticalGap(8))
+        renderHomePayments(upcomingPayments.sortedBy { it.dueAt })
+        contentContainer.addView(verticalGap(14))
         contentContainer.addView(primaryButton("Управлять платежами") {
             selectTab(2)
         })
     }
 
+    private fun renderHomeCalendar(upcoming: List<PaymentReminder>) {
+        val year = homeCalendarMonth.get(Calendar.YEAR)
+        val month = homeCalendarMonth.get(Calendar.MONTH)
+        val offset = PaymentCalendarMath.mondayOffset(year, month)
+        val monthDays = PaymentCalendarMath.daysInMonth(year, month)
+        val today = Calendar.getInstance()
+        val isCurrentMonth = today.get(Calendar.YEAR) == year &&
+            today.get(Calendar.MONTH) == month
+        val byDay = linkedMapOf<Int, MutableList<PaymentReminder>>()
+        for (payment in payments) {
+            for (day in PaymentCalendarMath.scheduledDays(
+                    payment.dueAt, payment.recurrence, year, month)) {
+                byDay.getOrPut(day) { mutableListOf() }.add(payment)
+            }
+        }
+        val calendar = card().apply { setPadding(dp(13), dp(13), dp(13), dp(14)) }
+        val controls = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        controls.addView(secondaryButton("‹") {
+            homeCalendarMonth.add(Calendar.MONTH, -1)
+            homeSelectedDay = null
+            renderTab()
+        }.apply { contentDescription = "Предыдущий месяц" },
+            LinearLayout.LayoutParams(dp(40), dp(40)))
+        val title = SimpleDateFormat("LLLL yyyy", Locale("ru"))
+            .format(homeCalendarMonth.time).replaceFirstChar { it.uppercase() }
+        controls.addView(textLine(title, 16f, ink, true).apply {
+            gravity = Gravity.CENTER
+        }, LinearLayout.LayoutParams(0, dp(40), 1f))
+        controls.addView(secondaryButton("›") {
+            homeCalendarMonth.add(Calendar.MONTH, 1)
+            homeSelectedDay = null
+            renderTab()
+        }.apply { contentDescription = "Следующий месяц" },
+            LinearLayout.LayoutParams(dp(40), dp(40)))
+        calendar.addView(controls)
+        calendar.addView(verticalGap(8))
+
+        val weekdays = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        for (name in listOf("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")) {
+            weekdays.addView(textLine(name, 11f, muted, true).apply {
+                gravity = Gravity.CENTER
+            }, LinearLayout.LayoutParams(0, dp(22), 1f))
+        }
+        calendar.addView(weekdays)
+        val rows = (offset + monthDays + 6) / 7
+        for (rowIndex in 0 until rows) {
+            val daysRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+            }
+            for (column in 0..6) {
+                val day = rowIndex * 7 + column - offset + 1
+                if (day !in 1..monthDays) {
+                    daysRow.addView(View(this),
+                        LinearLayout.LayoutParams(0, dp(40), 1f))
+                    continue
+                }
+                val paymentCount = byDay[day]?.size ?: 0
+                val marked = paymentCount > 0
+                val isToday = isCurrentMonth &&
+                    today.get(Calendar.DAY_OF_MONTH) == day
+                val chosen = homeSelectedDay == day
+                val cell = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    gravity = Gravity.CENTER
+                    setPadding(dp(1), dp(2), dp(1), dp(2))
+                    background = GradientDrawable().apply {
+                        setColor(when {
+                            chosen -> Color.rgb(32, 133, 128)
+                            marked -> if (isNight) Color.rgb(25, 112, 108)
+                                else Color.rgb(207, 239, 230)
+                            else -> Color.TRANSPARENT
+                        })
+                        cornerRadius = dp(11).toFloat()
+                        if (isToday) setStroke(dp(2), Color.rgb(45, 221, 212))
+                        else if (chosen) setStroke(dp(2), Color.rgb(166, 236, 211))
+                    }
+                    isClickable = true
+                    isFocusable = true
+                    contentDescription = day.toString() + " " + title +
+                        (if (marked) ", платежей: " + paymentCount else "") +
+                        (if (isToday) ", сегодня" else "")
+                }
+                cell.addView(textLine(day.toString(), 13f,
+                    if (chosen || (marked && isNight)) Color.WHITE else ink,
+                    chosen || marked || isToday).apply {
+                    gravity = Gravity.CENTER
+                })
+                cell.addView(textLine(
+                    if (paymentCount > 1) paymentCount.toString()
+                    else if (marked) "•" else " ",
+                    10f,
+                    if (chosen || (marked && isNight)) Color.WHITE else accent,
+                    marked
+                ).apply { gravity = Gravity.CENTER })
+                cell.setOnClickListener {
+                    homeSelectedDay = if (chosen) null else day
+                    renderTab()
+                }
+                daysRow.addView(cell, LinearLayout.LayoutParams(0, dp(40), 1f)
+                    .apply { marginStart = dp(1); marginEnd = dp(1) })
+            }
+            calendar.addView(daysRow)
+        }
+        calendar.addView(verticalGap(12))
+        calendar.addView(View(this).apply {
+            setBackgroundColor(if (isNight) Color.rgb(68, 104, 104)
+                else Color.rgb(196, 222, 218))
+        }, LinearLayout.LayoutParams(-1, dp(1)))
+        calendar.addView(verticalGap(10))
+
+        // Always show the nearest current payment, not the nearest in the
+        // month currently browsed in the calendar.
+        val nearest = upcoming.minByOrNull { it.dueAt }
+        val nearestRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(2), dp(2), dp(2), dp(2))
+        }
+        nearestRow.addView(textLine("▣", 22f, accent, true).apply {
+            gravity = Gravity.CENTER
+            background = rounded(softAccent, 12)
+        }, LinearLayout.LayoutParams(dp(40), dp(42)))
+        nearestRow.addView(View(this), LinearLayout.LayoutParams(dp(9), 1))
+        val info = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(textLine("Ближайший платёж", 12f, muted))
+            addView(verticalGap(3))
+            addView(textLine(nearest?.title ?: "Платежей пока нет",
+                14f, ink, true).apply {
+                maxLines = 2
+                ellipsize = android.text.TextUtils.TruncateAt.END
+            })
+            if (nearest != null) {
+                addView(verticalGap(3))
+                addView(textLine(DateFormat.getDateInstance(DateFormat.MEDIUM)
+                    .format(Date(nearest.dueAt)) + " · " +
+                    PaymentCurrencyFormatter.amountWithCurrency(
+                        nearest.amount, nearest.currency), 11f, muted))
+            }
+        }
+        nearestRow.addView(info, LinearLayout.LayoutParams(0, -2, 1f))
+        if (nearest != null) {
+            val remaining = PaymentCalendarMath.daysUntil(
+                System.currentTimeMillis(), nearest.dueAt).coerceAtLeast(0)
+            val word = when {
+                remaining % 100 in 11..14 -> "дней"
+                remaining % 10 == 1 -> "день"
+                remaining % 10 in 2..4 -> "дня"
+                else -> "дней"
+            }
+            nearestRow.addView(View(this), LinearLayout.LayoutParams(dp(6), 1))
+            nearestRow.addView(LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                setPadding(dp(6), dp(6), dp(6), dp(6))
+                background = rounded(softAccent, 12)
+                addView(textLine(remaining.toString(), 22f, accent, true).apply {
+                    gravity = Gravity.CENTER
+                })
+                addView(textLine(word, 11f, muted, true).apply {
+                    gravity = Gravity.CENTER
+                })
+            }, LinearLayout.LayoutParams(dp(58), -2))
+            nearestRow.isClickable = true
+            nearestRow.isFocusable = true
+            nearestRow.contentDescription = "Открыть ближайший платёж " + nearest.title
+            nearestRow.setOnClickListener {
+                homeUpcomingExpanded = true
+                homeExpandedPaymentId = nearest.id
+                preferences.edit().putBoolean("home_payments_expanded", true).apply()
+                renderTab()
+            }
+        }
+        calendar.addView(nearestRow)
+
+        val chosenDay = homeSelectedDay
+        if (chosenDay != null) {
+            calendar.addView(verticalGap(10))
+            val selectedDate = (homeCalendarMonth.clone() as Calendar).apply {
+                set(Calendar.DAY_OF_MONTH, chosenDay)
+            }
+            val details = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                background = rounded(softAccent, 12)
+                setPadding(dp(11), dp(10), dp(11), dp(10))
+                addView(textLine("Платежи на " +
+                    SimpleDateFormat("d MMMM", Locale("ru"))
+                        .format(selectedDate.time), 13f, ink, true))
+            }
+            val selectedPayments = byDay[chosenDay].orEmpty()
+            if (selectedPayments.isEmpty()) {
+                details.addView(verticalGap(4))
+                details.addView(textLine("На эту дату платежей нет", 12f, muted))
+            } else for (payment in selectedPayments) {
+                details.addView(verticalGap(4))
+                details.addView(textLine(payment.title + " · " +
+                    PaymentCurrencyFormatter.amountWithCurrency(
+                        payment.amount, payment.currency), 12f, ink))
+            }
+            calendar.addView(details)
+        }
+        contentContainer.addView(calendar)
+    }
+
+    private fun renderHomePayments(upcoming: List<PaymentReminder>) {
+        if (homeExpandedPaymentId != null &&
+            upcoming.none { it.id == homeExpandedPaymentId }) {
+            homeExpandedPaymentId = null
+        }
+        val section = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = cardGradient()
+            elevation = dp(2).toFloat()
+        }
+        val heading = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(14), dp(15), dp(14), dp(15))
+            isClickable = true
+            isFocusable = true
+            contentDescription = if (homeUpcomingExpanded)
+                "Все предстоящие платежи, свернуть"
+            else "Все предстоящие платежи, раскрыть"
+        }
+        heading.addView(textLine("Все предстоящие платежи (" +
+            upcoming.size + ")", 16f, ink, true),
+            LinearLayout.LayoutParams(0, -2, 1f))
+        heading.addView(textLine(if (homeUpcomingExpanded) "⌃" else "⌄",
+            23f, accent, true))
+        heading.setOnClickListener {
+            homeUpcomingExpanded = !homeUpcomingExpanded
+            if (!homeUpcomingExpanded) homeExpandedPaymentId = null
+            preferences.edit().putBoolean(
+                "home_payments_expanded", homeUpcomingExpanded).apply()
+            renderTab()
+        }
+        section.addView(heading)
+        if (homeUpcomingExpanded) {
+            section.addView(View(this).apply {
+                setBackgroundColor(if (isNight) Color.rgb(63, 98, 100)
+                    else Color.rgb(207, 229, 224))
+            }, LinearLayout.LayoutParams(-1, dp(1)))
+            if (upcoming.isEmpty()) {
+                section.addView(textLine("Пока нет предстоящих платежей",
+                    13f, muted).apply {
+                    setPadding(dp(14), dp(14), dp(14), dp(14))
+                })
+            }
+            for ((index, payment) in upcoming.withIndex()) {
+                val expanded = homeExpandedPaymentId == payment.id
+                val item = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    if (expanded) background = rounded(softAccent, 12)
+                }
+                val row = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(13), dp(10), dp(13), dp(10))
+                    isClickable = true
+                    isFocusable = true
+                    contentDescription = "Платёж " + payment.title +
+                        if (expanded) ", свернуть" else ", раскрыть"
+                }
+                row.addView(LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    addView(textLine(payment.title, 13f, ink, true).apply {
+                        maxLines = 2
+                        ellipsize = android.text.TextUtils.TruncateAt.END
+                    })
+                    addView(verticalGap(3))
+                    addView(textLine(DateFormat.getDateInstance(DateFormat.MEDIUM)
+                        .format(Date(payment.dueAt)), 11f, muted))
+                }, LinearLayout.LayoutParams(0, -2, 1f))
+                row.addView(View(this), LinearLayout.LayoutParams(dp(7), 1))
+                row.addView(textLine(PaymentCurrencyFormatter.amountWithCurrency(
+                    payment.amount, payment.currency), 13f, ink, true).apply {
+                    gravity = Gravity.END
+                })
+                row.setOnClickListener {
+                    homeExpandedPaymentId = PaymentListInteraction.toggleRow(
+                        homeExpandedPaymentId, payment.id)
+                    renderTab()
+                }
+                item.addView(row)
+                if (expanded) {
+                    item.addView(LinearLayout(this).apply {
+                        orientation = LinearLayout.VERTICAL
+                        setPadding(dp(13), 0, dp(13), dp(12))
+                        addView(textLine("Напомнить за " + payment.leadDays +
+                            " дн. · " + recurrenceLabel(payment.recurrence),
+                            12f, muted))
+                        addView(verticalGap(8))
+                        addView(secondaryButton("Открыть во вкладке «Платежи»") {
+                            upcomingListExpanded = true
+                            expandedPaymentId = payment.id
+                            preferences.edit().putBoolean(
+                                "payments_list_expanded", true).apply()
+                            selectTab(2)
+                        }, LinearLayout.LayoutParams(-1, dp(42)))
+                    })
+                }
+                section.addView(item)
+                if (index != upcoming.lastIndex) {
+                    section.addView(View(this).apply {
+                        setBackgroundColor(if (isNight) Color.rgb(55, 87, 90)
+                            else Color.rgb(215, 234, 230))
+                    }, LinearLayout.LayoutParams(-1, dp(1)))
+                }
+            }
+        }
+        contentContainer.addView(section)
+    }
 
     private fun connectedSims(): List<MobileSim> = T2Balance.sims(this)
 
