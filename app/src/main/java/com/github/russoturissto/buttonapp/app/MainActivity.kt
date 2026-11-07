@@ -472,13 +472,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderTab() {
         contentContainer.removeAllViews()
-        // The home screen has a deliberately tighter gap below the wave.
-        // Other screens retain their existing comfortable top padding.
-        val topPadding = if (currentTab == 0)
-            HomeDashboardSizing.forHeight(
-                resources.configuration.screenHeightDp,
-                resources.configuration.fontScale
-            ).topPaddingDp else 18
+        // All four top-level headings must share the exact same Y position.
+        // Reuse the responsive top inset already approved for "Главная";
+        // do not shift the home title or change the wave/header itself.
+        val topPadding = HomeDashboardSizing.forHeight(
+            resources.configuration.screenHeightDp,
+            resources.configuration.fontScale
+        ).topPaddingDp
         contentContainer.setPadding(dp(18), dp(topPadding), dp(18),
             dp(if (currentTab == 0) 12 else 24))
         if (tutorialStep >= 0) {
