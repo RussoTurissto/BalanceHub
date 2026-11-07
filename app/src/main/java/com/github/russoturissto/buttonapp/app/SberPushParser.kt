@@ -2,36 +2,99 @@ package com.github.russoturissto.buttonapp.app
 
 import java.math.BigDecimal
 
-/** Accept only explicit RUB balances, never infer a balance from an expense or transfer. */
+/**
+ * Strict, offline extractor for explicitly stated balances in Sber Push notifications.
+ * Never subtracts an operation amount to fabricate a bank balance.
+ */
 internal object SberPushParser {
-    // Android package of the supported SberBank Online application.
     const val SBER_PACKAGE = "ru.sberbankmobile"
-
-    data class Result(val kopecks: Long, val lastFour: String?)
-
-    private val balancePattern = Regex(
-        """(?iu)\b(?:остаток|баланс|доступно)\b[^\r\n]{0,65}?\s+(-?(?:\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d{1,12})(?:[.,]\d{1,2})?)\s*(?:₽|руб(?:\.|ля|лей)?|RUB)(?=$|[\s,;.!?])"""
+    enum class Reason {
+        ACCEPTED, OTHER_APPLICATION, NO_BALANCE, AMBIGUOUS_BALANCE,
+        AMBIGUOUS_ACCOUNT, INVALID_BALANCE
+    }
+    enum class Confidence { EXPLICIT, CONTEXTUAL }
+    data class Result(
+        val kopecks: Long,
+        val lastFour: String?,
+        val confidence: Confidence
     )
-    private val cardPattern = Regex(
-        """(?iu)(?:карт(?:а|е|ы|ой)?|сч[её]т(?:а|е|у)?)\b[^\r\n]{0,32}?[•*xX]{1,8}\s*(\d{4})(?!\d)"""
-    )
-    private val maskedPattern = Regex("""[•*]{2,8}\s*(\d{4})(?!\d)""")
+    data class Assessment(val result: Result?, val reason: Reason)
 
-    fun parse(sourcePackage: String, text: String): Result? {
-        if (sourcePackage != SBER_PACKAGE || text.length > 8_192) return null
-        val match = balancePattern.find(text) ?: return null
-        val normalized = match.groupValues[1].replace(" ", "")
-            .replace("\u00a0", "").replace("\u202f", "").replace(',', '.')
-        val value = try {
-            BigDecimal(normalized).movePointRight(2).longValueExact()
-        } catch (_: ArithmeticException) {
-            return null
-        } catch (_: NumberFormatException) {
-            return null
+    private data class Anchor(val pattern: Regex, val confidence: Confidence)
+
+    // Explicit phrases take priority over transaction verbs and amounts.
+    // "На лапках" is an observed Sber-style equivalent of the remaining funds.
+    private val anchors = listOf(
+        Anchor(Regex("""(?iu)\b(?:остат(?:ок|ка|ке)|баланс|доступно|осталось)\b"""),
+            Confidence.EXPLICIT),
+        Anchor(Regex("""(?iu)\bна\s+лапках\b"""), Confidence.EXPLICIT),
+        Anchor(Regex("""(?iu)\b(?:свободные\s+средства|доступный\s+остаток)\b"""),
+            Confidence.EXPLICIT),
+        // These words are ambiguous in running text. Require a separate clause.
+        Anchor(Regex("""(?imu)(?:^|[.!?;—–]\s*)\s*(?:на\s+(?:сч[её]те|счету|карт(?:е|очке))|в\s+(?:кошельке|копилке))\b"""),
+            Confidence.CONTEXTUAL)
+    )
+    // Amounts must carry an explicit ruble currency unit.
+    private val moneyPattern = Regex(
+        """(?iu)(?<![\d.,])([+-]?(?:\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d{1,12})(?:[.,]\d{1,2})?)\s*(?:₽|руб(?:\.|ля|лей)?|RUB|р\.)(?![a-zа-я0-9])"""
+    )
+    private val maskedAccountPattern =
+        Regex("""(?iu)[•●*xX]{1,8}\s*(\d{4})(?!\d)""")
+    private val bonuses = Regex("""(?iu)\b(?:бонус(?:ы|ов|ами|ный)?|спасибо|балл(?:ы|ов)|кешб[эе]к)\b""")
+
+    fun parse(sourcePackage: String, text: String): Result? =
+        analyze(sourcePackage, text).result
+
+    fun analyze(sourcePackage: String, text: String): Assessment {
+        if (sourcePackage != SBER_PACKAGE || text.length > 8_192) {
+            return Assessment(null, Reason.OTHER_APPLICATION)
         }
-        if (value < 0L || value > 999_999_999_999L) return null
-        val lastFour = cardPattern.find(text)?.groupValues?.get(1)
-            ?: maskedPattern.find(text)?.groupValues?.get(1)
-        return Result(value, lastFour)
+        // Never use bonus/loyalty "balances" as cash. Only skip a bonus-specific
+        // clause, not a genuine cash balance elsewhere in the same notification.
+        val found = mutableListOf<Pair<Long, Confidence>>()
+        var invalidCandidate = false
+        for (anchor in anchors) {
+            for (match in anchor.pattern.findAll(text)) {
+                val prefix = text.substring(maxOf(0, match.range.first - 18), match.range.first)
+                if (bonuses.containsMatchIn(prefix)) continue
+                val tailEnd = minOf(text.length, match.range.last + 1 + 72)
+                val tail = text.substring(match.range.last + 1, tailEnd)
+                    .substringBefore('\n').substringBefore('\r')
+                val amount = moneyPattern.find(tail) ?: continue
+                // The balance should be attached to the label. A distant amount
+                // is much more likely to be a transaction or marketing number.
+                if (amount.range.first > 38) continue
+                val digits = amount.groupValues[1]
+                    .replace(" ", "").replace("\u00a0", "")
+                    .replace("\u202f", "").replace(',', '.')
+                val kopecks = try {
+                    BigDecimal(digits).movePointRight(2).longValueExact()
+                } catch (_: ArithmeticException) {
+                    invalidCandidate = true
+                    continue
+                } catch (_: NumberFormatException) {
+                    invalidCandidate = true
+                    continue
+                }
+                if (kopecks < 0L || kopecks > 999_999_999_999L) {
+                    invalidCandidate = true
+                    continue
+                }
+                found.add(kopecks to anchor.confidence)
+            }
+        }
+        if (invalidCandidate) return Assessment(null, Reason.INVALID_BALANCE)
+        if (found.isEmpty()) return Assessment(null, Reason.NO_BALANCE)
+        if (found.map { it.first }.distinct().size != 1) {
+            return Assessment(null, Reason.AMBIGUOUS_BALANCE)
+        }
+        val accounts = maskedAccountPattern.findAll(text)
+            .map { it.groupValues[1] }.distinct().toList()
+        if (accounts.size > 1) return Assessment(null, Reason.AMBIGUOUS_ACCOUNT)
+        val confidence = if (found.any { it.second == Confidence.EXPLICIT }) {
+            Confidence.EXPLICIT
+        } else Confidence.CONTEXTUAL
+        return Assessment(Result(found.first().first, accounts.firstOrNull(), confidence),
+            Reason.ACCEPTED)
     }
 }

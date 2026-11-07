@@ -86,7 +86,8 @@ class MainActivity : AppCompatActivity() {
     private val bankUpdateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == SberPushNotificationListener.ACTION_BALANCE_UPDATED &&
-                currentTab == 1 && ::contentContainer.isInitialized) renderTab()
+                (currentTab == 1 || (currentTab == 3 && bankSettingsOpen)) &&
+                ::contentContainer.isInitialized) renderTab()
         }
     }
     private var editingId: String? = null
@@ -1172,6 +1173,24 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun sberLogo(size: Int = 45): android.widget.ImageView =
+        android.widget.ImageView(this).apply {
+            setImageDrawable(SberBrandLogoDrawable())
+            scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
+            contentDescription = "Логотип Сбербанка"
+            layoutParams = LinearLayout.LayoutParams(dp(size), dp(size))
+        }
+
+    private fun sberHeading(text: String, size: Float = 18f): LinearLayout =
+        LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(sberLogo())
+            addView(View(this@MainActivity), LinearLayout.LayoutParams(dp(12), 1))
+            addView(textLine(text, size, ink, true),
+                LinearLayout.LayoutParams(0, -2, 1f))
+        }
+
     private fun rubles(kopecks: Long): String =
         java.text.NumberFormat.getCurrencyInstance(Locale.forLanguageTag("ru-RU"))
             .format(java.math.BigDecimal.valueOf(kopecks, 2))
@@ -1187,12 +1206,12 @@ class MainActivity : AppCompatActivity() {
             else snapshots.map { it }
         for (snapshot in accounts) {
             val bankCard = card()
-            bankCard.addView(textLine("Сбербанк", 18f, ink, true))
+            bankCard.addView(sberHeading("Сбербанк"))
             bankCard.addView(verticalGap(5))
             if (snapshot == null) {
                 bankCard.addView(textLine("Баланс пока не получен", 16f, muted))
             } else {
-                val label = snapshot.lastFour?.let { "Карта ••••$it" }
+                val label = snapshot.lastFour?.let { "Счёт/карта ••••$it" }
                     ?: "Карта или счёт (не определён)"
                 bankCard.addView(textLine(label, 13f, muted))
                 bankCard.addView(verticalGap(7))
@@ -1594,7 +1613,7 @@ class MainActivity : AppCompatActivity() {
         contentContainer.addView(verticalGap(14))
 
         val bankSettings = card()
-        bankSettings.addView(textLine("Сбербанк   ›", 18f, ink, true))
+        bankSettings.addView(sberHeading("Сбербанк   ›"))
         bankSettings.addView(verticalGap(6))
         bankSettings.addView(textLine(
             "Баланс по Push-уведомлениям · " +
@@ -1647,14 +1666,40 @@ class MainActivity : AppCompatActivity() {
 
     private fun openSberListenerSettings() {
         val component = ComponentName(this, SberPushNotificationListener::class.java)
-        val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        val detailed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             Intent(Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS)
-                .putExtra(Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME, component)
-        } else Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+                .putExtra(Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME,
+                    component.flattenToString())
+        } else null
+        val general = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+        // ColorOS/OPPO sometimes ignores the direct-detail screen: open the
+        // common notification-access list first on those manufacturers.
+        val manufacturer = Build.MANUFACTURER.lowercase(Locale.ROOT)
+        val preferGeneral = listOf("oppo", "oneplus", "realme").any {
+            manufacturer.contains(it)
+        }
+        val candidates = if (preferGeneral) listOfNotNull(general, detailed)
+            else listOfNotNull(detailed, general)
+        for (intent in candidates) {
+            try {
+                startActivity(intent)
+                return
+            } catch (_: android.content.ActivityNotFoundException) {
+                // Fall back to the other Android settings action.
+            } catch (_: SecurityException) {
+                // The manufacturer may restrict this settings page.
+            }
+        }
         try {
-            startActivity(intent)
-        } catch (_: android.content.ActivityNotFoundException) {
-            startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+            startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                .setData(android.net.Uri.parse("package:$packageName")))
+            Toast.makeText(this,
+                "Откройте «Специальный доступ → Доступ к уведомлениям»",
+                Toast.LENGTH_LONG).show()
+        } catch (_: Exception) {
+            Toast.makeText(this,
+                "Откройте настройки телефона → Приложения → Специальный доступ → Доступ к уведомлениям",
+                Toast.LENGTH_LONG).show()
         }
     }
 
@@ -1664,20 +1709,19 @@ class MainActivity : AppCompatActivity() {
             renderTab()
         })
         contentContainer.addView(verticalGap(16))
-        contentContainer.addView(textLine("Сбербанк", 23f, ink, true))
+        contentContainer.addView(sberHeading("Сбербанк", 23f))
         contentContainer.addView(verticalGap(8))
         val bankCard = card()
         val enabled = SberBalanceStore.isEnabled(this)
         val granted = SberBalanceStore.isAccessGranted(this)
-        bankCard.addView(textLine(
-            if (enabled) "Получение Push включено" else "Подключение отключено",
-            17f, ink, true
+        bankCard.addView(sberHeading(
+            if (enabled) "Получение Push включено" else "Подключение отключено", 16f
         ))
         bankCard.addView(verticalGap(8))
         bankCard.addView(textLine(
-            "BalanceHub ищет только явный остаток в рублях в уведомлениях " +
-                "приложения СберБанк Онлайн. Не читает SMS, не запрашивает пароли, " +
-                "не отправляет данные в интернет и не хранит историю операций.",
+            "BalanceHub распознаёт явно обозначенный остаток в рублях, " +
+                "включая формулировку «На лапках». При сомнениях сумма не обновляется. " +
+                "SMS и пароли не используются, сообщения в интернет не отправляются.",
             13f, muted
         ))
         bankCard.addView(verticalGap(10))
@@ -1711,16 +1755,83 @@ class MainActivity : AppCompatActivity() {
         }
         contentContainer.addView(bankCard)
         contentContainer.addView(verticalGap(12))
+        val diagnostics = card()
+        diagnostics.addView(sberHeading("Диагностика Push", 16f))
+        diagnostics.addView(verticalGap(8))
+        diagnostics.addView(textLine(
+            "Доступ к уведомлениям: " +
+                if (granted) "предоставлен" else "не предоставлен",
+            13f, if (granted) accent else muted
+        ))
+        val installed = try {
+            @Suppress("DEPRECATION")
+            packageManager.getPackageInfo(SberPushParser.SBER_PACKAGE, 0)
+            true
+        } catch (_: PackageManager.NameNotFoundException) {
+            false
+        }
+        diagnostics.addView(verticalGap(6))
+        diagnostics.addView(textLine(
+            "Приложение-источник: " +
+                if (installed) "обнаружено" else "не найдено (возможна другая версия)",
+            13f, muted
+        ))
+        diagnostics.addView(textLine(
+            "Ожидаемый пакет: " + SberPushParser.SBER_PACKAGE,
+            12f, muted
+        ))
+        diagnostics.addView(verticalGap(6))
+        val lastEvent = if (enabled) SberPushDiagnostics.latest(this) else null
+        if (lastEvent == null) {
+            diagnostics.addView(textLine("Последний Push: ещё не обнаружен", 13f, muted))
+        } else {
+            val time = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
+                .format(Date(lastEvent.time))
+            diagnostics.addView(textLine("Последний Push: $time", 13f, ink))
+            val explanation = when (lastEvent.outcome) {
+                SberPushDiagnostics.Outcome.UPDATED -> "Остаток успешно обновлён"
+                SberPushDiagnostics.Outcome.NO_BALANCE ->
+                    "Явный остаток в рублях не найден"
+                SberPushDiagnostics.Outcome.AMBIGUOUS_BALANCE ->
+                    "Несколько разных сумм остатка — обновление отклонено"
+                SberPushDiagnostics.Outcome.AMBIGUOUS_ACCOUNT ->
+                    "Несколько счетов — нельзя безопасно определить нужный"
+                SberPushDiagnostics.Outcome.INVALID_BALANCE ->
+                    "Сумма остатка имеет неверный формат"
+                SberPushDiagnostics.Outcome.OLD_NOTIFICATION ->
+                    "Повторное или более старое уведомление"
+                SberPushDiagnostics.Outcome.SAVE_FAILED ->
+                    "Не удалось сохранить остаток"
+                SberPushDiagnostics.Outcome.EMPTY_NOTIFICATION ->
+                    "В уведомлении нет доступного текста"
+            }
+            diagnostics.addView(verticalGap(5))
+            diagnostics.addView(textLine("Распознавание: $explanation", 13f, muted))
+        }
+        diagnostics.addView(verticalGap(8))
+        diagnostics.addView(textLine(
+            "Сохраняются только время и результат проверки, без текста Push и истории операций.",
+            12f, muted
+        ))
+        contentContainer.addView(diagnostics)
+        contentContainer.addView(verticalGap(12))
+
         val help = card()
         help.addView(textLine("Как обновляется баланс", 16f, ink, true))
         help.addView(verticalGap(7))
         help.addView(textLine(
-            "При следующем Push от Сбера, содержащем «Остаток», «Баланс» " +
-                "или «Доступно» и сумму в рублях, отобразим последнее значение. " +
-                "При отсутствии остатка в уведомлении сумма не обновится. " +
-                "Если установлена другая версия приложения Сбера, может потребоваться " +
-                "добавить её идентификатор после проверки.",
+            "При следующем уведомлении с «Остаток», «Баланс», «Доступно», " +
+                "«На лапках» или другой распознанной формулировкой покажем " +
+                "подтверждённую сумму. Сумма самой операции никогда не " +
+                "подставляется вместо остатка. Если данные отсутствуют или " +
+                "неоднозначны, прежний баланс сохраняется.",
             13f, muted
+        ))
+        help.addView(verticalGap(10))
+        help.addView(textLine(
+            "Если переход к разрешениям не открывается, используйте: " +
+                "Настройки телефона → Приложения → Специальный доступ → Доступ к уведомлениям.",
+            12f, muted
         ))
         contentContainer.addView(help)
     }

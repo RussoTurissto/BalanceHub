@@ -30,7 +30,10 @@ internal object SberBalanceStore {
     fun setEnabled(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit { putBoolean(ENABLED, enabled) }
-        if (!enabled) clear(context)
+        if (!enabled) {
+            clear(context)
+            SberPushDiagnostics.clear(context)
+        }
     }
 
     fun isAccessGranted(context: Context): Boolean {
