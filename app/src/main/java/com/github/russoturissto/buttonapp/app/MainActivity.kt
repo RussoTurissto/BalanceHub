@@ -13,6 +13,7 @@ import android.content.ComponentName
 import android.content.IntentFilter
 import android.provider.Settings
 import androidx.core.content.ContextCompat
+import androidx.core.net.toUri
 import android.app.AlarmManager
 import android.app.DatePickerDialog
 import androidx.appcompat.app.AlertDialog
@@ -1692,7 +1693,7 @@ class MainActivity : AppCompatActivity() {
         }
         try {
             startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
-                .setData(android.net.Uri.parse("package:$packageName")))
+                .setData("package:$packageName".toUri()))
             Toast.makeText(this,
                 "Откройте «Специальный доступ → Доступ к уведомлениям»",
                 Toast.LENGTH_LONG).show()
