@@ -12,6 +12,13 @@ class SberNotificationPrivacyTest {
             0, 0, 0, null))
     }
 
+    @Test fun detectsRussianAndroidPlaceholderWhenResourceIsUnavailable() {
+        assertEquals(SberNotificationPrivacy.Evidence.SYSTEM_REDACTION,
+            p.detect(listOf("Сбербанк"),
+                listOf("Конфиденциальная информация в уведомлении скрыта"),
+                0, 0, 0, null))
+    }
+
     @Test fun detectsLocalizedAndroidPlaceholder() {
         assertEquals(SberNotificationPrivacy.Evidence.SYSTEM_REDACTION, p.detect(
             listOf("Сбербанк"), listOf("Чувствительное содержимое скрыто"),

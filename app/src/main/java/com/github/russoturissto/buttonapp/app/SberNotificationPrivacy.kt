@@ -21,7 +21,9 @@ internal object SberNotificationPrivacy {
         cuesMask: Int, accountMask: Int, systemText: String?
     ): Evidence {
         val known = listOfNotNull(systemText?.takeIf { it.isNotBlank() },
-            "Sensitive notification content hidden").map(SberPushSignals::normalize)
+            "Sensitive notification content hidden",
+            "Конфиденциальная информация в уведомлении скрыта")
+            .map(SberPushSignals::normalize)
         if (bodies.any { body -> known.any {
                 it.equals(SberPushSignals.normalize(body), ignoreCase = true)
             } }) return Evidence.SYSTEM_REDACTION
