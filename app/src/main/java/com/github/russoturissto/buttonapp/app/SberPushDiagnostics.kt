@@ -6,18 +6,24 @@ import org.json.JSONObject
 import java.io.File
 
 /**
- * Stores only a timestamp and outcome code. Notification text, counterparties,
- * transaction amounts and message titles are never retained or logged.
+ * Persist only event timestamp, field-availability flags and outcome code.
+ * No notification text, transaction history, counterparties or monetary sums.
  */
 internal object SberPushDiagnostics {
     enum class Outcome {
         UPDATED, NO_BALANCE, AMBIGUOUS_BALANCE, AMBIGUOUS_ACCOUNT,
-        INVALID_BALANCE, OLD_NOTIFICATION, SAVE_FAILED, EMPTY_NOTIFICATION
+        INVALID_BALANCE, OLD_NOTIFICATION, SAVE_FAILED, EMPTY_NOTIFICATION,
+        TITLE_ONLY
     }
-    data class Latest(val time: Long, val outcome: Outcome)
+
+    data class Latest(
+        val time: Long,
+        val outcome: Outcome,
+        val fieldsMask: Int,
+        val lastSuccessAt: Long?
+    )
 
     private val lock = Any()
-
     private fun file(context: Context) =
         AtomicFile(File(context.noBackupFilesDir, "sber_push_diagnostic.json"))
 
@@ -33,23 +39,45 @@ internal object SberPushDiagnostics {
             return@synchronized null
         }
         val time = json.optLong("time", 0L)
-        if (time > 0L) Latest(time, code) else null
+        val mask = json.optInt("fields", 0)
+        val success = json.optLong("lastSuccess", 0L).takeIf { it > 0L }
+        if (time > 0L) Latest(time, code, mask, success) else null
     }
 
-    fun record(context: Context, time: Long, outcome: Outcome) = synchronized(lock) {
-        if (!SberBalanceStore.isEnabled(context) || time <= 0L ||
-            time > System.currentTimeMillis() + 60_000L) return@synchronized
-        if ((latest(context)?.time ?: -1L) > time) return@synchronized
-        val value = JSONObject().put("time", time).put("outcome", outcome.name)
-        val target = file(context)
-        var stream: java.io.FileOutputStream? = null
-        try {
-            stream = target.startWrite()
-            stream.write(value.toString().toByteArray(Charsets.UTF_8))
-            target.finishWrite(stream)
-        } catch (_: Exception) {
-            if (stream != null) target.failWrite(stream)
+    fun record(context: Context, time: Long, outcome: Outcome, fieldsMask: Int) =
+        synchronized(lock) {
+            if (!SberBalanceStore.isEnabled(context) || time <= 0L ||
+                time > System.currentTimeMillis() + 60_000L) return@synchronized
+            val existing = latest(context)
+            if (existing != null && time < existing.time) return@synchronized
+            // Do not overwrite a useful result with an empty repost of the
+            // same notification (same Android postTime).
+            if (existing != null && time == existing.time &&
+                rank(existing.outcome) > rank(outcome)) return@synchronized
+            val success = if (outcome == Outcome.UPDATED) time
+                else existing?.lastSuccessAt
+            val json = JSONObject().put("time", time)
+                .put("outcome", outcome.name)
+                .put("fields", fieldsMask)
+                .put("lastSuccess", success ?: JSONObject.NULL)
+            val target = file(context)
+            var stream: java.io.FileOutputStream? = null
+            try {
+                stream = target.startWrite()
+                stream.write(json.toString().toByteArray(Charsets.UTF_8))
+                target.finishWrite(stream)
+            } catch (_: Exception) {
+                if (stream != null) target.failWrite(stream)
+            }
         }
+
+    private fun rank(outcome: Outcome): Int = when (outcome) {
+        Outcome.UPDATED -> 5
+        Outcome.NO_BALANCE, Outcome.AMBIGUOUS_BALANCE,
+        Outcome.AMBIGUOUS_ACCOUNT, Outcome.INVALID_BALANCE -> 4
+        Outcome.OLD_NOTIFICATION, Outcome.SAVE_FAILED -> 3
+        Outcome.TITLE_ONLY -> 2
+        Outcome.EMPTY_NOTIFICATION -> 1
     }
 
     fun clear(context: Context) = synchronized(lock) { file(context).delete() }

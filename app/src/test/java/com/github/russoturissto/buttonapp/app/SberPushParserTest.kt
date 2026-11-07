@@ -84,4 +84,15 @@ class SberPushParserTest {
         assertNull(SberPushParser.parse(bank,
             "Баланс бонусов начислен. Покупка 10 ₽"))
     }
+    @Test fun recognizesNowYouHaveIncomingTransfer() {
+        val push = "Баланс распушился 😻 Перевод от отправителя\n" +
+            "+ 10 ₽ — Теперь у тебя: 30,89 ₽ Плат. счёт ••\n9667"
+        val result = SberPushParser.parse(bank, push)
+        assertEquals(3_089L, result?.kopecks)
+        assertEquals("9667", result?.lastFour)
+    }
+
+    @Test fun doesNotMistakeReceiptForBalanceWithoutLabel() {
+        assertNull(SberPushParser.parse(bank, "+ 10 ₽ — перевод на счёт ••9667"))
+    }
 }

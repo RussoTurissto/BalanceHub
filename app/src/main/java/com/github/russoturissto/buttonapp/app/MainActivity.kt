@@ -1721,7 +1721,7 @@ class MainActivity : AppCompatActivity() {
         bankCard.addView(verticalGap(8))
         bankCard.addView(textLine(
             "BalanceHub распознаёт явно обозначенный остаток в рублях, " +
-                "включая формулировку «На лапках». При сомнениях сумма не обновляется. " +
+                "включая «На лапках» и «Теперь у тебя». При сомнениях сумма не обновляется. " +
                 "SMS и пароли не используются, сообщения в интернет не отправляются.",
             13f, muted
         ))
@@ -1739,10 +1739,12 @@ class MainActivity : AppCompatActivity() {
                 renderTab()
             })
         } else {
-            bankCard.addView(primaryButton("Настроить доступ к уведомлениям") {
-                openSberListenerSettings()
-            })
-            bankCard.addView(verticalGap(9))
+            if (!granted) {
+                bankCard.addView(primaryButton("Настроить доступ к уведомлениям") {
+                    openSberListenerSettings()
+                })
+                bankCard.addView(verticalGap(9))
+            }
             bankCard.addView(secondaryButton("Отключить и удалить остатки") {
                 themedDialogBuilder().setTitle("Отключить Сбербанк?")
                     .setMessage("Все сохранённые остатки Сбербанка будут удалены. " +
@@ -1786,9 +1788,30 @@ class MainActivity : AppCompatActivity() {
         if (lastEvent == null) {
             diagnostics.addView(textLine("Последний Push: ещё не обнаружен", 13f, muted))
         } else {
-            val time = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
-                .format(Date(lastEvent.time))
-            diagnostics.addView(textLine("Последний Push: $time", 13f, ink))
+            val formatted = DateFormat.getDateTimeInstance(
+                DateFormat.SHORT, DateFormat.SHORT
+            ).format(Date(lastEvent.time))
+            diagnostics.addView(textLine("Последний Push: $formatted", 13f, ink))
+            val fields = SberNotificationText.Field.entries
+                .filter { (lastEvent.fieldsMask and it.mask) != 0 }
+                .map { it.label }
+            diagnostics.addView(verticalGap(6))
+            diagnostics.addView(textLine(
+                "Доступные поля: " +
+                    if (fields.isEmpty()) "не обнаружены" else fields.joinToString(", "),
+                12f, muted
+            ))
+            diagnostics.addView(verticalGap(5))
+            diagnostics.addView(textLine(
+                if (fields.isEmpty()) "Содержимое Push не передано Android"
+                else if (fields.all {
+                    it == SberNotificationText.Field.TITLE.label ||
+                        it == SberNotificationText.Field.BIG_TITLE.label
+                }) "Доступен только заголовок уведомления"
+                else "Есть доступный текст уведомления",
+                12f, muted
+            ))
+            diagnostics.addView(verticalGap(6))
             val explanation = when (lastEvent.outcome) {
                 SberPushDiagnostics.Outcome.UPDATED -> "Остаток успешно обновлён"
                 SberPushDiagnostics.Outcome.NO_BALANCE ->
@@ -1804,14 +1827,26 @@ class MainActivity : AppCompatActivity() {
                 SberPushDiagnostics.Outcome.SAVE_FAILED ->
                     "Не удалось сохранить остаток"
                 SberPushDiagnostics.Outcome.EMPTY_NOTIFICATION ->
-                    "В уведомлении нет доступного текста"
+                    "Android передал уведомление без читаемого текста"
+                SberPushDiagnostics.Outcome.TITLE_ONLY ->
+                    "Есть только заголовок, остаток не найден"
             }
-            diagnostics.addView(verticalGap(5))
             diagnostics.addView(textLine("Распознавание: $explanation", 13f, muted))
+            val lastSuccess = lastEvent.lastSuccessAt
+            diagnostics.addView(verticalGap(6))
+            diagnostics.addView(textLine(
+                if (lastSuccess != null) {
+                    "Последнее успешное обновление: " +
+                        DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
+                            .format(Date(lastSuccess))
+                } else "Успешного обновления ещё не было",
+                12f, muted
+            ))
         }
         diagnostics.addView(verticalGap(8))
         diagnostics.addView(textLine(
-            "Сохраняются только время и результат проверки, без текста Push и истории операций.",
+            "Храним только время, тип доступных полей и результат распознавания. " +
+                "Текст банковского Push и операции не сохраняются.",
             12f, muted
         ))
         contentContainer.addView(diagnostics)
@@ -1822,7 +1857,7 @@ class MainActivity : AppCompatActivity() {
         help.addView(verticalGap(7))
         help.addView(textLine(
             "При следующем уведомлении с «Остаток», «Баланс», «Доступно», " +
-                "«На лапках» или другой распознанной формулировкой покажем " +
+                "«На лапках», «Теперь у тебя» или другой распознанной фразой покажем " +
                 "подтверждённую сумму. Сумма самой операции никогда не " +
                 "подставляется вместо остатка. Если данные отсутствуют или " +
                 "неоднозначны, прежний баланс сохраняется.",

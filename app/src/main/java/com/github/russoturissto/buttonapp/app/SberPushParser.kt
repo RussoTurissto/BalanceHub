@@ -28,6 +28,8 @@ internal object SberPushParser {
         Anchor(Regex("""(?iu)\b(?:остат(?:ок|ка|ке)|баланс|доступно|осталось)\b"""),
             Confidence.EXPLICIT),
         Anchor(Regex("""(?iu)\bна\s+лапках\b"""), Confidence.EXPLICIT),
+        Anchor(Regex("""(?iu)\b(?:теперь|сейчас)\s+у\s+тебя\b"""), Confidence.EXPLICIT),
+        Anchor(Regex("""(?iu)\bу\s+тебя\s+осталось\b"""), Confidence.EXPLICIT),
         Anchor(Regex("""(?iu)\b(?:свободные\s+средства|доступный\s+остаток)\b"""),
             Confidence.EXPLICIT),
         // These words are ambiguous in running text. Require a separate clause.
