@@ -1,7 +1,6 @@
 package com.github.russoturissto.buttonapp.app
 
 import android.content.Context
-import androidx.core.content.edit
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -92,10 +91,8 @@ internal object PaymentArchiveStore {
             if (old.optString("id") != id) newArchive.put(old)
         }
         newArchive.put(record)
-        return prefs.edit(commit = true) {
-            putString(ACTIVE, remaining.toString())
-            putString(ARCHIVE, newArchive.toString())
-        }
+        return prefs.edit().putString(ACTIVE, remaining.toString())
+            .putString(ARCHIVE, newArchive.toString()).commit()
     }
 
     @Synchronized
@@ -123,10 +120,8 @@ internal object PaymentArchiveStore {
             } else remaining.put(record)
         }
         if (moved.isEmpty()) return emptyList()
-        val saved = prefs.edit(commit = true) {
-            putString(ACTIVE, remaining.toString())
-            putString(ARCHIVE, archive.toString())
-        }
+        val saved = prefs.edit().putString(ACTIVE, remaining.toString())
+            .putString(ARCHIVE, archive.toString()).commit()
         return if (saved) moved else emptyList()
     }
 
@@ -161,10 +156,8 @@ internal object PaymentArchiveStore {
         record.remove("archiveReason")
         record.put("dueAt", nextDueAt)
         active.put(record)
-        val saved = prefs.edit(commit = true) {
-            putString(ACTIVE, active.toString())
-            putString(ARCHIVE, remaining.toString())
-        }
+        val saved = prefs.edit().putString(ACTIVE, active.toString())
+            .putString(ARCHIVE, remaining.toString()).commit()
         return if (saved) original else null
     }
 
@@ -180,8 +173,6 @@ internal object PaymentArchiveStore {
             else remaining.put(entry)
         }
         if (!deleted) return false
-        return prefs.edit(commit = true) {
-            putString(ARCHIVE, remaining.toString())
-        }
+        return prefs.edit().putString(ARCHIVE, remaining.toString()).commit()
     }
 }

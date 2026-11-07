@@ -53,6 +53,7 @@ class MainActivity : AppCompatActivity() {
     private var currentTab = 0
     private var mobileSettingsOpen = false
     private var operatorDetailsOpen = false
+    private var archiveOpen = false
     private var selectedOperatorId: Int? = null
     private var sessionAutoRefreshStarted = false
     private var tutorialStep = -1
@@ -75,15 +76,21 @@ class MainActivity : AppCompatActivity() {
         currentTab = savedInstanceState?.getInt("current_tab") ?: 0
         mobileSettingsOpen = savedInstanceState?.getBoolean("mobile_settings_open") ?: false
         operatorDetailsOpen = savedInstanceState?.getBoolean("operator_details_open") ?: false
+        archiveOpen = savedInstanceState?.getBoolean("archive_open") ?: false
         selectedOperatorId = savedInstanceState?.getInt("selected_operator_id", Int.MIN_VALUE)?.takeIf { it != Int.MIN_VALUE }
         tutorialStep = savedInstanceState?.getInt("tutorial_step") ?:
             if (preferences.getBoolean("onboarding_completed", false)) -1 else 0
+        PaymentArchiveStore.archiveDue(this)
         loadPayments()
         for (sim in T2Balance.sims(this)) syncMobilePayment(sim)
         showDashboard()
         onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 when {
+                    archiveOpen && currentTab == 2 -> {
+                        archiveOpen = false
+                        renderTab()
+                    }
                     operatorDetailsOpen -> {
                         operatorDetailsOpen = false
                         renderTab()
@@ -102,6 +109,15 @@ class MainActivity : AppCompatActivity() {
     }
 
 
+    override fun onResume() {
+        super.onResume()
+        val moved = PaymentArchiveStore.archiveDue(this)
+        if (moved.isNotEmpty() && ::contentContainer.isInitialized) {
+            payments.removeAll { it.id in moved }
+            renderTab()
+        }
+    }
+
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if ((requestCode == 510 || requestCode == 511) &&
@@ -112,6 +128,7 @@ class MainActivity : AppCompatActivity() {
         outState.putInt("current_tab", currentTab)
         outState.putBoolean("mobile_settings_open", mobileSettingsOpen)
         outState.putBoolean("operator_details_open", operatorDetailsOpen)
+        outState.putBoolean("archive_open", archiveOpen)
         selectedOperatorId?.let { outState.putInt("selected_operator_id", it) }
         outState.putInt("tutorial_step", tutorialStep)
         super.onSaveInstanceState(outState)
@@ -402,6 +419,7 @@ class MainActivity : AppCompatActivity() {
         if (tutorialStep == 0 && index == 1) tutorialStep = 1
         if (index != 3) mobileSettingsOpen = false
         if (index != 1) operatorDetailsOpen = false
+        if (index != 2) archiveOpen = false
         tabViews.forEachIndexed { position, tab ->
             val selected = position == index
             tab.setTextColor(if (selected) Color.WHITE else ink)
@@ -420,7 +438,7 @@ class MainActivity : AppCompatActivity() {
         when (currentTab) {
             0 -> renderHome()
             1 -> renderBalances()
-            2 -> renderPaymentScreen()
+            2 -> if (archiveOpen) renderArchiveScreen() else renderPaymentScreen()
             else -> renderSettings()
         }
         if (tutorialStep == 0 && tabViews.size > 1) {
@@ -622,9 +640,9 @@ class MainActivity : AppCompatActivity() {
         summary.addView(totals)
         contentContainer.addView(summary)
         contentContainer.addView(verticalGap(16))
-        contentContainer.addView(textLine("Ближайшие платежи", 19f, ink, true))
-        contentContainer.addView(verticalGap(10))
-        val upcoming = upcomingPayments.sortedBy { it.dueAt }.take(3)
+        contentContainer.addView(textLine("Все предстоящие платежи", 19f, ink, true))
+        contentContainer.addView(verticalGap(9))
+        val upcoming = upcomingPayments.sortedBy { it.dueAt }
         if (upcoming.isEmpty()) {
             val empty = card()
             empty.addView(textLine("Пока нет платежей", 16f, ink, true))
@@ -632,16 +650,24 @@ class MainActivity : AppCompatActivity() {
             empty.addView(textLine("Добавьте первый платёж во вкладке «Платежи».", 14f, muted))
             contentContainer.addView(empty)
         } else for (payment in upcoming) {
-            val item = card()
-            item.addView(textLine(payment.title, 16f, ink, true))
-            item.addView(verticalGap(5))
-            item.addView(textLine(PaymentCurrencyFormatter.amountWithCurrency(payment.amount, payment.currency) + " · " +
-                DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(payment.dueAt)), 14f, muted))
+            val item = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(14), dp(12), dp(14), dp(12))
+                background = cardGradient()
+                elevation = dp(1).toFloat()
+            }
+            item.addView(textLine(payment.title, 15f, ink, true))
+            item.addView(verticalGap(3))
+            item.addView(textLine(
+                PaymentCurrencyFormatter.amountWithCurrency(payment.amount, payment.currency) +
+                    " · " + DateFormat.getDateInstance(DateFormat.MEDIUM)
+                        .format(Date(payment.dueAt)), 13f, muted
+            ))
             contentContainer.addView(item)
-            contentContainer.addView(verticalGap(9))
+            contentContainer.addView(verticalGap(7))
         }
-        contentContainer.addView(verticalGap(12))
-        contentContainer.addView(primaryButton("Все платежи") {
+        contentContainer.addView(verticalGap(8))
+        contentContainer.addView(primaryButton("Управлять платежами") {
             selectTab(2)
         })
     }
@@ -984,6 +1010,35 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderPaymentScreen() {
         contentContainer.addView(textLine("Платежи", 23f, ink, true))
+        contentContainer.addView(verticalGap(12))
+        val archivedCount = PaymentArchiveStore.archived(this).size
+        val folder = card()
+        folder.contentDescription = "Папка Архив платежей, записей: $archivedCount"
+        folder.isClickable = true
+        folder.isFocusable = true
+        val folderRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        folderRow.addView(textLine("▣", 29f, accent, true))
+        folderRow.addView(View(this), LinearLayout.LayoutParams(dp(12), 1))
+        val folderLabels = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(textLine("Архив платежей", 17f, ink, true))
+            addView(verticalGap(3))
+            addView(textLine(
+                "$archivedCount записей · завершённые и удалённые",
+                12f, muted
+            ))
+        }
+        folderRow.addView(folderLabels, LinearLayout.LayoutParams(0, -2, 1f))
+        folderRow.addView(textLine("›", 25f, accent, true))
+        folder.addView(folderRow)
+        folder.setOnClickListener {
+            archiveOpen = true
+            renderTab()
+        }
+        contentContainer.addView(folder)
         contentContainer.addView(verticalGap(14))
         val form = card()
         form.addView(textLine("Новое напоминание", 18f, ink, true))
@@ -1530,6 +1585,132 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** History is a separate folder inside the Payments tab. */
+    private fun renderArchiveScreen() {
+        contentContainer.addView(secondaryButton("‹  К платежам") {
+            archiveOpen = false
+            renderTab()
+        })
+        contentContainer.addView(verticalGap(13))
+        contentContainer.addView(textLine("▣ Архив платежей", 23f, ink, true))
+        contentContainer.addView(verticalGap(5))
+        contentContainer.addView(textLine(
+            "Завершённые и удалённые напоминания сохраняются здесь.",
+            13f, muted
+        ))
+        contentContainer.addView(verticalGap(14))
+        val entries = PaymentArchiveStore.archived(this)
+        if (entries.isEmpty()) {
+            val empty = card()
+            empty.addView(textLine("Архив пока пуст", 16f, ink, true))
+            empty.addView(verticalGap(6))
+            empty.addView(textLine(
+                "Записи появятся после завершения одноразового платежа или удаления.",
+                13f, muted
+            ))
+            contentContainer.addView(empty)
+            return
+        }
+        for (entry in entries) {
+            val item = card()
+            item.setPadding(dp(15), dp(13), dp(15), dp(13))
+            val status = if (entry.reason == PaymentArchiveStore.COMPLETED)
+                "Завершено" else "Удалено вручную"
+            item.addView(textLine(entry.title, 16f, ink, true))
+            item.addView(verticalGap(4))
+            item.addView(textLine(
+                PaymentCurrencyFormatter.amountWithCurrency(entry.amount, entry.currency) +
+                    " · " + DateFormat.getDateInstance(DateFormat.MEDIUM)
+                        .format(Date(entry.dueAt)), 13f, muted
+            ))
+            item.addView(verticalGap(4))
+            item.addView(textLine(
+                "$status · ${recurrenceLabel(entry.recurrence)}",
+                12f, accent, true
+            ))
+            item.addView(verticalGap(3))
+            item.addView(textLine(
+                "Напоминание за ${entry.leadDays} дн. · в архиве с " +
+                    DateFormat.getDateInstance(DateFormat.SHORT)
+                        .format(Date(entry.archivedAt)), 12f, muted
+            ))
+            item.addView(verticalGap(10))
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+            }
+            row.addView(secondaryButton("Восстановить") {
+                restoreArchivedPayment(entry)
+            }, LinearLayout.LayoutParams(0, dp(46), 1f))
+            row.addView(View(this), LinearLayout.LayoutParams(dp(8), 1))
+            row.addView(secondaryButton("Удалить навсегда") {
+                deleteArchivedPayment(entry)
+            }, LinearLayout.LayoutParams(0, dp(46), 1f))
+            item.addView(row)
+            contentContainer.addView(item)
+            contentContainer.addView(verticalGap(9))
+        }
+    }
+
+    private fun restoreArchivedPayment(entry: ArchivedPayment) {
+        val future = Calendar.getInstance().apply {
+            if (entry.dueAt > System.currentTimeMillis()) {
+                timeInMillis = entry.dueAt
+            } else {
+                add(Calendar.DAY_OF_YEAR, 7)
+            }
+        }
+        themedDialogBuilder()
+            .setTitle("Восстановить напоминание")
+            .setMessage("Выберите новую дату платежа, чтобы запись снова стала активной.")
+            .setNegativeButton("Отмена", null)
+            .setPositiveButton("Выбрать дату") { _, _ ->
+                showThemedCalendar(future) {
+                    val restored = PaymentArchiveStore.restore(
+                        this, entry.id, future.timeInMillis
+                    )
+                    if (restored == null) {
+                        Toast.makeText(this,
+                            "Нужна будущая дата. Запись осталась в архиве.",
+                            Toast.LENGTH_LONG).show()
+                    } else {
+                        val payment = PaymentReminder(
+                            restored.id, restored.title, restored.amount,
+                            restored.currency, restored.dueAt,
+                            restored.leadDays, restored.recurrence
+                        )
+                        payments.add(payment)
+                        if (payment.id.startsWith("t2_subscription_") ||
+                            payment.id.startsWith("mobile_subscription_")) {
+                            val id = payment.id.removePrefix("t2_subscription_")
+                                .removePrefix("mobile_subscription_")
+                            val prefix = if (payment.id.startsWith("t2_subscription_"))
+                                "t2_payment_enabled_" else "mobile_payment_enabled_"
+                            preferences.edit().putBoolean(prefix + id, true).apply()
+                        }
+                        scheduleReminder(payment)
+                        requestNotificationPermissionIfNeeded()
+                        Toast.makeText(this, "Платёж восстановлен", Toast.LENGTH_SHORT).show()
+                        renderTab()
+                    }
+                }
+            }.show()
+    }
+
+    private fun deleteArchivedPayment(entry: ArchivedPayment) {
+        themedDialogBuilder()
+            .setTitle("Удалить навсегда?")
+            .setMessage("«${entry.title}» будет безвозвратно удалён из архива.")
+            .setNegativeButton("Отмена", null)
+            .setPositiveButton("Удалить навсегда") { _, _ ->
+                if (PaymentArchiveStore.deletePermanently(this, entry.id)) {
+                    renderTab()
+                } else {
+                    Toast.makeText(this, "Не удалось удалить запись",
+                        Toast.LENGTH_LONG).show()
+                }
+            }.show()
+    }
+
     private fun showDeletePaymentDialog(payment: PaymentReminder) {
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -1538,20 +1719,26 @@ class MainActivity : AppCompatActivity() {
         }
         panel.addView(textLine("Удалить платёж?", 21f, ink, true))
         panel.addView(verticalGap(12))
-        panel.addView(textLine("«${payment.title}» будет удалён без возможности восстановления.", 15f, muted))
+        panel.addView(textLine("«${payment.title}» переместится в папку «Архив платежей». Запись можно восстановить.", 15f, muted))
         panel.addView(verticalGap(24))
         val buttons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         val dialog = themedDialogBuilder().setView(panel).create()
         buttons.addView(secondaryButton("Отмена") { dialog.dismiss() },
             LinearLayout.LayoutParams(0, dp(52), 1f))
         buttons.addView(View(this), LinearLayout.LayoutParams(dp(10), 1))
-        buttons.addView(primaryButton("Удалить") {
-            payments.removeAll { it.id == payment.id }
-            cancelReminder(payment)
-            if (editingId == payment.id) editingId = null
-            persistPayments()
-            renderPayments()
-            dialog.dismiss()
+        buttons.addView(primaryButton("В архив") {
+            if (PaymentArchiveStore.archiveById(
+                    this, payment.id, PaymentArchiveStore.DELETED
+                )) {
+                cancelReminder(payment)
+                payments.removeAll { it.id == payment.id }
+                if (editingId == payment.id) editingId = null
+                renderTab()
+                dialog.dismiss()
+            } else {
+                Toast.makeText(this, "Не удалось сохранить платёж в архив",
+                    Toast.LENGTH_LONG).show()
+            }
         }, LinearLayout.LayoutParams(0, dp(52), 1f))
         panel.addView(buttons)
         dialog.setOnShowListener { dialog.window?.setBackgroundDrawable(dialogGradient()) }
@@ -1765,6 +1952,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun scheduleReminder(payment: PaymentReminder) {
+        if (payment.recurrence == "once") {
+            PaymentArchiveScheduler.schedule(this, payment.id, payment.dueAt)
+        }
         val triggerAt = payment.dueAt - payment.leadDays * 24L * 60L * 60L * 1000L
         if (triggerAt <= System.currentTimeMillis()) return
         val alarmManager = getSystemService(ALARM_SERVICE) as AlarmManager
@@ -1772,6 +1962,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun cancelReminder(payment: PaymentReminder) {
+        PaymentArchiveScheduler.cancel(this, payment.id)
         (getSystemService(ALARM_SERVICE) as AlarmManager).cancel(reminderPendingIntent(payment))
     }
 
@@ -1852,11 +2043,17 @@ class MainActivity : AppCompatActivity() {
                 item.getString("amount"), item.getString("currency"), date.timeInMillis, lead, recurrence)
             payments.add(payment)
             if (paymentAdvanced) scheduleReminder(payment)
+            else if (payment.recurrence == "once") {
+                PaymentArchiveScheduler.schedule(this, payment.id, payment.dueAt)
+            }
         }
         if (advanced) persistPayments()
     }
 
     private fun persistPayments() {
+        // Do not resurrect items moved to history by an alarm while the UI was open.
+        val historyIds = PaymentArchiveStore.archived(this).map { it.id }.toSet()
+        payments.removeAll { it.id in historyIds }
         val array = JSONArray()
         for (payment in payments) {
             array.put(JSONObject().apply {
