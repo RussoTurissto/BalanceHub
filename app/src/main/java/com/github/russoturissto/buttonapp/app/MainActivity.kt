@@ -51,6 +51,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var recurrenceInput: Spinner
     private lateinit var listContainer: LinearLayout
     private lateinit var contentContainer: LinearLayout
+    private lateinit var dashboardScroll: android.widget.ScrollView
     private var tabViews: List<TextView> = emptyList()
     private var currentTab = 0
     private var mobileSettingsOpen = false
@@ -394,6 +395,7 @@ class MainActivity : AppCompatActivity() {
             setPadding(dp(18), dp(18), dp(18), dp(24))
         }
         scroll.addView(contentContainer)
+        dashboardScroll = scroll
         screen.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
 
         val tabs = LinearLayout(this).apply {
@@ -463,10 +465,22 @@ class MainActivity : AppCompatActivity() {
             tab.background = tabBackground(selected)
         }
         renderTab()
+        // Every tab starts at its own top, rather than inheriting another
+        // screen's scroll offset and hiding the dashboard summary.
+        if (::dashboardScroll.isInitialized) dashboardScroll.scrollTo(0, 0)
     }
 
     private fun renderTab() {
         contentContainer.removeAllViews()
+        // The home screen has a deliberately tighter gap below the wave.
+        // Other screens retain their existing comfortable top padding.
+        val topPadding = if (currentTab == 0)
+            HomeDashboardSizing.forHeight(
+                resources.configuration.screenHeightDp,
+                resources.configuration.fontScale
+            ).topPaddingDp else 18
+        contentContainer.setPadding(dp(18), dp(topPadding), dp(18),
+            dp(if (currentTab == 0) 12 else 24))
         if (tutorialStep >= 0) {
             contentContainer.addView(tutorialCoach())
             contentContainer.addView(verticalGap(14))
@@ -632,7 +646,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderHome() {
         contentContainer.addView(textLine("Главная", 23f, ink, true))
-        contentContainer.addView(verticalGap(14))
+        contentContainer.addView(verticalGap(11))
         val startOfToday = Calendar.getInstance().apply {
             set(Calendar.HOUR_OF_DAY, 0)
             set(Calendar.MINUTE, 0)
@@ -675,11 +689,11 @@ class MainActivity : AppCompatActivity() {
         totals.addView(valueColumn, LinearLayout.LayoutParams(0, -2, 1f))
         summary.addView(totals)
         contentContainer.addView(summary)
-        contentContainer.addView(verticalGap(14))
+        contentContainer.addView(verticalGap(12))
         renderHomeCalendar(upcomingPayments)
-        contentContainer.addView(verticalGap(16))
+        contentContainer.addView(verticalGap(12))
         renderHomePayments(upcomingPayments.sortedBy { it.dueAt })
-        contentContainer.addView(verticalGap(14))
+        contentContainer.addView(verticalGap(10))
         contentContainer.addView(primaryButton("Управлять платежами") {
             selectTab(2)
         })
@@ -690,6 +704,10 @@ class MainActivity : AppCompatActivity() {
         val month = homeCalendarMonth.get(Calendar.MONTH)
         val offset = PaymentCalendarMath.mondayOffset(year, month)
         val monthDays = PaymentCalendarMath.daysInMonth(year, month)
+        val sizing = HomeDashboardSizing.forHeight(
+            resources.configuration.screenHeightDp,
+            resources.configuration.fontScale
+        )
         val today = Calendar.getInstance()
         val isCurrentMonth = today.get(Calendar.YEAR) == year &&
             today.get(Calendar.MONTH) == month
@@ -700,7 +718,7 @@ class MainActivity : AppCompatActivity() {
                 byDay.getOrPut(day) { mutableListOf() }.add(payment)
             }
         }
-        val calendar = card().apply { setPadding(dp(13), dp(13), dp(13), dp(14)) }
+        val calendar = card().apply { setPadding(dp(13), dp(11), dp(13), dp(12)) }
         val controls = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -710,20 +728,20 @@ class MainActivity : AppCompatActivity() {
             homeSelectedDay = null
             renderTab()
         }.apply { contentDescription = "Предыдущий месяц" },
-            LinearLayout.LayoutParams(dp(40), dp(40)))
+            LinearLayout.LayoutParams(dp(40), dp(sizing.monthControlHeightDp)))
         val title = SimpleDateFormat("LLLL yyyy", Locale("ru"))
             .format(homeCalendarMonth.time).replaceFirstChar { it.uppercase() }
         controls.addView(textLine(title, 16f, ink, true).apply {
             gravity = Gravity.CENTER
-        }, LinearLayout.LayoutParams(0, dp(40), 1f))
+        }, LinearLayout.LayoutParams(0, dp(sizing.monthControlHeightDp), 1f))
         controls.addView(secondaryButton("›") {
             homeCalendarMonth.add(Calendar.MONTH, 1)
             homeSelectedDay = null
             renderTab()
         }.apply { contentDescription = "Следующий месяц" },
-            LinearLayout.LayoutParams(dp(40), dp(40)))
+            LinearLayout.LayoutParams(dp(40), dp(sizing.monthControlHeightDp)))
         calendar.addView(controls)
-        calendar.addView(verticalGap(8))
+        calendar.addView(verticalGap(6))
 
         val weekdays = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         for (name in listOf("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")) {
@@ -741,7 +759,7 @@ class MainActivity : AppCompatActivity() {
                 val day = rowIndex * 7 + column - offset + 1
                 if (day !in 1..monthDays) {
                     daysRow.addView(View(this),
-                        LinearLayout.LayoutParams(0, dp(40), 1f))
+                        LinearLayout.LayoutParams(0, dp(sizing.dayCellHeightDp), 1f))
                     continue
                 }
                 val paymentCount = byDay[day]?.size ?: 0
@@ -786,17 +804,17 @@ class MainActivity : AppCompatActivity() {
                     homeSelectedDay = if (chosen) null else day
                     renderTab()
                 }
-                daysRow.addView(cell, LinearLayout.LayoutParams(0, dp(40), 1f)
+                daysRow.addView(cell, LinearLayout.LayoutParams(0, dp(sizing.dayCellHeightDp), 1f)
                     .apply { marginStart = dp(1); marginEnd = dp(1) })
             }
             calendar.addView(daysRow)
         }
-        calendar.addView(verticalGap(12))
+        calendar.addView(verticalGap(8))
         calendar.addView(View(this).apply {
             setBackgroundColor(if (isNight) Color.rgb(68, 104, 104)
                 else Color.rgb(196, 222, 218))
         }, LinearLayout.LayoutParams(-1, dp(1)))
-        calendar.addView(verticalGap(10))
+        calendar.addView(verticalGap(8))
 
         // Always show the nearest current payment, not the nearest in the
         // month currently browsed in the calendar.
