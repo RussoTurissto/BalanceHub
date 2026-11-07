@@ -6,6 +6,7 @@ import android.content.Context
 import android.os.Build
 import android.provider.Settings
 import android.util.AtomicFile
+import androidx.core.content.edit
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -28,7 +29,7 @@ internal object SberBalanceStore {
 
     fun setEnabled(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit().putBoolean(ENABLED, enabled).apply()
+            .edit { putBoolean(ENABLED, enabled) }
         if (!enabled) clear(context)
     }
 
