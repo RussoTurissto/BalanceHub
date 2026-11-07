@@ -19,7 +19,7 @@ internal object SberPushEvaluation {
             }
         }
         if (payload.bodies.size > 1) {
-            val joined = payload.bodies.joinToString("\n")
+            val joined = payload.bodies.joinToString(" ")
             if (joined.length <= 8_192) candidates.add(joined)
         }
         if (candidates.isEmpty()) candidates.addAll(payload.titles)

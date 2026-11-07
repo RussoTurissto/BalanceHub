@@ -4,8 +4,8 @@ import android.app.Notification
 import android.os.Build
 
 /**
- * Reads only documented Android notification fields. Raw text is ephemeral:
- * it is not saved, logged or sent off-device.
+ * Extracts standard Android notification text without storing it anywhere.
+ * Stores only per-field presence/cue/currency/account bitmasks in diagnostics.
  */
 internal object SberNotificationText {
     enum class Field(val mask: Int, val label: String) {
@@ -23,7 +23,10 @@ internal object SberNotificationText {
     data class Payload(
         val titles: List<String>,
         val bodies: List<String>,
-        val fieldsMask: Int
+        val fieldsMask: Int,
+        val rubleFieldsMask: Int = 0,
+        val cueFieldsMask: Int = 0,
+        val accountFieldsMask: Int = 0
     ) {
         val hasReadableText: Boolean get() = titles.isNotEmpty() || bodies.isNotEmpty()
         val hasBody: Boolean get() = bodies.isNotEmpty()
@@ -33,38 +36,57 @@ internal object SberNotificationText {
         val titles = mutableListOf<String>()
         val bodies = mutableListOf<String>()
         var mask = 0
+        var ruble = 0
+        var cue = 0
+        var account = 0
+
         fun add(field: Field, value: CharSequence?, isTitle: Boolean = false) {
             val text = value?.toString()?.trim().orEmpty()
             if (text.isBlank() || text.length > 8_192) return
+            val signals = SberPushSignals.inspect(text)
             mask = mask or field.mask
+            if (signals.money) ruble = ruble or field.mask
+            if (signals.balanceCue) cue = cue or field.mask
+            if (signals.maskedAccount) account = account or field.mask
             (if (isTitle) titles else bodies).add(text)
         }
 
-        try {
-            val extras = notification.extras
-            if (extras != null) {
-                add(Field.TITLE, extras.getCharSequence(Notification.EXTRA_TITLE), true)
-                add(Field.BIG_TITLE, extras.getCharSequence(Notification.EXTRA_TITLE_BIG), true)
-                add(Field.TEXT, extras.getCharSequence(Notification.EXTRA_TEXT))
-                add(Field.BIG_TEXT, extras.getCharSequence(Notification.EXTRA_BIG_TEXT))
+        val extras = notification.extras
+        if (extras != null) {
+            // Some OEM devices throw when unparcelling a specific entry;
+            // isolate fields so one bad extra cannot hide all other fields.
+            fun safe(field: Field, isTitle: Boolean = false, getter: () -> CharSequence?) {
+                try {
+                    add(field, getter(), isTitle)
+                } catch (_: RuntimeException) {
+                    // This field was unavailable to the notification listener.
+                }
+            }
+            safe(Field.TITLE, true) { extras.getCharSequence(Notification.EXTRA_TITLE) }
+            safe(Field.BIG_TITLE, true) {
+                extras.getCharSequence(Notification.EXTRA_TITLE_BIG)
+            }
+            safe(Field.TEXT) { extras.getCharSequence(Notification.EXTRA_TEXT) }
+            safe(Field.BIG_TEXT) { extras.getCharSequence(Notification.EXTRA_BIG_TEXT) }
+            try {
                 extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)?.forEach {
                     add(Field.TEXT_LINES, it)
                 }
-                add(Field.SUB_TEXT, extras.getCharSequence(Notification.EXTRA_SUB_TEXT))
-                add(Field.SUMMARY, extras.getCharSequence(Notification.EXTRA_SUMMARY_TEXT))
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            } catch (_: RuntimeException) { /* unreadable lines */ }
+            safe(Field.SUB_TEXT) { extras.getCharSequence(Notification.EXTRA_SUB_TEXT) }
+            safe(Field.SUMMARY) { extras.getCharSequence(Notification.EXTRA_SUMMARY_TEXT) }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                try {
+                    @Suppress("DEPRECATION")
                     val messages = extras.getParcelableArray(Notification.EXTRA_MESSAGES)
                     if (messages != null) {
                         Notification.MessagingStyle.Message.getMessagesFromBundleArray(messages)
                             .forEach { add(Field.MESSAGES, it.text) }
                     }
-                }
+                } catch (_: RuntimeException) { /* no readable messages */ }
             }
-        } catch (_: RuntimeException) {
-            // Some OEM notifications have unparcelable extras. Preserve fields
-            // already read and fall back to the ticker where available.
         }
         add(Field.TICKER, notification.tickerText)
-        return Payload(titles.distinct(), bodies.distinct(), mask)
+        return Payload(titles.distinct(), bodies.distinct(), mask, ruble, cue, account)
     }
 }

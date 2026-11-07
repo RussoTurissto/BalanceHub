@@ -6,7 +6,7 @@ import org.json.JSONObject
 import java.io.File
 
 /**
- * Persist only event timestamp, field-availability flags and outcome code.
+ * Persist ONLY timestamps, source field flags, and outcome codes.
  * No notification text, transaction history, counterparties or monetary sums.
  */
 internal object SberPushDiagnostics {
@@ -20,7 +20,11 @@ internal object SberPushDiagnostics {
         val time: Long,
         val outcome: Outcome,
         val fieldsMask: Int,
-        val lastSuccessAt: Long?
+        val lastSuccessAt: Long?,
+        val rubleFieldsMask: Int,
+        val cueFieldsMask: Int,
+        val accountFieldsMask: Int,
+        val deliveryState: Int
     )
 
     private val lock = Any()
@@ -39,37 +43,47 @@ internal object SberPushDiagnostics {
             return@synchronized null
         }
         val time = json.optLong("time", 0L)
-        val mask = json.optInt("fields", 0)
-        val success = json.optLong("lastSuccess", 0L).takeIf { it > 0L }
-        if (time > 0L) Latest(time, code, mask, success) else null
+        if (time <= 0L) return@synchronized null
+        Latest(
+            time, code, json.optInt("fields", 0),
+            json.optLong("lastSuccess", 0L).takeIf { it > 0L },
+            json.optInt("rubles", 0), json.optInt("cues", 0),
+            json.optInt("account", 0), json.optInt("state", -1)
+        )
     }
 
-    fun record(context: Context, time: Long, outcome: Outcome, fieldsMask: Int) =
-        synchronized(lock) {
-            if (!SberBalanceStore.isEnabled(context) || time <= 0L ||
-                time > System.currentTimeMillis() + 60_000L) return@synchronized
-            val existing = latest(context)
-            if (existing != null && time < existing.time) return@synchronized
-            // Do not overwrite a useful result with an empty repost of the
-            // same notification (same Android postTime).
-            if (existing != null && time == existing.time &&
-                rank(existing.outcome) > rank(outcome)) return@synchronized
-            val success = if (outcome == Outcome.UPDATED) time
-                else existing?.lastSuccessAt
-            val json = JSONObject().put("time", time)
-                .put("outcome", outcome.name)
-                .put("fields", fieldsMask)
-                .put("lastSuccess", success ?: JSONObject.NULL)
-            val target = file(context)
-            var stream: java.io.FileOutputStream? = null
-            try {
-                stream = target.startWrite()
-                stream.write(json.toString().toByteArray(Charsets.UTF_8))
-                target.finishWrite(stream)
-            } catch (_: Exception) {
-                if (stream != null) target.failWrite(stream)
-            }
+    fun record(
+        context: Context, time: Long, outcome: Outcome, fieldsMask: Int,
+        rublesMask: Int, cuesMask: Int, accountMask: Int, deliveryState: Int
+    ) = synchronized(lock) {
+        if (!SberBalanceStore.isEnabled(context) || time <= 0L ||
+            time > System.currentTimeMillis() + 60_000L) return@synchronized
+        val existing = latest(context)
+        if (existing != null && time < existing.time) return@synchronized
+        // A less useful duplicate cannot replace a previous successful
+        // notification reading with the same Android post time.
+        if (existing != null && time == existing.time &&
+            rank(existing.outcome) > rank(outcome)) return@synchronized
+
+        val success = if (outcome == Outcome.UPDATED) time else existing?.lastSuccessAt
+        val json = JSONObject().put("time", time)
+            .put("outcome", outcome.name)
+            .put("fields", fieldsMask)
+            .put("rubles", rublesMask)
+            .put("cues", cuesMask)
+            .put("account", accountMask)
+            .put("state", deliveryState)
+            .put("lastSuccess", success ?: JSONObject.NULL)
+        val target = file(context)
+        var stream: java.io.FileOutputStream? = null
+        try {
+            stream = target.startWrite()
+            stream.write(json.toString().toByteArray(Charsets.UTF_8))
+            target.finishWrite(stream)
+        } catch (_: Exception) {
+            if (stream != null) target.failWrite(stream)
         }
+    }
 
     private fun rank(outcome: Outcome): Int = when (outcome) {
         Outcome.UPDATED -> 5

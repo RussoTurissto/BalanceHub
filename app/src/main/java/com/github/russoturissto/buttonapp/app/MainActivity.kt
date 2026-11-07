@@ -1802,6 +1802,33 @@ class MainActivity : AppCompatActivity() {
                 12f, muted
             ))
             diagnostics.addView(verticalGap(5))
+            val fieldFlags = SberNotificationText.Field.entries.filter {
+                (lastEvent.fieldsMask and it.mask) != 0
+            }
+            fieldFlags.forEach { field ->
+                val amount = (lastEvent.rubleFieldsMask and field.mask) != 0
+                val cue = (lastEvent.cueFieldsMask and field.mask) != 0
+                val account = (lastEvent.accountFieldsMask and field.mask) != 0
+                val signals = listOf(
+                    if (amount) "рубли: есть" else "рубли: нет",
+                    if (cue) "остаток: признак есть" else "остаток: нет",
+                    if (account) "счёт: маска есть" else "счёт: нет"
+                ).joinToString(" · ")
+                diagnostics.addView(textLine(field.label + " — " + signals, 11f, muted))
+            }
+            diagnostics.addView(verticalGap(6))
+            val environment = when {
+                lastEvent.deliveryState < 0 -> "не определено (старый формат диагностики)"
+                (lastEvent.deliveryState and
+                    SberPushNotificationListener.STATE_SCREEN_OFF) != 0 ->
+                    "экран был выключен"
+                (lastEvent.deliveryState and
+                    SberPushNotificationListener.STATE_LOCKED) != 0 ->
+                    "экран был заблокирован"
+                else -> "экран был активен"
+            }
+            diagnostics.addView(textLine("При получении Push: $environment", 12f, muted))
+            diagnostics.addView(verticalGap(5))
             diagnostics.addView(textLine(
                 if (fields.isEmpty()) "Содержимое Push не передано Android"
                 else if (fields.all {
@@ -1845,10 +1872,32 @@ class MainActivity : AppCompatActivity() {
         }
         diagnostics.addView(verticalGap(8))
         diagnostics.addView(textLine(
-            "Храним только время, тип доступных полей и результат распознавания. " +
-                "Текст банковского Push и операции не сохраняются.",
+            "Храним только время, признаки доступных полей и результат распознавания. " +
+                "Тексты Push, суммы операций и личные данные не сохраняются.",
             12f, muted
         ))
+        diagnostics.addView(verticalGap(10))
+        diagnostics.addView(secondaryButton("Проверить обработчик на примере") {
+            val example = SberNotificationText.Payload(
+                listOf("Сбербанк"),
+                listOf("+ 10 ₽ — Теперь у тебя:\n40,89 ₽ Плат. счёт ••9667"),
+                SberNotificationText.Field.TITLE.mask or
+                    SberNotificationText.Field.TEXT.mask
+            )
+            val result = SberPushEvaluation.analyze(
+                SberPushParser.SBER_PACKAGE, example
+            )
+            themedDialogBuilder().setTitle("Локальный тест распознавания")
+                .setMessage(if (result.result?.kopecks == 4089L &&
+                    result.result.lastFour == "9667") {
+                    "Тест пройден: остаток 40,89 ₽, счёт ••9667. " +
+                        "Сохранённый банковский баланс не изменён."
+                } else {
+                    "Тест не пройден: " + result.reason.name +
+                        ". Сохранённый банковский баланс не изменён."
+                })
+                .setPositiveButton("Закрыть", null).show()
+        })
         contentContainer.addView(diagnostics)
         contentContainer.addView(verticalGap(12))
 

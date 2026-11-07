@@ -51,17 +51,20 @@ internal object SberPushParser {
         if (sourcePackage != SBER_PACKAGE || text.length > 8_192) {
             return Assessment(null, Reason.OTHER_APPLICATION)
         }
+        // Canonicalize non-breaking spaces, invisible separators and newlines.
+        // Only an in-memory copy is normalized; notification text is never stored.
+        val normalized = SberPushSignals.normalize(text)
         // Never use bonus/loyalty "balances" as cash. Only skip a bonus-specific
         // clause, not a genuine cash balance elsewhere in the same notification.
         val found = mutableListOf<Pair<Long, Confidence>>()
         var invalidCandidate = false
         for (anchor in anchors) {
-            for (match in anchor.pattern.findAll(text)) {
-                val prefix = text.substring(maxOf(0, match.range.first - 18), match.range.first)
+            for (match in anchor.pattern.findAll(normalized)) {
+                val prefix = normalized.substring(maxOf(0, match.range.first - 18),
+                    match.range.first)
                 if (bonuses.containsMatchIn(prefix)) continue
-                val tailEnd = minOf(text.length, match.range.last + 1 + 72)
-                val tail = text.substring(match.range.last + 1, tailEnd)
-                    .substringBefore('\n').substringBefore('\r')
+                val tailEnd = minOf(normalized.length, match.range.last + 1 + 96)
+                val tail = normalized.substring(match.range.last + 1, tailEnd)
                 // A new sentence marks a new operation: never borrow its money
                 // amount as the balance from the previous sentence.
                 val clauseBreak = Regex("""[.!?;]\s+(?=\p{L})""").find(tail)
@@ -77,7 +80,7 @@ internal object SberPushParser {
                         .containsMatchIn(between)) continue
                 // The balance should be attached to the label. A distant amount
                 // is much more likely to be a transaction or marketing number.
-                if (amount.range.first > 38) continue
+                if (amount.range.first > 48) continue
                 val digits = amount.groupValues[1]
                     .replace(" ", "").replace("\u00a0", "")
                     .replace("\u202f", "").replace(',', '.')
@@ -102,7 +105,7 @@ internal object SberPushParser {
         if (found.map { it.first }.distinct().size != 1) {
             return Assessment(null, Reason.AMBIGUOUS_BALANCE)
         }
-        val accounts = maskedAccountPattern.findAll(text)
+        val accounts = maskedAccountPattern.findAll(normalized)
             .map { it.groupValues[1] }.distinct().toList()
         if (accounts.size > 1) return Assessment(null, Reason.AMBIGUOUS_ACCOUNT)
         val confidence = if (found.any { it.second == Confidence.EXPLICIT }) {

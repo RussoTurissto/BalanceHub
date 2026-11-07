@@ -54,4 +54,27 @@ class SberPushEvaluationTest {
         val message = payload(bodies = listOf("Теперь у тебя: 30,89 ₽"))
         assertNull(SberPushEvaluation.analyze("another.app", message).result)
     }
+    @Test fun acceptsBalanceSplitByNewlineAndInvisibleSpace() {
+        val message = payload(bodies = listOf(
+            "+ 10 ₽ — Теперь\u200B у тебя:\n40,89 ₽ Плат. счёт ••\n9667"
+        ))
+        val result = SberPushEvaluation.analyze(bank, message).result
+        assertEquals(4_089L, result?.kopecks)
+        assertEquals("9667", result?.lastFour)
+    }
+
+    @Test fun combinesSplitFieldsWithoutGuessingTransactionAmount() {
+        val message = payload(
+            titles = listOf("Сбербанк"),
+            bodies = listOf("+ 10 ₽ — Теперь у тебя:", "40,89 ₽ ••9667")
+        )
+        val result = SberPushEvaluation.analyze(bank, message).result
+        assertEquals(4_089L, result?.kopecks)
+        assertEquals("9667", result?.lastFour)
+    }
+
+    @Test fun bonusOnlyAndMultipleAmountsNeverBecomeBalance() {
+        val message = payload(bodies = listOf("Поступило + 10 ₽", "Баланс бонусов: 500 ₽"))
+        assertNull(SberPushEvaluation.analyze(bank, message).result)
+    }
 }
