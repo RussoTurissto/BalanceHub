@@ -1,11 +1,14 @@
 package com.github.russoturissto.buttonapp.app
 
+import android.annotation.SuppressLint
 import android.content.res.Resources
 
 /** Diagnostic clues only: never tries to undo Android's notification redaction. */
 internal object SberNotificationPrivacy {
     enum class Evidence { NONE, SYSTEM_REDACTION, POSSIBLE_REDACTION, NO_FINANCIAL_DATA }
 
+    // AOSP's internal localized string has no public resource ID.
+    @SuppressLint("DiscouragedApi")
     fun localizedSystemMessage(): String? = try {
         val res = Resources.getSystem()
         val id = res.getIdentifier("redacted_notification_message", "string", "android")
