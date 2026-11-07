@@ -5,4 +5,5 @@
     <string name="title">BalanceHub</string>
     <string name="description">Контроль балансов и напоминания о платежах</string>
     <string name="compose_version">BalanceHub</string>
+    <string name="sber_notification_listener_label">BalanceHub · баланс Сбербанка</string>
 </resources>

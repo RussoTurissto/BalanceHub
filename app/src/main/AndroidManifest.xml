@@ -20,6 +20,15 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <service
+            android:name=".SberPushNotificationListener"
+            android:label="@string/sber_notification_listener_label"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
         <receiver android:name=".PaymentReminderReceiver" android:enabled="true" android:exported="false" />
         <receiver android:name=".PaymentArchiveReceiver" android:enabled="true" android:exported="false" />
         <receiver android:name=".PaymentBootReceiver" android:enabled="true" android:exported="false">

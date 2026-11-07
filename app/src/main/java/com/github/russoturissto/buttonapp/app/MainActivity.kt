@@ -6,6 +6,13 @@ import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
+import android.app.NotificationManager
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.ComponentName
+import android.content.IntentFilter
+import android.provider.Settings
+import androidx.core.content.ContextCompat
 import android.app.AlarmManager
 import android.app.DatePickerDialog
 import androidx.appcompat.app.AlertDialog
@@ -55,6 +62,7 @@ class MainActivity : AppCompatActivity() {
     private var tabViews: List<TextView> = emptyList()
     private var currentTab = 0
     private var mobileSettingsOpen = false
+    private var bankSettingsOpen = false
     private var operatorDetailsOpen = false
     private var archiveOpen = false
     private var upcomingListExpanded = true
@@ -75,6 +83,12 @@ class MainActivity : AppCompatActivity() {
     // Match the approved header position on every tab and in every theme.
     // Never derive this padding from transient window insets during recreation.
     private val headerTopPadding get() = dp(36)
+    private val bankUpdateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == SberPushNotificationListener.ACTION_BALANCE_UPDATED &&
+                currentTab == 1 && ::contentContainer.isInitialized) renderTab()
+        }
+    }
     private var editingId: String? = null
     private var dueDate = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, 7) }
 
@@ -90,6 +104,7 @@ class MainActivity : AppCompatActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         currentTab = savedInstanceState?.getInt("current_tab") ?: 0
         mobileSettingsOpen = savedInstanceState?.getBoolean("mobile_settings_open") ?: false
+        bankSettingsOpen = savedInstanceState?.getBoolean("bank_settings_open") ?: false
         operatorDetailsOpen = savedInstanceState?.getBoolean("operator_details_open") ?: false
         archiveOpen = savedInstanceState?.getBoolean("archive_open") ?: false
         upcomingListExpanded = savedInstanceState?.getBoolean("payments_list_expanded")
@@ -120,6 +135,10 @@ class MainActivity : AppCompatActivity() {
                         operatorDetailsOpen = false
                         renderTab()
                     }
+                    bankSettingsOpen && currentTab == 3 -> {
+                        bankSettingsOpen = false
+                        renderTab()
+                    }
                     mobileSettingsOpen && currentTab == 3 -> {
                         mobileSettingsOpen = false
                         renderTab()
@@ -134,16 +153,26 @@ class MainActivity : AppCompatActivity() {
     }
 
 
+    override fun onStart() {
+        super.onStart()
+        ContextCompat.registerReceiver(this, bankUpdateReceiver,
+            IntentFilter(SberPushNotificationListener.ACTION_BALANCE_UPDATED),
+            ContextCompat.RECEIVER_NOT_EXPORTED)
+    }
+
+    override fun onStop() {
+        unregisterReceiver(bankUpdateReceiver)
+        super.onStop()
+    }
+
     override fun onResume() {
         super.onResume()
         PaymentArchiveStore.archiveDue(this)
         // The background receiver may already have archived a payment while the
         // activity was paused. Always reconcile the in-memory list with history.
         val archivedIds = PaymentArchiveStore.archived(this).map { it.id }.toSet()
-        if (archivedIds.isNotEmpty() && ::contentContainer.isInitialized) {
-            val changed = payments.removeAll { it.id in archivedIds }
-            if (changed) renderTab()
-        }
+        if (archivedIds.isNotEmpty()) payments.removeAll { it.id in archivedIds }
+        if (::contentContainer.isInitialized && (currentTab == 1 || currentTab == 3)) renderTab()
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
@@ -155,6 +184,7 @@ class MainActivity : AppCompatActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putInt("current_tab", currentTab)
         outState.putBoolean("mobile_settings_open", mobileSettingsOpen)
+        outState.putBoolean("bank_settings_open", bankSettingsOpen)
         outState.putBoolean("operator_details_open", operatorDetailsOpen)
         outState.putBoolean("archive_open", archiveOpen)
         outState.putBoolean("payments_list_expanded", upcomingListExpanded)
@@ -452,7 +482,10 @@ class MainActivity : AppCompatActivity() {
         if (index == currentTab) return
         currentTab = index
         if (tutorialStep == 0 && index == 1) tutorialStep = 1
-        if (index != 3) mobileSettingsOpen = false
+        if (index != 3) {
+            mobileSettingsOpen = false
+            bankSettingsOpen = false
+        }
         if (index != 1) operatorDetailsOpen = false
         if (index != 2) {
             archiveOpen = false
@@ -1062,7 +1095,7 @@ class MainActivity : AppCompatActivity() {
             contentContainer.addView(card().apply {
                 addView(textLine("Активные SIM-карты не обнаружены", 15f, ink))
             })
-            return
+            contentContainer.addView(verticalGap(12))
         }
         for (sim in sims) {
             val op = MobileBalanceService.operator(this, sim)
@@ -1127,6 +1160,7 @@ class MainActivity : AppCompatActivity() {
             contentContainer.addView(mobile)
             contentContainer.addView(verticalGap(12))
         }
+        renderSberBalances()
         if (!sessionAutoRefreshStarted &&
             preferences.getBoolean("mobile_auto_refresh_on_open", true) &&
             androidx.core.content.ContextCompat.checkSelfPermission(
@@ -1135,6 +1169,61 @@ class MainActivity : AppCompatActivity() {
         ) {
             sessionAutoRefreshStarted = true
             refreshSimsInSequence(sims, 0)
+        }
+    }
+
+    private fun rubles(kopecks: Long): String =
+        java.text.NumberFormat.getCurrencyInstance(Locale.forLanguageTag("ru-RU"))
+            .format(java.math.BigDecimal.valueOf(kopecks, 2))
+
+    private fun renderSberBalances() {
+        contentContainer.addView(verticalGap(6))
+        contentContainer.addView(textLine("Банковские счета", 14f, muted))
+        contentContainer.addView(verticalGap(14))
+        val enabled = SberBalanceStore.isEnabled(this)
+        val granted = SberBalanceStore.isAccessGranted(this)
+        val snapshots = if (enabled) SberBalanceStore.all(this) else emptyList()
+        val accounts = if (snapshots.isEmpty()) listOf<SberBalanceStore.Snapshot?>(null)
+            else snapshots.map { it }
+        for (snapshot in accounts) {
+            val bankCard = card()
+            bankCard.addView(textLine("Сбербанк", 18f, ink, true))
+            bankCard.addView(verticalGap(5))
+            if (snapshot == null) {
+                bankCard.addView(textLine("Баланс пока не получен", 16f, muted))
+            } else {
+                val label = snapshot.lastFour?.let { "Карта ••••$it" }
+                    ?: "Карта или счёт (не определён)"
+                bankCard.addView(textLine(label, 13f, muted))
+                bankCard.addView(verticalGap(7))
+                bankCard.addView(textLine(rubles(snapshot.kopecks), 23f, ink, true))
+                val date = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
+                    .format(Date(snapshot.observedAt))
+                bankCard.addView(verticalGap(5))
+                bankCard.addView(textLine("Последний подтверждённый остаток: $date", 12f, muted))
+            }
+            bankCard.addView(verticalGap(9))
+            val state = when {
+                !enabled -> "Источник не подключён"
+                !granted -> "Нет доступа к уведомлениям Android"
+                snapshot == null -> "Ожидание Push с указанием остатка в рублях"
+                else -> "Источник: Push СберБанк Онлайн, не онлайн-запрос"
+            }
+            bankCard.addView(textLine(state, 12f, muted))
+            bankCard.setOnClickListener {
+                currentTab = 3
+                bankSettingsOpen = true
+                tabViews.forEachIndexed { index, tab ->
+                    val selected = index == currentTab
+                    tab.setTextColor(if (selected) Color.WHITE else ink)
+                    tab.setTypeface(null, if (selected) Typeface.BOLD else Typeface.NORMAL)
+                    tab.background = tabBackground(selected)
+                }
+                renderTab()
+                dashboardScroll.scrollTo(0, 0)
+            }
+            contentContainer.addView(bankCard)
+            contentContainer.addView(verticalGap(12))
         }
     }
 
@@ -1418,6 +1507,10 @@ class MainActivity : AppCompatActivity() {
 
 
     private fun renderSettings() {
+        if (bankSettingsOpen) {
+            renderBankSettings()
+            return
+        }
         if (mobileSettingsOpen) {
             renderMobileSettings()
             return
@@ -1500,6 +1593,21 @@ class MainActivity : AppCompatActivity() {
         contentContainer.addView(mobileSettings)
         contentContainer.addView(verticalGap(14))
 
+        val bankSettings = card()
+        bankSettings.addView(textLine("Сбербанк   ›", 18f, ink, true))
+        bankSettings.addView(verticalGap(6))
+        bankSettings.addView(textLine(
+            "Баланс по Push-уведомлениям · " +
+                if (SberBalanceStore.isEnabled(this)) "подключён" else "отключён",
+            14f, muted
+        ))
+        bankSettings.setOnClickListener {
+            bankSettingsOpen = true
+            renderTab()
+        }
+        contentContainer.addView(bankSettings)
+        contentContainer.addView(verticalGap(14))
+
         val notificationCard = card()
         notificationCard.addView(textLine("Уведомления", 18f, ink, true))
         notificationCard.addView(verticalGap(6))
@@ -1534,6 +1642,86 @@ class MainActivity : AppCompatActivity() {
         help.addView(secondaryButton("Пройти обучение повторно") {
             restartTutorial()
         })
+        contentContainer.addView(help)
+    }
+
+    private fun openSberListenerSettings() {
+        val component = ComponentName(this, SberPushNotificationListener::class.java)
+        val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Intent(Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS)
+                .putExtra(Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME, component)
+        } else Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+        try {
+            startActivity(intent)
+        } catch (_: android.content.ActivityNotFoundException) {
+            startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+        }
+    }
+
+    private fun renderBankSettings() {
+        contentContainer.addView(secondaryButton("‹  Все настройки") {
+            bankSettingsOpen = false
+            renderTab()
+        })
+        contentContainer.addView(verticalGap(16))
+        contentContainer.addView(textLine("Сбербанк", 23f, ink, true))
+        contentContainer.addView(verticalGap(8))
+        val bankCard = card()
+        val enabled = SberBalanceStore.isEnabled(this)
+        val granted = SberBalanceStore.isAccessGranted(this)
+        bankCard.addView(textLine(
+            if (enabled) "Получение Push включено" else "Подключение отключено",
+            17f, ink, true
+        ))
+        bankCard.addView(verticalGap(8))
+        bankCard.addView(textLine(
+            "BalanceHub ищет только явный остаток в рублях в уведомлениях " +
+                "приложения СберБанк Онлайн. Не читает SMS, не запрашивает пароли, " +
+                "не отправляет данные в интернет и не хранит историю операций.",
+            13f, muted
+        ))
+        bankCard.addView(verticalGap(10))
+        bankCard.addView(textLine(
+            if (granted) "Доступ Android к уведомлениям предоставлен"
+            else "Доступ Android к уведомлениям не предоставлен",
+            13f, if (granted) accent else muted
+        ))
+        bankCard.addView(verticalGap(10))
+        if (!enabled) {
+            bankCard.addView(primaryButton("Подключить Push Сбербанка") {
+                SberBalanceStore.setEnabled(this, true)
+                openSberListenerSettings()
+                renderTab()
+            })
+        } else {
+            bankCard.addView(primaryButton("Настроить доступ к уведомлениям") {
+                openSberListenerSettings()
+            })
+            bankCard.addView(verticalGap(9))
+            bankCard.addView(secondaryButton("Отключить и удалить остатки") {
+                themedDialogBuilder().setTitle("Отключить Сбербанк?")
+                    .setMessage("Все сохранённые остатки Сбербанка будут удалены. " +
+                        "Разрешение Android можно также отозвать в системных настройках.")
+                    .setNegativeButton("Отмена", null)
+                    .setPositiveButton("Отключить") { _, _ ->
+                        SberBalanceStore.setEnabled(this, false)
+                        renderTab()
+                    }.show()
+            })
+        }
+        contentContainer.addView(bankCard)
+        contentContainer.addView(verticalGap(12))
+        val help = card()
+        help.addView(textLine("Как обновляется баланс", 16f, ink, true))
+        help.addView(verticalGap(7))
+        help.addView(textLine(
+            "При следующем Push от Сбера, содержащем «Остаток», «Баланс» " +
+                "или «Доступно» и сумму в рублях, отобразим последнее значение. " +
+                "При отсутствии остатка в уведомлении сумма не обновится. " +
+                "Если установлена другая версия приложения Сбера, может потребоваться " +
+                "добавить её идентификатор после проверки.",
+            13f, muted
+        ))
         contentContainer.addView(help)
     }
 
