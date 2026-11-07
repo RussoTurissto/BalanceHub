@@ -62,7 +62,7 @@ internal object SberPushParser {
                     .substringBefore('\n').substringBefore('\r')
                 // A new sentence marks a new operation: never borrow its money
                 // amount as the balance from the previous sentence.
-                val clauseBreak = Regex("""[.!?;]\\s+(?=\\p{L})""").find(tail)
+                val clauseBreak = Regex("""[.!?;]\s+(?=\p{L})""").find(tail)
                 val clause = if (clauseBreak == null) tail
                     else tail.substring(0, clauseBreak.range.first)
                 val amount = moneyPattern.find(clause) ?: continue
