@@ -784,56 +784,83 @@ class MainActivity : AppCompatActivity() {
             set(Calendar.MILLISECOND, 0)
         }.timeInMillis
         val upcomingPayments = payments.filter { it.dueAt >= startOfToday }
+        val upcomingEvents = EventStore.active(this).filter {
+            it.dueAt >= startOfToday
+        }
         val summary = card().apply {
             setPadding(dp(16), dp(14), dp(16), dp(14))
         }
-        summary.addView(textLine("Предстоящие платежи", 14f, muted))
-        summary.addView(verticalGap(6))
+        summary.addView(textLine("Предстоящие", 14f, muted))
+        summary.addView(verticalGap(9))
         val totals = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        val count = LinearLayout(this).apply {
+        val paymentsColumn = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            addView(textLine(upcomingPayments.size.toString(), 31f, ink, true))
-            addView(textLine("Запланировано\nнапоминаний", 12f, muted))
+            setPadding(dp(2), dp(4), dp(6), dp(4))
+            isClickable = true
+            isFocusable = true
+            contentDescription = "Открыть предстоящие платежи"
+            addView(textLine("▣  Платежи", 13f, accent, true))
+            addView(verticalGap(5))
+            addView(textLine(upcomingPayments.size.toString(), 27f, ink, true))
+            addView(verticalGap(3))
+            val amount = PaymentOverview.totalLabel(
+                upcomingPayments.map { it.amount to it.currency })
+            addView(textLine(amount, if (amount.length > 17) 12f else 15f,
+                ink, true).apply {
+                maxLines = 2
+                ellipsize = android.text.TextUtils.TruncateAt.END
+            })
+            addView(verticalGap(2))
+            addView(textLine("Общая сумма", 11f, muted))
+            setOnClickListener { selectTab(2) }
         }
-        totals.addView(count, LinearLayout.LayoutParams(0, -2, 1f))
-        val divider = View(this).apply { setBackgroundColor(muted) }
-        totals.addView(divider, LinearLayout.LayoutParams(dp(1), dp(56)).apply {
-            marginStart = dp(7)
-            marginEnd = dp(15)
+        totals.addView(paymentsColumn, LinearLayout.LayoutParams(0, -2, 1f))
+        totals.addView(View(this).apply {
+            setBackgroundColor(if (isNight) Color.rgb(83, 121, 123)
+                else Color.rgb(189, 220, 217))
+        }, LinearLayout.LayoutParams(dp(1), dp(104)).apply {
+            marginStart = dp(8)
+            marginEnd = dp(13)
         })
-        val valueColumn = LinearLayout(this).apply {
+        val eventColor = if (isNight) Color.rgb(159, 198, 221)
+            else Color.rgb(67, 110, 144)
+        val eventsColumn = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            gravity = Gravity.END
+            setPadding(dp(2), dp(4), dp(2), dp(4))
+            isClickable = true
+            isFocusable = true
+            contentDescription = "Открыть предстоящие события"
+            addView(textLine("▦  События", 13f, eventColor, true))
+            addView(verticalGap(5))
+            addView(textLine(upcomingEvents.size.toString(), 27f, ink, true))
+            addView(verticalGap(3))
+            val nearest = upcomingEvents.minByOrNull { it.dueAt }
+            addView(textLine(nearest?.let {
+                SimpleDateFormat("d MMMM", Locale("ru")).format(Date(it.dueAt))
+            } ?: "Нет событий", 14f, ink, true).apply {
+                maxLines = 2
+                ellipsize = android.text.TextUtils.TruncateAt.END
+            })
+            addView(verticalGap(2))
+            addView(textLine("Ближайшее событие", 11f, muted))
+            setOnClickListener { selectTab(3) }
         }
-        val amount = PaymentOverview.totalLabel(
-            upcomingPayments.map { it.amount to it.currency }
-        )
-        valueColumn.addView(textLine(amount, 20f, ink, true).apply {
-            gravity = Gravity.END
-        })
-        valueColumn.addView(verticalGap(4))
-        valueColumn.addView(textLine("Общая сумма", 12f, muted).apply {
-            gravity = Gravity.END
-        })
-        totals.addView(valueColumn, LinearLayout.LayoutParams(0, -2, 1f))
+        totals.addView(eventsColumn, LinearLayout.LayoutParams(0, -2, 1f))
         summary.addView(totals)
         contentContainer.addView(summary)
-        contentContainer.addView(verticalGap(9))
-        // Place the primary action before the tall calendar, so it is always
-        // discoverable without scrolling on ordinary screens.
-        contentContainer.addView(primaryButton("Управлять платежами") {
-            selectTab(2)
-        }, LinearLayout.LayoutParams(-1, dp(48)))
         contentContainer.addView(verticalGap(10))
-        renderHomeCalendar(upcomingPayments)
+        renderHomeCalendar(upcomingPayments, upcomingEvents)
         contentContainer.addView(verticalGap(10))
         renderHomePayments(upcomingPayments.sortedBy { it.dueAt })
+        contentContainer.addView(verticalGap(10))
+        renderHomeEvents(upcomingEvents.sortedBy { it.dueAt })
     }
 
-    private fun renderHomeCalendar(upcoming: List<PaymentReminder>) {
+    private fun renderHomeCalendar(upcoming: List<PaymentReminder>,
+        events: List<PlannedEvent>) {
         val year = homeCalendarMonth.get(Calendar.YEAR)
         val month = homeCalendarMonth.get(Calendar.MONTH)
         val offset = PaymentCalendarMath.mondayOffset(year, month)
@@ -848,6 +875,34 @@ class MainActivity : AppCompatActivity() {
             for (day in PaymentCalendarMath.scheduledDays(
                     payment.dueAt, payment.recurrence, year, month)) {
                 byDay.getOrPut(day) { mutableListOf() }.add(payment)
+            }
+        }
+        // Event occurrences follow the same calendar month as payment occurrences.
+        val eventByDay = linkedMapOf<Int, MutableList<PlannedEvent>>()
+        val monthStart = Calendar.getInstance().apply {
+            set(year, month, 1, 0, 0, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        val monthEnd = Calendar.getInstance().apply {
+            timeInMillis = monthStart
+            add(Calendar.MONTH, 1)
+        }.timeInMillis
+        for (event in events) {
+            var occurrence = if (event.dueAt < monthStart)
+                EventDateRules.nextOccurrence(event.dueAt, event.recurrence,
+                    monthStart - 1L) ?: continue
+            else event.dueAt
+            var steps = 0
+            while (occurrence < monthEnd && steps++ < 40) {
+                if (occurrence >= monthStart) {
+                    val day = Calendar.getInstance().apply {
+                        timeInMillis = occurrence
+                    }.get(Calendar.DAY_OF_MONTH)
+                    eventByDay.getOrPut(day) { mutableListOf() }.add(event)
+                }
+                if (event.recurrence == "once") break
+                occurrence = EventDateRules.nextOccurrence(
+                    occurrence, event.recurrence, occurrence) ?: break
             }
         }
         val calendar = card().apply { setPadding(dp(11), dp(9), dp(11), dp(10)) }
@@ -894,46 +949,36 @@ class MainActivity : AppCompatActivity() {
                     continue
                 }
                 val paymentCount = byDay[day]?.size ?: 0
-                val marked = paymentCount > 0
+                val eventCount = eventByDay[day]?.size ?: 0
+                val marked = paymentCount + eventCount > 0
                 val isToday = isCurrentMonth &&
                     today.get(Calendar.DAY_OF_MONTH) == day
                 val chosen = homeSelectedDay == day
-                // The touch target spans the cell; the painted tile is inset.
-                // This keeps adjacent marked dates visually separated even
-                // when several payments fall on consecutive days or weeks.
                 val cell = android.widget.FrameLayout(this).apply {
                     setPadding(dp(2), dp(2), dp(2), dp(2))
                     isClickable = true
                     isFocusable = true
                     contentDescription = day.toString() + " " + title +
-                        (if (marked) ", платежей: " + paymentCount else "") +
+                        ", платежей: " + paymentCount +
+                        ", событий: " + eventCount +
                         (if (isToday) ", сегодня" else "")
                 }
                 val tile = LinearLayout(this).apply {
                     orientation = LinearLayout.VERTICAL
                     gravity = Gravity.CENTER
-                    background = GradientDrawable().apply {
-                        setColor(when {
-                            chosen -> Color.rgb(32, 133, 128)
-                            marked -> if (isNight) Color.rgb(25, 112, 108)
-                                else Color.rgb(207, 239, 230)
-                            else -> Color.TRANSPARENT
-                        })
-                        cornerRadius = dp(10).toFloat()
-                        if (isToday) setStroke(dp(2), Color.rgb(45, 221, 212))
-                        else if (chosen) setStroke(dp(2), Color.rgb(166, 236, 211))
-                    }
+                    background = BalanceCalendarDayDrawable(this@MainActivity,
+                        isNight, paymentCount > 0, eventCount > 0, chosen, isToday)
                     addView(textLine(day.toString(), 13f,
-                        if (chosen || (marked && isNight)) Color.WHITE else ink,
+                        if (isNight && (marked || chosen)) Color.WHITE else ink,
                         chosen || marked || isToday).apply {
                         gravity = Gravity.CENTER
                         includeFontPadding = false
                     })
                     addView(textLine(
-                        if (paymentCount > 1) paymentCount.toString()
+                        if (paymentCount + eventCount > 1)
+                            (paymentCount + eventCount).toString()
                         else if (marked) "•" else " ",
-                        9f,
-                        if (chosen || (marked && isNight)) Color.WHITE else accent,
+                        9f, if (isNight && (marked || chosen)) Color.WHITE else accent,
                         marked
                     ).apply {
                         gravity = Gravity.CENTER
@@ -1034,15 +1079,21 @@ class MainActivity : AppCompatActivity() {
                 orientation = LinearLayout.VERTICAL
                 background = rounded(softAccent, 12)
                 setPadding(dp(11), dp(10), dp(11), dp(10))
-                addView(textLine("Платежи на " +
+                addView(textLine("Платежи и события на " +
                     SimpleDateFormat("d MMMM", Locale("ru"))
                         .format(selectedDate.time), 13f, ink, true))
             }
             val selectedPayments = byDay[chosenDay].orEmpty()
-            if (selectedPayments.isEmpty()) {
+            val selectedEvents = eventByDay[chosenDay].orEmpty()
+            if (selectedPayments.isEmpty() && selectedEvents.isEmpty()) {
                 details.addView(verticalGap(4))
-                details.addView(textLine("На эту дату платежей нет", 12f, muted))
-            } else for (payment in selectedPayments) {
+                details.addView(textLine("На эту дату записей нет", 12f, muted))
+            }
+            if (selectedPayments.isNotEmpty()) {
+                details.addView(verticalGap(6))
+                details.addView(textLine("Платежи", 12f, accent, true))
+            }
+            for (payment in selectedPayments) {
                 details.addView(verticalGap(4))
                 details.addView(LinearLayout(this).apply {
                     orientation = LinearLayout.HORIZONTAL
@@ -1055,6 +1106,27 @@ class MainActivity : AppCompatActivity() {
                     addView(textLine(payment.title + " · " +
                         PaymentCurrencyFormatter.amountWithCurrency(
                             payment.amount, payment.currency), 12f, ink))
+                })
+            }
+            if (selectedEvents.isNotEmpty()) {
+                details.addView(verticalGap(7))
+                details.addView(textLine("События", 12f,
+                    if (isNight) Color.rgb(159, 198, 221)
+                    else Color.rgb(67, 110, 144), true))
+            }
+            for (event in selectedEvents) {
+                details.addView(verticalGap(4))
+                details.addView(LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    addView(iconTile(event.iconId ?: IconRegistry.select(
+                        event.title, "calendar-days"), 26),
+                        LinearLayout.LayoutParams(dp(26), dp(26)))
+                    addView(View(this@MainActivity),
+                        LinearLayout.LayoutParams(dp(7), 1))
+                    addView(textLine(event.title + " · " +
+                        SimpleDateFormat("HH:mm", Locale("ru"))
+                            .format(Date(event.dueAt)), 12f, ink))
                 })
             }
             calendar.addView(details)
@@ -1172,6 +1244,128 @@ class MainActivity : AppCompatActivity() {
                     section.addView(View(this).apply {
                         setBackgroundColor(if (isNight) Color.rgb(55, 87, 90)
                             else Color.rgb(215, 234, 230))
+                    }, LinearLayout.LayoutParams(-1, dp(1)))
+                }
+            }
+        }
+        contentContainer.addView(section)
+    }
+
+    private fun renderHomeEvents(upcoming: List<PlannedEvent>) {
+        if (homeExpandedEventId != null &&
+            upcoming.none { it.id == homeExpandedEventId }) homeExpandedEventId = null
+        val eventTint = if (isNight) Color.rgb(155, 193, 219)
+            else Color.rgb(63, 110, 146)
+        val section = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                if (isNight) intArrayOf(Color.rgb(37, 61, 74), Color.rgb(31, 51, 64))
+                else intArrayOf(Color.rgb(247, 251, 255), Color.rgb(228, 240, 250))
+            ).apply {
+                cornerRadius = dp(20).toFloat()
+                setStroke(dp(1), if (isNight) Color.rgb(76, 116, 139)
+                    else Color.rgb(186, 212, 232))
+            }
+            elevation = dp(2).toFloat()
+        }
+        val heading = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(14), dp(15), dp(14), dp(15))
+            isClickable = true
+            isFocusable = true
+            contentDescription = if (homeEventsExpanded)
+                "Все предстоящие события, свернуть"
+            else "Все предстоящие события, раскрыть"
+            addView(iconTile("calendar-days", 36),
+                LinearLayout.LayoutParams(dp(36), dp(36)))
+            addView(View(this@MainActivity), LinearLayout.LayoutParams(dp(9), 1))
+            addView(textLine("Все предстоящие события (" +
+                upcoming.size + ")", 16f, ink, true),
+                LinearLayout.LayoutParams(0, -2, 1f))
+            addView(iconTile(if (homeEventsExpanded) "chevron-up"
+                else "chevron-down", 30), LinearLayout.LayoutParams(dp(30), dp(30)))
+            setOnClickListener {
+                homeEventsExpanded = !homeEventsExpanded
+                if (!homeEventsExpanded) homeExpandedEventId = null
+                preferences.edit().putBoolean(
+                    "home_events_expanded", homeEventsExpanded).apply()
+                renderTab()
+            }
+        }
+        section.addView(heading)
+        if (homeEventsExpanded) {
+            section.addView(View(this).apply {
+                setBackgroundColor(if (isNight) Color.rgb(79, 110, 133)
+                    else Color.rgb(190, 217, 235))
+            }, LinearLayout.LayoutParams(-1, dp(1)))
+            if (upcoming.isEmpty()) {
+                section.addView(textLine("Пока нет предстоящих событий",
+                    13f, muted).apply {
+                    setPadding(dp(14), dp(14), dp(14), dp(14))
+                })
+            }
+            for ((index, event) in upcoming.withIndex()) {
+                val expanded = homeExpandedEventId == event.id
+                val item = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    if (expanded) background = rounded(
+                        if (isNight) Color.rgb(44, 77, 93)
+                        else Color.rgb(225, 239, 250), 12)
+                }
+                val row = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(13), dp(10), dp(13), dp(10))
+                    isClickable = true
+                    isFocusable = true
+                    contentDescription = "Событие " + event.title +
+                        if (expanded) ", свернуть" else ", раскрыть"
+                    addView(iconTile(event.iconId ?: IconRegistry.select(
+                        event.title, "calendar-days"), 36),
+                        LinearLayout.LayoutParams(dp(36), dp(36)))
+                    addView(View(this@MainActivity), LinearLayout.LayoutParams(dp(9), 1))
+                    addView(LinearLayout(this@MainActivity).apply {
+                        orientation = LinearLayout.VERTICAL
+                        addView(textLine(event.title, 13f, ink, true).apply {
+                            maxLines = 2
+                            ellipsize = android.text.TextUtils.TruncateAt.END
+                        })
+                        addView(verticalGap(3))
+                        addView(textLine(eventDateLabel(event.dueAt), 11f, muted))
+                    }, LinearLayout.LayoutParams(0, -2, 1f))
+                    addView(iconTile(if (expanded) "chevron-up"
+                        else "chevron-down", 25),
+                        LinearLayout.LayoutParams(dp(25), dp(25)))
+                    setOnClickListener {
+                        homeExpandedEventId =
+                            if (expanded) null else event.id
+                        renderTab()
+                    }
+                }
+                item.addView(row)
+                if (expanded) {
+                    item.addView(LinearLayout(this).apply {
+                        orientation = LinearLayout.VERTICAL
+                        setPadding(dp(13), 0, dp(13), dp(12))
+                        addView(textLine(
+                            event.details.ifBlank { "Описание отсутствует" },
+                            12f, muted))
+                        addView(verticalGap(5))
+                        addView(textLine(eventRepeatLabel(event.recurrence),
+                            12f, eventTint))
+                        addView(verticalGap(8))
+                        addView(secondaryButton("Открыть во вкладке «События»") {
+                            expandedEventId = event.id
+                            selectTab(3)
+                        }, LinearLayout.LayoutParams(-1, dp(42)))
+                    })
+                }
+                section.addView(item)
+                if (index < upcoming.lastIndex) {
+                    section.addView(View(this).apply {
+                        setBackgroundColor(if (isNight) Color.rgb(69, 99, 119)
+                            else Color.rgb(202, 226, 240))
                     }, LinearLayout.LayoutParams(-1, dp(1)))
                 }
             }
