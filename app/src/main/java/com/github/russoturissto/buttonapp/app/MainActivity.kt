@@ -3032,7 +3032,7 @@ class MainActivity : AppCompatActivity() {
             })
             .setNegativeButton("Отмена", null).create()
         val cellSize = ((resources.configuration.screenWidthDp - 62) / 4).coerceAtMost(100)
-        IconRegistry.all.forEach { icon ->
+        for (icon in IconRegistry.all) {
             val item = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER
@@ -3209,7 +3209,7 @@ class MainActivity : AppCompatActivity() {
                     "Архив пока пуст. Здесь будут завершённые и удалённые события.",
                     13f, muted))
             }
-            history.forEach { item ->
+            for (item in history) {
                 val icon = item.event.iconId ?: IconRegistry.select(item.event.title)
                 val row = LinearLayout(this).apply {
                     orientation = LinearLayout.HORIZONTAL
@@ -3428,7 +3428,7 @@ class MainActivity : AppCompatActivity() {
         body.addView(textLine(
             "Что нового в версии " + (packageInfo.versionName ?: ""), 15f, ink, true
         ))
-        AppReleaseNotes.current.forEach { note ->
+        for (note in AppReleaseNotes.current) {
             body.addView(verticalGap(12))
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
