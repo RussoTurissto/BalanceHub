@@ -965,9 +965,18 @@ class MainActivity : AppCompatActivity() {
                 details.addView(textLine("На эту дату платежей нет", 12f, muted))
             } else for (payment in selectedPayments) {
                 details.addView(verticalGap(4))
-                details.addView(textLine(payment.title + " · " +
-                    PaymentCurrencyFormatter.amountWithCurrency(
-                        payment.amount, payment.currency), 12f, ink))
+                details.addView(LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    addView(iconTile(payment.iconId ?: IconRegistry.select(
+                        payment.title, "credit-card"), 26),
+                        LinearLayout.LayoutParams(dp(26), dp(26)))
+                    addView(View(this@MainActivity),
+                        LinearLayout.LayoutParams(dp(7), 1))
+                    addView(textLine(payment.title + " · " +
+                        PaymentCurrencyFormatter.amountWithCurrency(
+                            payment.amount, payment.currency), 12f, ink))
+                })
             }
             calendar.addView(details)
         }
@@ -994,11 +1003,15 @@ class MainActivity : AppCompatActivity() {
                 "Все предстоящие платежи, свернуть"
             else "Все предстоящие платежи, раскрыть"
         }
+        heading.addView(iconTile("credit-card", 36),
+            LinearLayout.LayoutParams(dp(36), dp(36)))
+        heading.addView(View(this), LinearLayout.LayoutParams(dp(9), 1))
         heading.addView(textLine("Все предстоящие платежи (" +
             upcoming.size + ")", 16f, ink, true),
             LinearLayout.LayoutParams(0, -2, 1f))
-        heading.addView(textLine(if (homeUpcomingExpanded) "⌃" else "⌄",
-            23f, accent, true))
+        heading.addView(iconTile(if (homeUpcomingExpanded)
+            "chevron-up" else "chevron-down", 30),
+            LinearLayout.LayoutParams(dp(30), dp(30)))
         heading.setOnClickListener {
             homeUpcomingExpanded = !homeUpcomingExpanded
             if (!homeUpcomingExpanded) homeExpandedPaymentId = null
@@ -1033,6 +1046,10 @@ class MainActivity : AppCompatActivity() {
                     contentDescription = "Платёж " + payment.title +
                         if (expanded) ", свернуть" else ", раскрыть"
                 }
+                row.addView(iconTile(payment.iconId ?: IconRegistry.select(
+                    payment.title, "credit-card"), 36),
+                    LinearLayout.LayoutParams(dp(36), dp(36)))
+                row.addView(View(this), LinearLayout.LayoutParams(dp(9), 1))
                 row.addView(LinearLayout(this).apply {
                     orientation = LinearLayout.VERTICAL
                     addView(textLine(payment.title, 13f, ink, true).apply {
@@ -1630,16 +1647,23 @@ class MainActivity : AppCompatActivity() {
 
         // First and more compact: three side-by-side theme selectors.
         val appearanceCard = card()
-        appearanceCard.addView(textLine("Оформление", 18f, ink, true))
+        appearanceCard.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(iconTile("settings", 35),
+                LinearLayout.LayoutParams(dp(35), dp(35)))
+            addView(View(this@MainActivity), LinearLayout.LayoutParams(dp(9), 1))
+            addView(textLine("Оформление", 18f, ink, true))
+        })
         appearanceCard.addView(verticalGap(5))
         appearanceCard.addView(textLine("Тема приложения", 13f, muted))
         appearanceCard.addView(verticalGap(12))
         val currentAppearance = preferences.getString("appearance", "system") ?: "system"
         val choices = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         listOf(
-            Triple("system", "Авто", "◉"),
-            Triple("day", "Светлая", "☀"),
-            Triple("night", "Тёмная", "☾")
+            Triple("system", "Авто", "settings"),
+            Triple("day", "Светлая", "sun"),
+            Triple("night", "Тёмная", "moon")
         ).forEachIndexed { index, (mode, label, glyph) ->
             val chosen = currentAppearance == mode
             val cell = LinearLayout(this).apply {
@@ -1667,10 +1691,8 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
-            cell.addView(textLine(glyph, 19f, if (chosen) ink else accent, true).apply {
-                gravity = Gravity.CENTER
-                layoutParams = LinearLayout.LayoutParams(dp(28), dp(28))
-            })
+            cell.addView(iconTile(glyph, 28),
+                LinearLayout.LayoutParams(dp(28), dp(28)))
             cell.addView(verticalGap(4))
             cell.addView(textLine(label, 12f, ink, chosen).apply {
                 gravity = Gravity.CENTER
@@ -1686,7 +1708,14 @@ class MainActivity : AppCompatActivity() {
         contentContainer.addView(verticalGap(14))
 
         val mobileSettings = card()
-        mobileSettings.addView(textLine("Мобильная связь   ›", 18f, ink, true))
+        mobileSettings.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(iconTile("smartphone", 37),
+                LinearLayout.LayoutParams(dp(37), dp(37)))
+            addView(View(this@MainActivity), LinearLayout.LayoutParams(dp(10), 1))
+            addView(textLine("Мобильная связь   ›", 18f, ink, true))
+        })
         mobileSettings.addView(verticalGap(6))
         mobileSettings.addView(textLine(
             "SIM-карты, проверка баланса и настройки абонентской платы",
@@ -2372,10 +2401,8 @@ class MainActivity : AppCompatActivity() {
             contentDescription = "Предстоящие платежи, " + sorted.size +
                 if (upcomingListExpanded) ", свернуть список" else ", раскрыть список"
         }
-        header.addView(textLine("▦", 23f, accent, true).apply {
-            gravity = Gravity.CENTER
-            background = rounded(softAccent, 11)
-        }, LinearLayout.LayoutParams(dp(38), dp(38)))
+        header.addView(iconTile("calendar-days", 38),
+            LinearLayout.LayoutParams(dp(38), dp(38)))
         header.addView(View(this), LinearLayout.LayoutParams(dp(10), 1))
         header.addView(LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -2387,8 +2414,9 @@ class MainActivity : AppCompatActivity() {
                 12f, muted
             ))
         }, LinearLayout.LayoutParams(0, -2, 1f))
-        header.addView(textLine(if (upcomingListExpanded) "⌃" else "⌄",
-            25f, accent, true).apply { gravity = Gravity.CENTER })
+        header.addView(iconTile(if (upcomingListExpanded)
+            "chevron-up" else "chevron-down", 32),
+            LinearLayout.LayoutParams(dp(32), dp(32)))
         header.setOnClickListener {
             upcomingListExpanded = PaymentListInteraction.toggleSection(upcomingListExpanded)
             if (!upcomingListExpanded) expandedPaymentId = null
@@ -2448,8 +2476,9 @@ class MainActivity : AppCompatActivity() {
                         ), 14f, ink, true
                     ).apply { gravity = Gravity.END })
                     addView(verticalGap(2))
-                    addView(textLine(if (expanded) "⌃" else "⌄",
-                        18f, accent, true).apply { gravity = Gravity.END })
+                    addView(iconTile(if (expanded)
+                        "chevron-up" else "chevron-down", 25),
+                        LinearLayout.LayoutParams(dp(25), dp(25)))
                 }
                 row.addView(right)
                 row.setOnClickListener {
