@@ -13,6 +13,7 @@ import android.content.ComponentName
 import android.content.IntentFilter
 import android.provider.Settings
 import androidx.core.content.ContextCompat
+import androidx.core.content.edit
 import androidx.core.net.toUri
 import android.app.AlarmManager
 import android.app.DatePickerDialog
@@ -102,7 +103,7 @@ class MainActivity : AppCompatActivity() {
             if (state.id != id || state.status != DownloadManager.STATUS_SUCCESSFUL) return
             val prefs = GithubUpdateEngine.preferences(this@MainActivity)
             if (prefs.getLong("completed_download_offer", 0L) >= release.code) return
-            prefs.edit().putLong("completed_download_offer", release.code).apply()
+            prefs.edit { putLong("completed_download_offer", release.code) }
             if (updateDialogOpen) return // The visible dialog is already polling progress.
             if (welcomeShowing) deferredUpdate = release
             else window.decorView.post { showGithubUpdateDialog(release) }
