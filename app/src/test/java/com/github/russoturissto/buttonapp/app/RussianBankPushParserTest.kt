@@ -47,6 +47,20 @@ class RussianBankPushParserTest {
             listOf("На карте ••2222. Остаток 0 ₽"))
         assertEquals(0L, a.result?.kopecks)
     }
+    @Test fun unsupportedRussianBankPackagesAreIgnored() {
+        assertNull(RussianBankCatalog.byPackage("ru.alfabank.mobile.android"))
+        assertNull(RussianBankCatalog.byPackage("ru.psbank.android"))
+        assertNull(RussianBankCatalog.byPackage("ru.raiffeisennews"))
+        assertEquals("vtb", RussianBankCatalog.byPackage(
+            "ru.vtb24.mobilebanking.android")?.id)
+        assertEquals("tbank", RussianBankCatalog.byPackage(
+            "com.idamob.tinkoff.android")?.id)
+    }
+    @Test fun existingSberParserStillReadsConfirmedBalance() {
+        val result = SberPushParser.analyze("ru.sberbankmobile",
+            "Покупка 350 ₽. Остаток: 12 450,30 ₽")
+        assertEquals(1_245_030L, result.result?.kopecks)
+    }
     @Test fun sberNeverUsesGenericParser() {
         val a = RussianBankPushParser.analyze("ru.sberbankmobile",
             listOf("Остаток 900 ₽"))
