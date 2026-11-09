@@ -51,6 +51,7 @@
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
+        <receiver android:name=".DiagnosticReminderReceiver" android:enabled="true" android:exported="false" />
         <receiver android:name=".PaymentReminderReceiver" android:enabled="true" android:exported="false" />
         <receiver android:name=".EventReminderReceiver" android:enabled="true" android:exported="false" />
         <receiver android:name=".EventDueReceiver" android:enabled="true" android:exported="false" />

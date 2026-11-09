@@ -1913,6 +1913,29 @@ class MainActivity : AppCompatActivity() {
 
         renderSoundSettings()
         contentContainer.addView(verticalGap(14))
+        val reminderSettings = card()
+        reminderSettings.addView(textLine("Точность напоминаний", 18f, ink, true))
+        reminderSettings.addView(verticalGap(6))
+        reminderSettings.addView(textLine(
+            if (ExactReminderAlarms.allowed(this)) "Точные напоминания разрешены Android."
+            else "Для своевременных напоминаний разрешите точные будильники. " +
+                "Пока разрешения нет, система может задерживать уведомления.",
+            13f, muted))
+        if (!ExactReminderAlarms.allowed(this) &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            reminderSettings.addView(verticalGap(10))
+            reminderSettings.addView(secondaryButton("Разрешить точные напоминания") {
+                try {
+                    startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
+                        ("package:" + packageName).toUri()))
+                } catch (_: Exception) {
+                    startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        ("package:" + packageName).toUri()))
+                }
+            })
+        }
+        contentContainer.addView(reminderSettings)
+        contentContainer.addView(verticalGap(14))
 
         val info = card()
         info.addView(textLine("О приложении", 18f, ink, true))
@@ -1975,6 +1998,28 @@ class MainActivity : AppCompatActivity() {
         notifications.addView(primaryButton("Проверить уведомление") {
             sendTestNotification()
         })
+        notifications.addView(verticalGap(9))
+        notifications.addView(secondaryButton("Тест платежа через 2 минуты") {
+            scheduleDiagnosticReminder(BalanceNotificationSounds.PAYMENT)
+        })
+        notifications.addView(verticalGap(8))
+        notifications.addView(secondaryButton("Тест события через 2 минуты") {
+            scheduleDiagnosticReminder(BalanceNotificationSounds.EVENT)
+        })
+        val log = getSharedPreferences("balancehub_reminder_diagnostics", MODE_PRIVATE)
+        notifications.addView(verticalGap(9))
+        for ((key, title) in listOf("payment" to "Платёж", "event" to "Событие")) {
+            val planned = log.getLong("${key}_planned", 0L)
+            val delivered = log.getLong("${key}_delivered", 0L)
+            if (planned > 0L) {
+                val delta = if (delivered >= planned) {
+                    " · срабатывание +" + ((delivered - planned) / 1000L) + " сек"
+                } else " · ожидается"
+                notifications.addView(textLine("$title: " +
+                    DateFormat.getTimeInstance(DateFormat.MEDIUM).format(Date(planned)) +
+                    delta, 12f, muted))
+            }
+        }
         contentContainer.addView(notifications)
         contentContainer.addView(verticalGap(12))
         val adb = card()
@@ -4100,6 +4145,19 @@ class MainActivity : AppCompatActivity() {
 
     private fun cancelReminder(payment: PaymentReminder) {
         PaymentAlarmScheduler.cancel(this, payment.id)
+    }
+
+    private fun scheduleDiagnosticReminder(category: String) {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+                PackageManager.PERMISSION_GRANTED) {
+            requestNotificationPermissionIfNeeded()
+            return
+        }
+        DiagnosticReminderReceiver.schedule(this, category)
+        Toast.makeText(this, "Напоминание запланировано через 2 минуты",
+            Toast.LENGTH_LONG).show()
+        renderTab()
     }
 
     private fun sendTestNotification() {
