@@ -93,6 +93,21 @@ class MainActivity : AppCompatActivity() {
     private var updateDialogOpen = false
     private var pendingGithubInstall = false
     private var deferredUpdate: UpdateRelease? = null
+    private val downloadedApkReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != DownloadManager.ACTION_DOWNLOAD_COMPLETE) return
+            val release = GithubUpdateEngine.cached(this@MainActivity) ?: return
+            val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L)
+            val state = GithubApkInstaller.status(this@MainActivity, release) ?: return
+            if (state.id != id || state.status != DownloadManager.STATUS_SUCCESSFUL) return
+            val prefs = GithubUpdateEngine.preferences(this@MainActivity)
+            if (prefs.getLong("completed_download_offer", 0L) >= release.code) return
+            prefs.edit().putLong("completed_download_offer", release.code).apply()
+            if (updateDialogOpen) return // The visible dialog is already polling progress.
+            if (welcomeShowing) deferredUpdate = release
+            else window.decorView.post { showGithubUpdateDialog(release) }
+        }
+    }
     private var upcomingListExpanded = true
     private var homeUpcomingExpanded = false
     private var homeExpandedPaymentId: String? = null
@@ -197,10 +212,14 @@ class MainActivity : AppCompatActivity() {
         ContextCompat.registerReceiver(this, bankUpdateReceiver,
             IntentFilter(SberPushNotificationListener.ACTION_BALANCE_UPDATED),
             ContextCompat.RECEIVER_NOT_EXPORTED)
+        ContextCompat.registerReceiver(this, downloadedApkReceiver,
+            IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE),
+            ContextCompat.RECEIVER_EXPORTED)
     }
 
     override fun onStop() {
         unregisterReceiver(bankUpdateReceiver)
+        unregisterReceiver(downloadedApkReceiver)
         super.onStop()
     }
 

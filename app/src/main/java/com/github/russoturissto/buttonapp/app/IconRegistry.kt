@@ -91,6 +91,7 @@ internal object IconRegistry {
         icon("trash", "Удалить", "life", "удал"),
         icon("pencil", "Редактировать", "life", "редактир|измен"),
         icon("plus", "Добавить", "life", "добав"),
+        icon("download", "Обновление", "tech", "обновлен|скач|загруз"),
         icon("chevron-down", "Развернуть", "life", "развер"),
         icon("chevron-up", "Свернуть", "life", "сверн")
     )
@@ -257,6 +258,8 @@ internal class AppIconDrawable(private val key: String, private val shade: Int) 
                 ; circ(12f,10f,2f) }
             "trash" -> { rect(6f,7f,18f,21f,0f); l(4f,6f,20f,6f);l(9f,3f,15f,3f)
                 ; l(10f,11f,10f,18f); l(14f,11f,14f,18f) }
+            "download" -> { l(12f,3f,12f,16f); path(7f,11f,12f,16f,17f,11f)
+                ; path(4f,17f,4f,21f,20f,21f,20f,17f) }
             "plus" -> { l(12f,4f,12f,20f);l(4f,12f,20f,12f) }
             "chevron-down" -> path(5f,9f,12f,16f,19f,9f)
             "chevron-up" -> path(5f,15f,12f,8f,19f,15f)
