@@ -1,4 +1,5 @@
 name: Verify BalanceHub 1.1.2 preview APK
+# Recheck current branch after restoring Android API 23-25 compatibility.
 on:
   push:
     branches:
