@@ -42,7 +42,7 @@ internal object EventScheduler {
         // Keep a separate one-minute grace period so due-time reminder
         // notifications can fire before the one-off event is archived.
         EventDateRules.alertAt(event.dueAt, event.leadMinutes, now)?.let {
-            manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, it,
+            ExactReminderAlarms.schedule(context, it,
                 pending(context, event.id, event.dueAt, true))
         }
         // Do not advance the active recurrence before the same-minute reminder
@@ -50,9 +50,8 @@ internal object EventScheduler {
         val completeAt = if (event.recurrence == "once")
             EventArchivePolicy.archiveAt(event.dueAt)
         else event.dueAt + 60_000L
-        if (completeAt > now) manager.setAndAllowWhileIdle(
-            AlarmManager.RTC_WAKEUP, completeAt,
-            pending(context, event.id, event.dueAt, false))
+        if (completeAt > now) ExactReminderAlarms.schedule(context,
+            completeAt, pending(context, event.id, event.dueAt, false))
     }
 
     fun restoreAfterBoot(context: Context) {
@@ -67,7 +66,11 @@ class EventReminderReceiver : BroadcastReceiver() {
         val due = intent.getLongExtra("dueAt", -1L)
         val event = EventStore.active(context).firstOrNull {
             it.id == id && it.dueAt == due
-        } ?: return
+        } ?: EventStore.archived(context).firstOrNull {
+            it.event.id == id && it.event.dueAt == due &&
+                it.reason == "completed" &&
+                System.currentTimeMillis() - due in 0..86_400_000L
+        }?.event ?: return
         val channelId = BalanceNotificationSounds.ensureChannel(
             context, BalanceNotificationSounds.EVENT)
         val launch = PendingIntent.getActivity(context, ("event_open_" + id).hashCode(),

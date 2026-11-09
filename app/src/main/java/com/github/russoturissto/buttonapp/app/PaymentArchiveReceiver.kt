@@ -17,9 +17,7 @@ internal object PaymentArchiveScheduler {
 
     fun schedule(context: Context, id: String, dueAt: Long) {
         if (dueAt <= System.currentTimeMillis()) return
-        (context.getSystemService(Context.ALARM_SERVICE) as AlarmManager)
-            .setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, dueAt,
-                pending(context, id, dueAt))
+        ExactReminderAlarms.schedule(context, dueAt, pending(context, id, dueAt))
     }
 
     fun cancel(context: Context, id: String) {

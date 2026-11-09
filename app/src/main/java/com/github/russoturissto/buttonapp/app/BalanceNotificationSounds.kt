@@ -80,7 +80,7 @@ internal object BalanceNotificationSounds {
 
     fun channelId(context: Context, category: String): String {
         val key = selected(context, category)
-        return if (key == "system") category else category + "_tone_" + key + "_v1"
+        return if (key == "system") category else category + "_tone_" + key + "_v2"
     }
 
     fun ensureChannel(context: Context, category: String): String {
@@ -90,7 +90,8 @@ internal object BalanceNotificationSounds {
             val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             if (manager.getNotificationChannel(id) == null) {
                 val channel = NotificationChannel(id, legacyChannel(category),
-                    NotificationManager.IMPORTANCE_DEFAULT)
+                    if (category == UPDATE) NotificationManager.IMPORTANCE_DEFAULT
+                    else NotificationManager.IMPORTANCE_HIGH)
                 if (key != "system") {
                     channel.setSound(soundUri(context, key),
                         AudioAttributes.Builder()
@@ -122,7 +123,15 @@ internal object BalanceNotificationSounds {
         stopPreview()
         val tone = tones.firstOrNull { it.key == key } ?: return
         try {
-            val player = MediaPlayer.create(context, tone.resource) ?: return
+            val player = MediaPlayer()
+            player.setAudioAttributes(AudioAttributes.Builder()
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                .build())
+            context.resources.openRawResourceFd(tone.resource)?.use { fd ->
+                player.setDataSource(fd.fileDescriptor, fd.startOffset, fd.length)
+            } ?: return
+            player.prepare()
             previewPlayer = player
             player.setOnCompletionListener {
                 it.release()

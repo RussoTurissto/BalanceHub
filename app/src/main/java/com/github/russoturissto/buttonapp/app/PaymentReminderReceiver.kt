@@ -16,6 +16,24 @@ import androidx.core.app.NotificationManagerCompat
 
 class PaymentReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
+        val id = intent.getStringExtra("id") ?: return
+        if (id != "balancehub-test-notification") {
+            val due = intent.getLongExtra("dueAt", -1L)
+            val prefs = context.getSharedPreferences("balancehub_data", Context.MODE_PRIVATE)
+            val active = try {
+                JSONArray(prefs.getString("payment_reminders", "[]") ?: "[]")
+            } catch (_: Exception) { return }
+            val matches = (0 until active.length()).any { index ->
+                val item = active.optJSONObject(index)
+                item?.optString("id") == id && item.optLong("dueAt", -1L) == due
+            }
+            val delayed = PaymentArchiveStore.archived(context).any {
+                it.id == id && it.dueAt == due &&
+                    it.reason == PaymentArchiveStore.COMPLETED &&
+                    System.currentTimeMillis() - due in 0..86_400_000L
+            }
+            if (!matches && !delayed) return
+        }
         val channelId = BalanceNotificationSounds.ensureChannel(
             context, BalanceNotificationSounds.PAYMENT)
         val title = intent.getStringExtra("title") ?: "Предстоящий платёж"
@@ -92,7 +110,7 @@ class PaymentReminderReceiver : BroadcastReceiver() {
             val pending = PendingIntent.getBroadcast(context, id.hashCode(), nextIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
             (context.getSystemService(Context.ALARM_SERVICE) as AlarmManager)
-                .setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, nextTrigger, pending)
+                .let { ExactReminderAlarms.schedule(context, nextTrigger, pending) }
             return
         }
     }

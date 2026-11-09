@@ -98,6 +98,7 @@ class MainActivity : AppCompatActivity() {
     private var checkingGithubUpdates = false
     private var updateDialogOpen = false
     private var pendingGithubInstall = false
+    private var lastExactAlarmState: Boolean? = null
     private var deferredUpdate: UpdateRelease? = null
     private val downloadedApkReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -260,8 +261,12 @@ class MainActivity : AppCompatActivity() {
         if (archivedIds.isNotEmpty()) payments.removeAll { it.id in archivedIds }
         val beforeEvents = EventStore.active(this).associate { it.id to it.dueAt }
         EventStore.reconcileElapsed(this)
+        val exact = ExactReminderAlarms.allowed(this)
+        val permissionChanged = lastExactAlarmState != exact
+        lastExactAlarmState = exact
+        if (permissionChanged) payments.forEach(::scheduleReminder)
         for (event in EventStore.active(this)) {
-            if (beforeEvents[event.id] != event.dueAt)
+            if (permissionChanged || beforeEvents[event.id] != event.dueAt)
                 EventScheduler.schedule(this, event)
         }
         if (pendingGithubInstall && GithubApkInstaller.allowedToInstall(this)) {
@@ -4089,32 +4094,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun scheduleReminder(payment: PaymentReminder) {
-        if (payment.recurrence == "once") {
-            PaymentArchiveScheduler.schedule(this, payment.id, payment.dueAt)
-        }
-        val triggerAt = payment.dueAt - payment.leadDays * 24L * 60L * 60L * 1000L
-        if (triggerAt <= System.currentTimeMillis()) return
-        val alarmManager = getSystemService(ALARM_SERVICE) as AlarmManager
-        alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, reminderPendingIntent(payment))
+        PaymentAlarmScheduler.schedule(this, payment.id, payment.title, payment.amount,
+            payment.currency, payment.dueAt, payment.leadDays, payment.recurrence)
     }
 
     private fun cancelReminder(payment: PaymentReminder) {
-        PaymentArchiveScheduler.cancel(this, payment.id)
-        (getSystemService(ALARM_SERVICE) as AlarmManager).cancel(reminderPendingIntent(payment))
-    }
-
-    private fun reminderPendingIntent(payment: PaymentReminder): PendingIntent {
-        val intent = Intent(this, PaymentReminderReceiver::class.java).apply {
-            putExtra("title", payment.title)
-            putExtra("amount", payment.amount)
-            putExtra("currency", payment.currency)
-            putExtra("id", payment.id)
-            putExtra("dueAt", payment.dueAt)
-            putExtra("leadDays", payment.leadDays)
-            putExtra("recurrence", payment.recurrence)
-        }
-        return PendingIntent.getBroadcast(this, payment.id.hashCode(), intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        PaymentAlarmScheduler.cancel(this, payment.id)
     }
 
     private fun sendTestNotification() {
@@ -4187,6 +4172,8 @@ class MainActivity : AppCompatActivity() {
             }
         }
         if (advanced) persistPayments()
+        // Reconcile every active reminder after upgrades and force-stop recovery.
+        payments.forEach(::scheduleReminder)
     }
 
     private fun persistPayments() {
