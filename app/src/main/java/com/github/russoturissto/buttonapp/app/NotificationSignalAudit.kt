@@ -32,11 +32,9 @@ internal object NotificationSignalAudit {
         lines.add("Системная громкость уведомлений: " +
             audio.getStreamVolume(AudioManager.STREAM_NOTIFICATION) + "/" +
             audio.getStreamMaxVolume(AudioManager.STREAM_NOTIFICATION))
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val filter = manager.currentInterruptionFilter
-            if (filter != NotificationManager.INTERRUPTION_FILTER_ALL) {
-                lines.add("Системный фильтр прерываний: $filter (проверьте «Не беспокоить»)")
-            }
+        val filter = manager.currentInterruptionFilter
+        if (filter != NotificationManager.INTERRUPTION_FILTER_ALL) {
+            lines.add("Системный фильтр прерываний: $filter (проверьте «Не беспокоить»)")
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val id = BalanceNotificationSounds.ensureChannel(context, category)
