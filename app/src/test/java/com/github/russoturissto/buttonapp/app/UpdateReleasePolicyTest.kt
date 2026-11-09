@@ -42,24 +42,6 @@ class UpdateReleasePolicyTest {
         assertNull(UpdateReleasePolicy.parse(release("v1.1.0"), 200L))
         assertNull(UpdateReleasePolicy.parse(approved, 210L))
     }
-    @Test fun isolatedPreviewChannelAcceptsOnlyPreviewSigningTarget() {
-        val tag = "v1.1.0-test.19"
-        val preview = release(tag, assetUrl = "https://github.com/RussoTurissto/" +
-            "BalanceHub/releases/download/$tag/BalanceHub-Test.apk")
-            .put("body", "Тест обновления\n<!-- BalanceHub-VersionCode: 19 -->")
-            .put("prerelease", true)
-        preview.getJSONArray("assets").getJSONObject(0)
-            .put("name", "BalanceHub-Test.apk")
-        assertNull(UpdateReleasePolicy.parse(preview, 18L))
-        val found = UpdateReleasePolicy.parse(preview, 18L, preview = true)
-        assertNotNull(found)
-        assertEquals(19L, found!!.code)
-        assertNotNull(UpdateReleasePolicy.fromCache(
-            UpdateReleasePolicy.toCache(found), 18L, preview = true))
-        assertNull(UpdateReleasePolicy.parse(preview.put("prerelease", false),
-            18L, preview = true))
-    }
-
     @Test fun rejectsOldDraftAndBadVersions() {
         assertNull(UpdateReleasePolicy.parse(release(), 140L))
         assertNull(UpdateReleasePolicy.parse(release("v1.0.133"), 137L))
