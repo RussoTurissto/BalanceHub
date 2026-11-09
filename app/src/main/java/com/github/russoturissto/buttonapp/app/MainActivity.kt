@@ -2586,12 +2586,21 @@ class MainActivity : AppCompatActivity() {
                 12f, muted))
             body.addView(verticalGap(8))
             body.addView(secondaryButton("Открыть уведомления Android") {
+                val appDetails = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    ("package:" + packageName).toUri())
+                val destination = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                        .putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+                } else appDetails
                 try {
-                    startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-                        .putExtra(Settings.EXTRA_APP_PACKAGE, packageName))
+                    startActivity(destination)
                 } catch (_: Exception) {
-                    startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                        ("package:" + packageName).toUri()))
+                    try {
+                        startActivity(appDetails)
+                    } catch (_: Exception) {
+                        Toast.makeText(this, "Откройте настройки BalanceHub в Android",
+                            Toast.LENGTH_LONG).show()
+                    }
                 }
             })
             settings.addView(body)
