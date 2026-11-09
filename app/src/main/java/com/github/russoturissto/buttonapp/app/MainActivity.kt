@@ -3150,7 +3150,7 @@ class MainActivity : AppCompatActivity() {
             val item = card()
             item.setPadding(dp(15), dp(13), dp(15), dp(13))
             val status = if (entry.reason == PaymentArchiveStore.COMPLETED)
-                "Завершено" else "Удалено вручную"
+                "Срок истёк" else "Удалено вручную"
             item.addView(LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
