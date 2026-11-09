@@ -108,7 +108,11 @@ internal object IconRegistry {
                     .split(' ').filter(String::isNotBlank)
                 if (tokens.all { token -> words.any { word ->
                         word.startsWith(token) || (word.length >= 4 && token.startsWith(word))
-                    } }) 1 + tokens.size * 2 + term.length / 6 else 0
+                    } }) {
+                    if (term in setOf("оплат", "платеж", "платёж", "напоминан",
+                            "событ", "план", "важн")) 1
+                    else 1 + tokens.size * 2 + term.length / 6
+                } else 0
             }
             if (score > top) { top = score; chosen = item }
         }

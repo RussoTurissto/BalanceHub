@@ -41,8 +41,10 @@ internal object EventScheduler {
             manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, it,
                 pending(context, event.id, event.dueAt, true))
         }
+        // Do not advance the active recurrence before the same-minute reminder
+        // receiver has had a chance to read its original due timestamp.
         if (event.recurrence != "once") manager.setAndAllowWhileIdle(
-            AlarmManager.RTC_WAKEUP, event.dueAt,
+            AlarmManager.RTC_WAKEUP, event.dueAt + 60_000L,
             pending(context, event.id, event.dueAt, false))
     }
 
