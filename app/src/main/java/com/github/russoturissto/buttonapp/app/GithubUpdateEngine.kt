@@ -27,16 +27,12 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.TimeUnit
 import org.json.JSONObject
-import org.json.JSONArray
 
 /** Uses GitHub Releases only; never sends bank notification data to the network. */
 internal object GithubUpdateEngine {
     private const val SETTINGS = "balancehub_updates_v1"
-    private const val RELEASES =
-        "https://api.github.com/repos/RussoTurissto/BalanceHub/releases"
-    private fun isPreview(context: Context): Boolean = context.packageName.endsWith(".test")
-    private fun feed(context: Context): String = if (isPreview(context))
-        "$RELEASES?per_page=30" else "$RELEASES/latest"
+    private const val FEED =
+        "https://api.github.com/repos/RussoTurissto/BalanceHub/releases/latest"
     private const val PERIODIC_JOB = "balancehub_release_watch"
 
     fun preferences(context: Context) =
@@ -62,7 +58,7 @@ internal object GithubUpdateEngine {
     fun cached(context: Context): UpdateRelease? =
         UpdateReleasePolicy.fromCache(
             preferences(context).getString("cached_release", null),
-            installedCode(context), isPreview(context))
+            installedCode(context))
 
     fun schedule(context: Context) {
         if (!enabled(context)) return
@@ -75,7 +71,7 @@ internal object GithubUpdateEngine {
 
     @Throws(IOException::class)
     fun fetch(context: Context): UpdateRelease? {
-        val connection = (URL(feed(context)).openConnection() as HttpURLConnection).apply {
+        val connection = (URL(FEED).openConnection() as HttpURLConnection).apply {
             connectTimeout = 9_000
             readTimeout = 10_000
             instanceFollowRedirects = false
@@ -86,30 +82,12 @@ internal object GithubUpdateEngine {
         try {
             if (connection.responseCode != HttpURLConnection.HTTP_OK)
                 throw IOException("GitHub HTTP " + connection.responseCode)
-            // The preview feed lists up to 30 releases. A 120k-character
-            // truncation silently broke JSON parsing as the release history grew.
-            // Bound what is read instead of truncating a JSON document.
-            val text = connection.inputStream.bufferedReader(Charsets.UTF_8).use { reader ->
-                val buffer = CharArray(8_192)
-                val body = StringBuilder()
-                while (true) {
-                    val count = reader.read(buffer)
-                    if (count == -1) break
-                    if (body.length + count > 1_000_000)
-                        throw IOException("Ответ GitHub превышает допустимый размер")
-                    body.append(buffer, 0, count)
-                }
-                body.toString()
+            // Cap untrusted response size; release notes are truncated separately.
+            val text = connection.inputStream.bufferedReader(Charsets.UTF_8).use {
+                it.readText().take(120_000)
             }
             val release = try {
-                if (isPreview(context)) {
-                    val releases = JSONArray(text)
-                    (0 until releases.length()).mapNotNull { i ->
-                        releases.optJSONObject(i)?.let {
-                            UpdateReleasePolicy.parse(it, installedCode(context), preview = true)
-                        }
-                    }.maxByOrNull { it.code }
-                } else UpdateReleasePolicy.parse(JSONObject(text), installedCode(context))
+                UpdateReleasePolicy.parse(JSONObject(text), installedCode(context))
             } catch (e: Exception) {
                 throw IOException("Некорректный ответ GitHub", e)
             }
