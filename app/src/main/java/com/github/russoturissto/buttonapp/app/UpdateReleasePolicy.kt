@@ -14,14 +14,27 @@ internal data class UpdateRelease(
 )
 
 internal object UpdateReleasePolicy {
-    private val versionPattern = Regex("^v1\\.0\\.([1-9][0-9]*)$")
+    private val versionPattern = Regex("""^v([1-9][0-9]*)\.([0-9]+)\.([0-9]+)$""")
+    // The declared Android versionCode is separate from the user-facing SemVer.
+    // It is attached as an HTML comment to approved GitHub release notes.
+    private val declaredCodePattern = Regex(
+        """<!--\s*BalanceHub-VersionCode:\s*([1-9][0-9]*)\s*-->""")
     private val checksumPattern = Regex("^[a-f0-9]{64}$")
 
     fun parse(json: JSONObject, installed: Long): UpdateRelease? {
         val tag = json.optString("tag_name")
-        val number = versionPattern.matchEntire(tag)?.groupValues?.get(1)
-            ?.toLongOrNull() ?: return null
-        if (number <= installed || number > Int.MAX_VALUE ||
+        val match = versionPattern.matchEntire(tag) ?: return null
+        val major = match.groupValues[1].toLongOrNull() ?: return null
+        val minor = match.groupValues[2].toLongOrNull() ?: return null
+        val patch = match.groupValues[3].toLongOrNull() ?: return null
+        val body = json.optString("body", "")
+        val explicit = declaredCodePattern.find(body)
+            ?.groupValues?.get(1)?.toLongOrNull()
+        // Preserve compatibility with older v1.0.RUN_NUMBER releases that
+        // predate the SemVer approval workflow and lack the metadata marker.
+        val code = explicit ?: if (major == 1L && minor == 0L && patch > 0L)
+            patch else return null
+        if (code <= installed || code > Int.MAX_VALUE ||
             json.optBoolean("draft") || json.optBoolean("prerelease")) return null
         val assets = json.optJSONArray("assets") ?: return null
         for (i in 0 until assets.length()) {
@@ -34,8 +47,8 @@ internal object UpdateReleasePolicy {
             if (!checksumPattern.matches(sha256)) continue
             val bytes = asset.optLong("size", -1)
             if (bytes !in 1_024..80_000_000) continue
-            return UpdateRelease(tag, number, url, sha256, bytes,
-                json.optString("body", "").take(5_000))
+            return UpdateRelease(tag, code, url, sha256, bytes,
+                body.replace(declaredCodePattern, "").trim().take(5_000))
         }
         return null
     }
@@ -46,7 +59,7 @@ internal object UpdateReleasePolicy {
 
     fun toCache(info: UpdateRelease): String = JSONObject()
         .put("tag_name", info.tag)
-        .put("body", info.notes)
+        .put("body", info.notes + "\n<!-- BalanceHub-VersionCode: " + info.code + " -->")
         .put("assets", JSONArray().put(JSONObject()
             .put("name", "BalanceHub.apk")
             .put("browser_download_url", info.url)
