@@ -212,7 +212,7 @@ internal object BalanceTimePicker {
             paint.color = accent
             paint.strokeWidth = radius * .025f
             canvas.drawLine(cx, cy, dotX, dotY, paint)
-            canvas.drawCircle(dotX, radius * .15f, paint)
+            canvas.drawCircle(dotX, dotY, radius * .15f, paint)
             canvas.drawCircle(cx, cy, radius * .025f, paint)
             paint.typeface = android.graphics.Typeface.create("sans-serif-medium",
                 android.graphics.Typeface.NORMAL)
