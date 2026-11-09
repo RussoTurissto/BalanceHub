@@ -61,21 +61,15 @@ class EventReminderReceiver : BroadcastReceiver() {
         val event = EventStore.active(context).firstOrNull {
             it.id == id && it.dueAt == due
         } ?: return
-        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE)
-            as NotificationManager
-        val channelId = "event_reminders"
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            manager.createNotificationChannel(NotificationChannel(
-                channelId, "Напоминания о событиях",
-                NotificationManager.IMPORTANCE_DEFAULT))
-        }
+        val channelId = BalanceNotificationSounds.ensureChannel(
+            context, BalanceNotificationSounds.EVENT)
         val launch = PendingIntent.getActivity(context, ("event_open_" + id).hashCode(),
             Intent(context, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
                 putExtra("open_tab", 3)
             }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val message = event.details.ifBlank { "Запланированное событие" }
-        val notification = NotificationCompat.Builder(context, channelId)
+        val builder = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(context.applicationInfo.icon)
             .setContentTitle("Скоро событие: " + event.title)
             .setContentText(message)
@@ -83,7 +77,9 @@ class EventReminderReceiver : BroadcastReceiver() {
             .setContentIntent(launch)
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .build()
+        BalanceNotificationSounds.configureLegacySound(
+            context, BalanceNotificationSounds.EVENT, builder)
+        val notification = builder.build()
         try {
             NotificationManagerCompat.from(context).notify(
                 ("event_notice_" + id).hashCode(), notification)
