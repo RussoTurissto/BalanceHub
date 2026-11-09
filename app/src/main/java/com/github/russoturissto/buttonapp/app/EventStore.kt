@@ -165,7 +165,7 @@ internal object EventStore {
     fun reconcileElapsed(context: Context, now: Long = System.currentTimeMillis()) {
         for (event in active(context)) {
             if (event.recurrence == "once") {
-                if (endOfLocalDay(event.dueAt) <= now)
+                if (EventArchivePolicy.shouldArchiveOnce(event.dueAt, now))
                     archive(context, event.id, "completed")
             } else if (event.dueAt + 60_000L <= now) {
                 archive(context, event.id, "completed", nextForRepeated = true)
@@ -173,15 +173,6 @@ internal object EventStore {
         }
     }
 
-    private fun endOfLocalDay(dueAt: Long): Long =
-        java.util.Calendar.getInstance().apply {
-            timeInMillis = dueAt
-            set(java.util.Calendar.HOUR_OF_DAY, 0)
-            set(java.util.Calendar.MINUTE, 0)
-            set(java.util.Calendar.SECOND, 0)
-            set(java.util.Calendar.MILLISECOND, 0)
-            add(java.util.Calendar.DAY_OF_MONTH, 1)
-        }.timeInMillis
 
     @Synchronized
     fun refreshRepetitions(context: Context, now: Long = System.currentTimeMillis()) {
