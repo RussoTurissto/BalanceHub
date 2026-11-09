@@ -21,12 +21,19 @@ class SberPushNotificationListener : NotificationListenerService() {
 
     override fun onListenerConnected() {
         super.onListenerConnected()
-        if (!SberBalanceStore.isEnabled(this)) return
+        val bankEnabled = RussianBankCatalog.banks.any {
+            it.id != "sber" && BankCardPreferences.enabled(this, it.id)
+        }
+        if (!SberBalanceStore.isEnabled(this) && !bankEnabled) return
         val cutoff = System.currentTimeMillis() - 15L * 60L * 1_000L
         try {
             activeNotifications?.asSequence()
-                ?.filter { it.packageName == SberPushParser.SBER_PACKAGE &&
-                    it.postTime >= cutoff }
+                ?.filter { it.postTime >= cutoff &&
+                    ((it.packageName == SberPushParser.SBER_PACKAGE &&
+                        SberBalanceStore.isEnabled(this)) ||
+                        (RussianBankCatalog.byPackage(it.packageName)?.let { bank ->
+                            bank.id != "sber" && BankCardPreferences.enabled(this, bank.id)
+                        } == true)) }
                 ?.sortedBy { it.postTime }
                 ?.forEach { processBankNotification(it) }
         } catch (_: SecurityException) { /* Access was revoked */ }
@@ -35,7 +42,10 @@ class SberPushNotificationListener : NotificationListenerService() {
     override fun onListenerDisconnected() {
         super.onListenerDisconnected()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N &&
-            SberBalanceStore.isEnabled(this) && SberBalanceStore.isAccessGranted(this)) {
+            (SberBalanceStore.isEnabled(this) ||
+                RussianBankCatalog.banks.any { it.id != "sber" &&
+                    BankCardPreferences.enabled(this, it.id) }) &&
+            SberBalanceStore.isAccessGranted(this)) {
             try {
                 requestRebind(ComponentName(this, SberPushNotificationListener::class.java))
             } catch (_: SecurityException) { /* Android may deny rebinding */ }
@@ -53,7 +63,43 @@ class SberPushNotificationListener : NotificationListenerService() {
             (if (!power.isInteractive) STATE_SCREEN_OFF else 0)
     }
 
+    private fun processOtherBankNotification(sbn: StatusBarNotification, bank: RussianBank) {
+        if (!BankCardPreferences.enabled(this, bank.id)) return
+        val notification = sbn.notification
+        if ((notification.flags and
+                (Notification.FLAG_GROUP_SUMMARY or Notification.FLAG_ONGOING_EVENT)) != 0)
+            return
+        val payload = SberNotificationText.extract(notification)
+        val privacy = SberNotificationPrivacy.detect(
+            payload.titles, payload.bodies, payload.rubleFieldsMask,
+            payload.cueFieldsMask, payload.accountFieldsMask,
+            SberNotificationPrivacy.localizedSystemMessage()
+        )
+        if (privacy == SberNotificationPrivacy.Evidence.SYSTEM_REDACTION) {
+            RussianBankDiagnostics.record(this, bank, "Содержимое Push скрыто Android")
+            sendBroadcast(Intent(ACTION_BALANCE_UPDATED).setPackage(packageName))
+            return
+        }
+        val assessment = RussianBankPushParser.analyze(
+            sbn.packageName, payload.bodies, payload.titles)
+        val result = assessment.result
+        val status = if (result == null) when (assessment.reason) {
+            RussianBankPushParser.Reason.AMBIGUOUS -> "Неоднозначный остаток"
+            RussianBankPushParser.Reason.INVALID -> "Некорректная сумма"
+            else -> "Push без подтверждённого остатка"
+        } else if (RussianBankBalanceStore.save(this, bank, result, sbn.postTime))
+            "Баланс обновлён" else "Старый или повторный Push"
+        RussianBankDiagnostics.record(this, bank, status)
+        sendBroadcast(Intent(ACTION_BALANCE_UPDATED).setPackage(packageName))
+    }
+
     private fun processBankNotification(sbn: StatusBarNotification) {
+        val other = RussianBankCatalog.byPackage(sbn.packageName)
+        if (other != null && other.id != "sber") {
+            processOtherBankNotification(sbn, other)
+            return
+        }
+        // Preserve the established Sber branch and its strict parser unchanged.
         if (!SberBalanceStore.isEnabled(this) ||
             sbn.packageName != SberPushParser.SBER_PACKAGE) return
         val n = sbn.notification
