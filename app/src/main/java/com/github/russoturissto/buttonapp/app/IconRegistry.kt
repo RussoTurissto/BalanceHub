@@ -103,7 +103,9 @@ internal object IconRegistry {
         var chosen: AppIcon? = null
         var top = 0
         for (item in all) {
-            val score = item.keywords.sumOf { term ->
+            // Use the strongest matching concept rather than summing overlapping
+            // synonyms (e.g. "авто" and "автомобил" should count once).
+            val score = item.keywords.maxOfOrNull { term ->
                 val tokens = term.lowercase(Locale.ROOT).replace('ё', 'е')
                     .split(' ').filter(String::isNotBlank)
                 if (tokens.all { token -> words.any { word ->
@@ -111,9 +113,11 @@ internal object IconRegistry {
                     } }) {
                     if (term in setOf("оплат", "платеж", "платёж", "напоминан",
                             "событ", "план", "важн")) 1
-                    else 1 + tokens.size * 2 + term.length / 6
+                    else 1 + tokens.size * 2 + term.length / 6 +
+                        if (tokens.any { words.firstOrNull()?.startsWith(it) == true })
+                            2 else 0
                 } else 0
-            }
+            } ?: 0
             if (score > top) { top = score; chosen = item }
         }
         return chosen?.id ?: fallback
