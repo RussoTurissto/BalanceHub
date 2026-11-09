@@ -89,6 +89,7 @@ jobs:
             app/build/intermediates/lint_intermediate_text_report/release/lintReportRelease/lint-results-release.txt
           if-no-files-found: ignore
 
+      # Previous approved 1.1.2 preview used versionCode 250; keep every update above it.
       - name: Build signed release APK (retry transient Maven errors)
         shell: bash
         run: |
@@ -96,7 +97,7 @@ jobs:
           for attempt in 1 2 3 4; do
             echo "Build attempt $attempt of 4"
             if ./gradlew --no-daemon --console=plain :app:assembleRelease \
-              -PAPP_VERSION_CODE=$(( ${{ github.run_number }} + 30 )) \
+              -PAPP_VERSION_CODE=$(( ${{ github.run_number }} + 300 )) \
               -PAPP_VERSION_NAME=1.1.2 2>&1 | tee "$RUNNER_TEMP/balancehub-build.log"; then
               exit 0
             fi
@@ -132,7 +133,7 @@ jobs:
           grep -q "Verified using v2 scheme (APK Signature Scheme v2): true" "$RUNNER_TEMP/balancehub-signature.txt"
           "$BUILD_TOOLS/aapt" dump badging "$APK" > "$RUNNER_TEMP/balancehub-package-info.txt"
           grep -q "^package: name='com.github.russoturissto.buttonapp.app'" "$RUNNER_TEMP/balancehub-package-info.txt"
-          grep -q "versionCode='$(( ${{ github.run_number }} + 30 ))'" "$RUNNER_TEMP/balancehub-package-info.txt"
+          grep -q "versionCode='$(( ${{ github.run_number }} + 300 ))'" "$RUNNER_TEMP/balancehub-package-info.txt"
           grep -q "versionName='1.1.2'" "$RUNNER_TEMP/balancehub-package-info.txt"
           APK_SHA="$(sed -n 's/^V2 Signer: certificate SHA-256 digest: //p' "$RUNNER_TEMP/balancehub-signature.txt" | tr -d '[:space:]:' | tr '[:upper:]' '[:lower:]')"
           keytool -list -v -keystore "$RUNNER_TEMP/balancehub-upload.jks" -alias "$KEY_ALIAS" -storepass "$KEYSTORE_PASSWORD" > "$RUNNER_TEMP/balancehub-keystore-info.txt"
