@@ -137,14 +137,38 @@ internal object BalanceNotificationSounds {
                 val channel = NotificationChannel(id, legacyChannel(category),
                     if (category == UPDATE) NotificationManager.IMPORTANCE_DEFAULT
                     else NotificationManager.IMPORTANCE_HIGH)
-                if (key == "silent" || (key != "system" && volume(context, category) == 0)) {
+                val gain = volume(context, category)
+                if (key == "silent" || gain == 0) {
                     channel.setSound(null, null)
-                } else if (key != "system") {
-                    channel.setSound(soundUri(context, key, volume(context, category)),
-                        AudioAttributes.Builder()
-                            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                            .setUsage(AudioAttributes.USAGE_NOTIFICATION)
-                            .build())
+                } else {
+                    val uri = soundUri(context, key, gain)
+                    // Before persisting an immutable channel, verify that the actual
+                    // Android file-descriptor path can read the custom ringtone.
+                    val resolved = if (key == "system") uri else try {
+                        uri?.takeIf { tone ->
+                            context.contentResolver.openFileDescriptor(tone, "r")?.use {
+                                it.statSize >= 44L
+                            } == true
+                        }
+                    } catch (_: Exception) {
+                        null
+                    }
+                    val fallback = if (resolved == null) {
+                        RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+                    } else resolved
+                    channel.setSound(fallback, AudioAttributes.Builder()
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                        .build())
+                    if (resolved == null && key != "system") {
+                        preferences(context).edit().putString(
+                            "sound_fallback_" + category,
+                            "Фирменный WAV был недоступен при создании канала"
+                        ).apply()
+                    } else {
+                        preferences(context).edit().remove(
+                            "sound_fallback_" + category).apply()
+                    }
                 }
                 if (vibrationFor(context, category)) {
                     channel.enableVibration(true)
@@ -168,6 +192,53 @@ internal object BalanceNotificationSounds {
             null else soundUri(context, key, volume(context, category)))
         builder.setVibrate(if (vibrationFor(context, category))
             vibrationPattern(category) else longArrayOf(0L))
+    }
+
+    fun fallbackReason(context: Context, category: String): String? =
+        preferences(context).getString("sound_fallback_" + category, null)
+
+    /**
+     * Engineering preview of the *effective Android channel sound*, not a
+     * separate copy of a raw resource. A successful start is not proof that
+     * the speaker was audible (device sound policies still apply).
+     */
+    fun previewChannel(context: Context, category: String): String {
+        stopPreview()
+        val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val id = ensureChannel(context, category)
+            (context.getSystemService(Context.NOTIFICATION_SERVICE)
+                as NotificationManager).getNotificationChannel(id)?.sound
+        } else soundUri(context, selected(context, category), volume(context, category))
+        if (uri == null) return "Звук этого уведомления выключен"
+        return try {
+            if (uri.authority == context.packageName + ".sounds") {
+                val readable = context.contentResolver.openFileDescriptor(uri, "r")?.use {
+                    it.statSize >= 44L
+                } == true
+                if (!readable) return "Фирменная мелодия недоступна системе Android"
+            }
+            val player = MediaPlayer()
+            player.setAudioAttributes(AudioAttributes.Builder()
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .setUsage(AudioAttributes.USAGE_NOTIFICATION).build())
+            player.setDataSource(context, uri)
+            player.prepare()
+            previewPlayer = player
+            player.setOnCompletionListener { finished ->
+                if (previewPlayer === finished) previewPlayer = null
+                finished.release()
+            }
+            player.setOnErrorListener { failed, _, _ ->
+                if (previewPlayer === failed) previewPlayer = null
+                failed.release()
+                true
+            }
+            player.start()
+            "Воспроизведение через системный URI запущено"
+        } catch (error: Exception) {
+            stopPreview()
+            "Не удалось открыть мелодию: " + error.javaClass.simpleName
+        }
     }
 
     private var previewPlayer: MediaPlayer? = null

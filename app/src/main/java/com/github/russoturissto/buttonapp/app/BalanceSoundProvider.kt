@@ -9,46 +9,66 @@ import android.os.ParcelFileDescriptor
 import java.io.File
 import java.io.FileNotFoundException
 
-/** Only serves bundled WAV notification tones, optionally attenuated by app gain. */
+/**
+ * File-backed, seekable WAV provider for Android notification playback.
+ *
+ * Android's sound service may call openFile() instead of openAssetFile().
+ * Previously only openAssetFile() was implemented, leaving those requests
+ * with ContentProvider's default FileNotFoundException.
+ *
+ * Keep existing /v3/<volume> URIs and their saved notification channels valid.
+ * Permanent app files (not cacheDir) survive ordinary cache cleanup and updates.
+ */
 class BalanceSoundProvider : ContentProvider() {
     private val writeLock = Any()
     override fun onCreate(): Boolean = true
     override fun getType(uri: Uri): String = "audio/wav"
 
-    override fun openAssetFile(uri: Uri, mode: String): AssetFileDescriptor {
-        if (mode != "r") throw FileNotFoundException("Read only")
-        val segments = uri.pathSegments
-        if (segments.size != 1 && (segments.size != 3 || segments[1] != "v3"))
-            throw FileNotFoundException("Invalid sound path")
+    private fun soundFile(uri: Uri, mode: String): File {
+        if (mode != "r") throw FileNotFoundException("Notification tones are read only")
+        val app = context ?: throw FileNotFoundException("No application context")
+        if (uri.authority != app.packageName + ".sounds") {
+            throw FileNotFoundException("Unrecognized notification tone authority")
+        }
+        val selection = NotificationSoundPath.parse(uri.pathSegments)
+            ?: throw FileNotFoundException("Invalid notification tone path")
         val sound = BalanceNotificationSounds.tones.firstOrNull {
-            it.key == segments.firstOrNull()
-        } ?: throw FileNotFoundException("Unknown sound")
-        val app = context ?: throw FileNotFoundException("No context")
-        if (segments.size == 1) return app.resources.openRawResourceFd(sound.resource)
-            ?: throw FileNotFoundException("Sound missing")
-        val gain = segments[2].toIntOrNull()?.takeIf { it in 0..100 }
-            ?: throw FileNotFoundException("Invalid volume")
-        if (gain == 100) return app.resources.openRawResourceFd(sound.resource)
-            ?: throw FileNotFoundException("Sound missing")
+            it.key == selection.first
+        } ?: throw FileNotFoundException("Unknown notification tone")
+        val gain = selection.second
         return synchronized(writeLock) {
-            val dir = File(app.cacheDir, "notification_wav_v3")
-            if (!dir.isDirectory && !dir.mkdirs()) throw FileNotFoundException("Cache unavailable")
-            val file = File(dir, sound.key + "_" + gain + ".wav")
-            if (!file.isFile || file.length() == 0L) {
-                val input = app.resources.openRawResourceFd(sound.resource)
-                    ?: throw FileNotFoundException("Sound missing")
-                val original = input.createInputStream().use { it.readBytes() }
-                val adjusted = WavSoundGain.attenuate(original, gain)
-                val temporary = File(dir, sound.key + "_" + gain + ".tmp")
-                temporary.writeBytes(adjusted)
-                if (!temporary.renameTo(file)) {
-                    temporary.delete()
-                    throw FileNotFoundException("Unable to cache sound")
+            val folder = File(app.filesDir, "notification_tones_v3")
+            if (!folder.isDirectory && !folder.mkdirs()) {
+                throw FileNotFoundException("Cannot prepare the notification audio directory")
+            }
+            val file = File(folder, sound.key + "_" + gain + ".wav")
+            if (!file.isFile || file.length() < 44L) {
+                val source = app.resources.openRawResourceFd(sound.resource)?.use { descriptor ->
+                    descriptor.createInputStream().use { it.readBytes() }
+                } ?: throw FileNotFoundException("Bundled notification sound is missing")
+                if (source.size < 44 ||
+                    !source.copyOfRange(0, 4).contentEquals("RIFF".toByteArray()) ||
+                    !source.copyOfRange(8, 12).contentEquals("WAVE".toByteArray())) {
+                    throw FileNotFoundException("Bundled notification WAV is invalid")
+                }
+                val adjusted = WavSoundGain.attenuate(source, gain)
+                val temp = File(folder, sound.key + "_" + gain + ".tmp")
+                temp.writeBytes(adjusted)
+                if (!temp.renameTo(file)) {
+                    temp.delete()
+                    throw FileNotFoundException("Cannot make notification audio available")
                 }
             }
-            AssetFileDescriptor(ParcelFileDescriptor.open(
-                file, ParcelFileDescriptor.MODE_READ_ONLY), 0L, file.length())
+            file
         }
+    }
+
+    override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor =
+        ParcelFileDescriptor.open(soundFile(uri, mode), ParcelFileDescriptor.MODE_READ_ONLY)
+
+    override fun openAssetFile(uri: Uri, mode: String): AssetFileDescriptor {
+        val descriptor = openFile(uri, mode)
+        return AssetFileDescriptor(descriptor, 0L, descriptor.statSize)
     }
 
     override fun query(uri: Uri, projection: Array<out String>?,
