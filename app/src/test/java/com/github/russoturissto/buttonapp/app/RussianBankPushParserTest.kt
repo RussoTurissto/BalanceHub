@@ -6,6 +6,10 @@ import org.junit.Test
 
 /** Examples are anonymised test fixtures, never a promise about current bank Push formats. */
 class RussianBankPushParserTest {
+    @Test fun exactlyThreeSupportedBanks() {
+        assertEquals(listOf("sber", "vtb", "tbank"),
+            RussianBankCatalog.banks.map { it.id })
+    }
     @Test fun purchaseAmountIsNotBalance() {
         val p = "com.idamob.tinkoff.android"
         val a = RussianBankPushParser.analyze(p,
