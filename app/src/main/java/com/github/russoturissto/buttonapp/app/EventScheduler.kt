@@ -48,7 +48,7 @@ internal object EventScheduler {
 
     fun restoreAfterBoot(context: Context) {
         EventStore.refreshRepetitions(context)
-        EventStore.active(context).forEach { schedule(context, it) }
+        for (event in EventStore.active(context)) schedule(context, event)
     }
 }
 

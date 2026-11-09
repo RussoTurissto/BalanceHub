@@ -1,5 +1,6 @@
 package com.github.russoturissto.buttonapp.app
 
+import android.annotation.SuppressLint
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.ColorFilter
@@ -143,6 +144,7 @@ internal class AppIconDrawable(private val key: String, private val shade: Int) 
     }
     private var opacity = 255
     private var filter: ColorFilter? = null
+    @SuppressLint("UseKtx")
     override fun draw(canvas: Canvas) {
         val b = bounds
         if (b.width() <= 0 || b.height() <= 0) return
