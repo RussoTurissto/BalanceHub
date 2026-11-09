@@ -25,6 +25,7 @@ import android.widget.ProgressBar
 import android.app.DownloadManager
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import androidx.appcompat.widget.SwitchCompat
 import androidx.core.content.pm.PackageInfoCompat
 import androidx.appcompat.app.AlertDialog
@@ -84,6 +85,11 @@ class MainActivity : AppCompatActivity() {
     private var currentTab = 0
     private var mobileSettingsOpen = false
     private var bankSettingsOpen = false
+    private var engineeringMenuOpen = false
+    private var engineeringTapCount = 0
+    private var engineeringTapStartedAt = 0L
+    private var homeEventsExpanded = false
+    private var homeExpandedEventId: String? = null
     private var operatorDetailsOpen = false
     private var archiveOpen = false
     private var eventArchiveExpanded = false
@@ -150,7 +156,12 @@ class MainActivity : AppCompatActivity() {
         currentTab = (savedInstanceState?.getInt("current_tab")
             ?: intent.getIntExtra("open_tab", 0)).coerceIn(0, 4)
         mobileSettingsOpen = savedInstanceState?.getBoolean("mobile_settings_open") ?: false
-        bankSettingsOpen = savedInstanceState?.getBoolean("bank_settings_open") ?: false
+        // Engineer access is never restored from saved state, disk, or deep links.
+        bankSettingsOpen = false
+        engineeringMenuOpen = false
+        homeEventsExpanded = savedInstanceState?.getBoolean("home_events_expanded")
+            ?: preferences.getBoolean("home_events_expanded", false)
+        homeExpandedEventId = savedInstanceState?.getString("home_expanded_event_id")
         operatorDetailsOpen = savedInstanceState?.getBoolean("operator_details_open") ?: false
         archiveOpen = savedInstanceState?.getBoolean("archive_open") ?: false
         eventArchiveExpanded = savedInstanceState?.getBoolean("event_archive_open") ?: false
@@ -169,6 +180,7 @@ class MainActivity : AppCompatActivity() {
         tutorialStep = savedInstanceState?.getInt("tutorial_step") ?:
             if (preferences.getBoolean("onboarding_completed", false)) -1 else 0
         PaymentArchiveStore.archiveDue(this)
+        EventStore.reconcileElapsed(this)
         loadPayments()
         for (sim in T2Balance.sims(this)) syncMobilePayment(sim)
         showDashboard()
@@ -190,8 +202,12 @@ class MainActivity : AppCompatActivity() {
                         operatorDetailsOpen = false
                         renderTab()
                     }
-                    bankSettingsOpen && currentTab == 4 -> {
+                    bankSettingsOpen && engineeringMenuOpen && currentTab == 4 -> {
                         bankSettingsOpen = false
+                        renderTab()
+                    }
+                    engineeringMenuOpen && currentTab == 4 -> {
+                        closeEngineeringMenu()
                         renderTab()
                     }
                     mobileSettingsOpen && currentTab == 4 -> {
@@ -219,6 +235,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onStop() {
+        closeEngineeringMenu()
+        BalanceNotificationSounds.stopPreview()
         unregisterReceiver(bankUpdateReceiver)
         unregisterReceiver(downloadedApkReceiver)
         super.onStop()
@@ -231,13 +249,13 @@ class MainActivity : AppCompatActivity() {
         // activity was paused. Always reconcile the in-memory list with history.
         val archivedIds = PaymentArchiveStore.archived(this).map { it.id }.toSet()
         if (archivedIds.isNotEmpty()) payments.removeAll { it.id in archivedIds }
-        if (currentTab == 3) EventStore.refreshRepetitions(this)
+        EventStore.reconcileElapsed(this)
         if (pendingGithubInstall && GithubApkInstaller.allowedToInstall(this)) {
             pendingGithubInstall = false
             GithubUpdateEngine.cached(this)?.let { tryInstallUpdate(it) }
         }
         if (::contentContainer.isInitialized &&
-            (currentTab == 1 || currentTab == 3 || currentTab == 4)) renderTab()
+            (currentTab == 0 || currentTab == 1 || currentTab == 3 || currentTab == 4)) renderTab()
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
@@ -249,7 +267,10 @@ class MainActivity : AppCompatActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putInt("current_tab", currentTab)
         outState.putBoolean("mobile_settings_open", mobileSettingsOpen)
-        outState.putBoolean("bank_settings_open", bankSettingsOpen)
+        // Never serialize engineering access or its internal screen.
+        outState.putBoolean("bank_settings_open", false)
+        outState.putBoolean("home_events_expanded", homeEventsExpanded)
+        outState.putString("home_expanded_event_id", homeExpandedEventId)
         outState.putBoolean("operator_details_open", operatorDetailsOpen)
         outState.putBoolean("archive_open", archiveOpen)
         outState.putBoolean("event_archive_open", eventArchiveExpanded)
@@ -556,6 +577,7 @@ class MainActivity : AppCompatActivity() {
         currentTab = index
         // Settings is index 4, not index 3 (Events).
         if (index != NavigationMotionPolicy.SETTINGS_INDEX) {
+            closeEngineeringMenu()
             mobileSettingsOpen = false
             bankSettingsOpen = false
         }
@@ -1374,13 +1396,9 @@ class MainActivity : AppCompatActivity() {
             bankCard.addView(verticalGap(8))
             bankCard.addView(textLine(state, 12f, muted))
         }
+        // The banking summary must not bypass the private engineer entry.
         bankCard.setOnClickListener {
-            bankSettingsOpen = true
-            mobileSettingsOpen = false
-            if (currentTab == NavigationMotionPolicy.SETTINGS_INDEX) {
-                renderTab()
-                dashboardScroll.scrollTo(0, 0)
-            } else {
+            if (currentTab != NavigationMotionPolicy.SETTINGS_INDEX) {
                 selectTab(NavigationMotionPolicy.SETTINGS_INDEX)
             }
         }
@@ -1686,15 +1704,33 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderSettings() {
-        if (bankSettingsOpen) {
-            renderBankSettings()
+        if (engineeringMenuOpen) {
+            if (bankSettingsOpen) renderBankSettings() else renderEngineeringMenu()
             return
         }
+        bankSettingsOpen = false
         if (mobileSettingsOpen) {
             renderMobileSettings()
             return
         }
-        contentContainer.addView(textLine("Настройки", 23f, ink, true))
+        contentContainer.addView(textLine("Настройки", 23f, ink, true).apply {
+            isClickable = true
+            isFocusable = true
+            contentDescription = "Настройки"
+            setOnClickListener {
+                val now = SystemClock.elapsedRealtime()
+                if (now - engineeringTapStartedAt > 3_000L || engineeringTapCount == 0) {
+                    engineeringTapStartedAt = now
+                    engineeringTapCount = 0
+                }
+                engineeringTapCount++
+                if (engineeringTapCount >= 5) {
+                    engineeringTapCount = 0
+                    engineeringMenuOpen = true
+                    renderTab()
+                }
+            }
+        })
         contentContainer.addView(verticalGap(6))
         contentContainer.addView(textLine("Управление BalanceHub", 14f, muted))
         contentContainer.addView(verticalGap(18))
@@ -1835,33 +1871,7 @@ class MainActivity : AppCompatActivity() {
         contentContainer.addView(mobileSettings)
         contentContainer.addView(verticalGap(14))
 
-        val bankSettings = card()
-        bankSettings.addView(sberHeading("Сбербанк   ›"))
-        bankSettings.addView(verticalGap(6))
-        bankSettings.addView(textLine(
-            "Баланс по Push-уведомлениям · " +
-                if (SberBalanceStore.isEnabled(this)) "подключён" else "отключён",
-            14f, muted
-        ))
-        bankSettings.setOnClickListener {
-            bankSettingsOpen = true
-            renderTab()
-        }
-        contentContainer.addView(bankSettings)
-        contentContainer.addView(verticalGap(14))
-
-        val notificationCard = card()
-        notificationCard.addView(textLine("Уведомления", 18f, ink, true))
-        notificationCard.addView(verticalGap(6))
-        notificationCard.addView(textLine(
-            "Напоминания о платежах и проверка разрешений",
-            14f, muted
-        ))
-        notificationCard.addView(verticalGap(12))
-        notificationCard.addView(primaryButton("Проверить уведомление") {
-            sendTestNotification()
-        })
-        contentContainer.addView(notificationCard)
+        renderSoundSettings()
         contentContainer.addView(verticalGap(14))
 
         val info = card()
@@ -1881,14 +1891,158 @@ class MainActivity : AppCompatActivity() {
             13f, muted
         ))
         help.addView(verticalGap(10))
-        help.addView(secondaryButton("Настройка Push Сбербанка · Termux / ADB") {
-            showBankPushHelp()
-        })
-        help.addView(verticalGap(8))
         help.addView(secondaryButton("Пройти обучение повторно") {
             restartTutorial()
         })
         contentContainer.addView(help)
+    }
+
+    private fun closeEngineeringMenu() {
+        engineeringMenuOpen = false
+        engineeringTapCount = 0
+        engineeringTapStartedAt = 0L
+        bankSettingsOpen = false
+    }
+
+    private fun renderEngineeringMenu() {
+        contentContainer.addView(secondaryButton("‹  Назад в настройки") {
+            closeEngineeringMenu()
+            renderTab()
+        })
+        contentContainer.addView(verticalGap(16))
+        contentContainer.addView(textLine("Инженерное меню", 23f, ink, true))
+        contentContainer.addView(verticalGap(5))
+        contentContainer.addView(textLine(
+            "Технические инструменты BalanceHub", 13f, muted))
+        contentContainer.addView(verticalGap(16))
+        val banking = card()
+        banking.addView(sberHeading("Сбербанк   ›"))
+        banking.addView(verticalGap(6))
+        banking.addView(textLine(
+            "Подключение Push, доступ Android, состояние и диагностика", 13f, muted))
+        banking.setOnClickListener {
+            bankSettingsOpen = true
+            renderTab()
+        }
+        contentContainer.addView(banking)
+        contentContainer.addView(verticalGap(12))
+        val notifications = card()
+        notifications.addView(textLine("Диагностика уведомлений", 17f, ink, true))
+        notifications.addView(verticalGap(7))
+        notifications.addView(textLine(
+            "Проверка разрешений и отправка тестового напоминания", 13f, muted))
+        notifications.addView(verticalGap(11))
+        notifications.addView(primaryButton("Проверить уведомление") {
+            sendTestNotification()
+        })
+        contentContainer.addView(notifications)
+        contentContainer.addView(verticalGap(12))
+        val adb = card()
+        adb.addView(textLine("Техническая помощь", 17f, ink, true))
+        adb.addView(verticalGap(6))
+        adb.addView(textLine("Настройка банковских Push через Termux / ADB",
+            13f, muted))
+        adb.addView(verticalGap(9))
+        adb.addView(secondaryButton("Открыть руководство") {
+            showBankPushHelp()
+        })
+        contentContainer.addView(adb)
+        contentContainer.addView(verticalGap(12))
+        contentContainer.addView(textLine(
+            "При выходе из инженерного меню доступ закрывается.",
+            12f, muted))
+    }
+
+    private fun renderSoundSettings() {
+        val settings = card()
+        settings.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(iconTile("music-2", 37),
+                LinearLayout.LayoutParams(dp(37), dp(37)))
+            addView(View(this@MainActivity), LinearLayout.LayoutParams(dp(10), 1))
+            addView(textLine("Звуки уведомлений", 18f, ink, true))
+        })
+        settings.addView(verticalGap(6))
+        settings.addView(textLine("15 фирменных мелодий BalanceHub",
+            13f, muted))
+        for ((category, title) in listOf(
+            BalanceNotificationSounds.PAYMENT to "Платежи",
+            BalanceNotificationSounds.EVENT to "События",
+            BalanceNotificationSounds.UPDATE to "Обновления"
+        )) {
+            settings.addView(verticalGap(11))
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(9), dp(10), dp(9), dp(10))
+                background = rounded(softAccent, 12)
+                isClickable = true
+                isFocusable = true
+                contentDescription = "Выбрать звук: " + title
+                addView(LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    addView(textLine(title, 14f, ink, true))
+                    addView(verticalGap(3))
+                    addView(textLine(
+                        BalanceNotificationSounds.title(this@MainActivity, category),
+                        12f, muted))
+                }, LinearLayout.LayoutParams(0, -2, 1f))
+                addView(iconTile("chevron-right", 26),
+                    LinearLayout.LayoutParams(dp(26), dp(26)))
+                setOnClickListener { showSoundChooser(category, title) }
+            }
+            settings.addView(row)
+        }
+        contentContainer.addView(settings)
+    }
+
+    private fun showSoundChooser(category: String, title: String) {
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(11), dp(8), dp(11), dp(10))
+        }
+        val dialog = themedDialogBuilder()
+            .setTitle("Звук: " + title)
+            .setView(android.widget.ScrollView(this).apply { addView(content) })
+            .setNegativeButton("Закрыть", null).create()
+        val options = listOf("system" to "Системный звук") +
+            BalanceNotificationSounds.tones.map { it.key to it.title } +
+            listOf("silent" to "Без звука")
+        val selected = BalanceNotificationSounds.selected(this, category)
+        for ((key, label) in options) {
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(9), dp(6), dp(9), dp(6))
+                background = rounded(if (key == selected) softAccent else surface, 11)
+            }
+            val name = textLine(
+                (if (key == selected) "✓  " else "     ") + label,
+                14f, if (key == selected) accent else ink, key == selected)
+            row.addView(name, LinearLayout.LayoutParams(0, dp(43), 1f))
+            name.gravity = Gravity.CENTER_VERTICAL
+            row.isClickable = true
+            row.isFocusable = true
+            row.setOnClickListener {
+                BalanceNotificationSounds.choose(this, category, key)
+                BalanceNotificationSounds.stopPreview()
+                dialog.dismiss()
+                renderTab()
+            }
+            if (BalanceNotificationSounds.tones.any { it.key == key }) {
+                row.addView(secondaryButton("▶") {
+                    BalanceNotificationSounds.preview(this, key)
+                }, LinearLayout.LayoutParams(dp(52), dp(43)))
+            }
+            content.addView(row)
+            content.addView(verticalGap(3))
+        }
+        dialog.setOnDismissListener { BalanceNotificationSounds.stopPreview() }
+        dialog.setOnShowListener {
+            dialog.window?.setBackgroundDrawable(dialogGradient())
+        }
+        dialog.show()
     }
 
     /**
@@ -1990,7 +2144,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderBankSettings() {
-        contentContainer.addView(secondaryButton("‹  Все настройки") {
+        if (!engineeringMenuOpen) {
+            bankSettingsOpen = false
+            renderSettings()
+            return
+        }
+        contentContainer.addView(secondaryButton("‹  Инженерное меню") {
             bankSettingsOpen = false
             renderTab()
         })
@@ -2498,6 +2657,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun field(hintText: String) = EditText(this).apply {
+        inputType = android.text.InputType.TYPE_CLASS_TEXT or
+            android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
         hint = hintText
         maxLines = 1
         textSize = 16f
@@ -3527,13 +3688,14 @@ class MainActivity : AppCompatActivity() {
             }
         }
         timeButton.setOnClickListener {
-            TimePickerDialog(this, { _, hour, minute ->
+            BalanceTimePicker.show(this, date.get(Calendar.HOUR_OF_DAY),
+                date.get(Calendar.MINUTE)) { hour, minute ->
                 date.set(Calendar.HOUR_OF_DAY, hour)
                 date.set(Calendar.MINUTE, minute)
                 date.set(Calendar.SECOND, 0)
                 timeButton.text = "Время: " +
                     java.text.SimpleDateFormat("HH:mm", Locale("ru")).format(date.time)
-            }, date.get(Calendar.HOUR_OF_DAY), date.get(Calendar.MINUTE), true).show()
+            }
         }
         val recurrenceValues = listOf("once", "daily", "weekly", "monthly", "yearly")
         val recurrence = styledSpinner(listOf(
