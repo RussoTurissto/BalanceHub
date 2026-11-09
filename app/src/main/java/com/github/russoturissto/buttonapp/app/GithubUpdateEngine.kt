@@ -136,15 +136,8 @@ internal object GithubUpdateEngine {
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
             != PackageManager.PERMISSION_GRANTED) return
 
-        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE)
-            as NotificationManager
-        val channel = "balancehub_app_updates"
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
-            manager.createNotificationChannel(NotificationChannel(
-                channel, "Обновления BalanceHub",
-                NotificationManager.IMPORTANCE_DEFAULT).apply {
-                description = "Уведомления о новых подписанных релизах"
-            })
+        val channel = BalanceNotificationSounds.ensureChannel(
+            context, BalanceNotificationSounds.UPDATE)
 
         val open = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
@@ -153,12 +146,15 @@ internal object GithubUpdateEngine {
         }
         val pending = PendingIntent.getActivity(context, 13772, open,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val note = NotificationCompat.Builder(context, channel)
+        val builder = NotificationCompat.Builder(context, channel)
             .setSmallIcon(context.applicationInfo.icon)
             .setContentTitle("Доступно обновление BalanceHub " + release.tag)
             .setContentText("Посмотрите изменения и скачайте новую версию.")
             .setContentIntent(pending).setAutoCancel(true)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT).build()
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+        BalanceNotificationSounds.configureLegacySound(
+            context, BalanceNotificationSounds.UPDATE, builder)
+        val note = builder.build()
         try {
             NotificationManagerCompat.from(context).notify(13772, note)
             prefs.edit { putLong("announced", release.code) }
