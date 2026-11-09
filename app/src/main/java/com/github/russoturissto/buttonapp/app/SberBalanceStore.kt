@@ -11,7 +11,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 
-/** Only the most recent balance per masked card is kept, never notification text or transactions. */
+/** Stores the latest Push balance per masked card/account identifier, without notification text. */
 internal object SberBalanceStore {
     data class Snapshot(
         val kopecks: Long,
@@ -50,6 +50,14 @@ internal object SberBalanceStore {
         AtomicFile(File(context.noBackupFilesDir, "sber_balances.json"))
 
     fun all(context: Context): List<Snapshot> = synchronized(lock) { read(context) }
+
+    /**
+     * Only one bank balance is displayed. Card/account identifiers remain
+     * separate internally because matching last-four digits prove no linkage.
+     */
+    fun latest(context: Context): Snapshot? = synchronized(lock) {
+        SberBalanceCardPolicy.latest(read(context)) { it.observedAt }
+    }
 
     private fun read(context: Context): List<Snapshot> {
         val raw = try {

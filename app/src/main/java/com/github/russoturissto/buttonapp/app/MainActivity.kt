@@ -1200,55 +1200,91 @@ class MainActivity : AppCompatActivity() {
         contentContainer.addView(verticalGap(6))
         contentContainer.addView(textLine("Банковские счета", 14f, muted))
         contentContainer.addView(verticalGap(14))
+
         val enabled = SberBalanceStore.isEnabled(this)
         val granted = SberBalanceStore.isAccessGranted(this)
-        val snapshots = if (enabled) SberBalanceStore.all(this) else emptyList()
-        val accounts = if (snapshots.isEmpty()) listOf<SberBalanceStore.Snapshot?>(null)
-            else snapshots.map { it }
-        for (snapshot in accounts) {
-            val bankCard = card()
-            bankCard.addView(sberHeading("Сбербанк"))
-            bankCard.addView(verticalGap(5))
-            if (snapshot == null) {
-                bankCard.addView(textLine("Баланс пока не получен", 16f, muted))
-            } else {
-                val label = snapshot.lastFour?.let { "Счёт/карта ••••$it" }
-                    ?: "Карта или счёт (не определён)"
-                bankCard.addView(textLine(label, 13f, muted))
-                bankCard.addView(verticalGap(7))
-                bankCard.addView(textLine(rubles(snapshot.kopecks), 23f, ink, true))
-                val date = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
-                    .format(Date(snapshot.observedAt))
-                bankCard.addView(verticalGap(5))
-                bankCard.addView(textLine("Последний подтверждённый остаток: $date", 12f, muted))
-            }
-            bankCard.addView(verticalGap(9))
-            val state = when {
-                !enabled -> "Источник не подключён"
-                !granted -> "Нет доступа к уведомлениям Android"
-                snapshot == null &&
-                    SberPushDiagnostics.latest(this)?.outcome ==
-                        SberPushDiagnostics.Outcome.SYSTEM_REDACTED ->
-                    "Android скрыл банковский текст от BalanceHub"
-                snapshot == null -> "Ожидание Push с указанием остатка в рублях"
-                else -> "Источник: Push СберБанк Онлайн, не онлайн-запрос"
-            }
-            bankCard.addView(textLine(state, 12f, muted))
-            bankCard.setOnClickListener {
-                currentTab = 3
-                bankSettingsOpen = true
-                tabViews.forEachIndexed { index, tab ->
-                    val selected = index == currentTab
-                    tab.setTextColor(if (selected) Color.WHITE else ink)
-                    tab.setTypeface(null, if (selected) Typeface.BOLD else Typeface.NORMAL)
-                    tab.background = tabBackground(selected)
-                }
-                renderTab()
-                dashboardScroll.scrollTo(0, 0)
-            }
-            contentContainer.addView(bankCard)
-            contentContainer.addView(verticalGap(12))
+        // A masked card suffix and masked account suffix may identify the same
+        // money. Do not sum them or infer equivalence from four trailing digits.
+        val snapshot = if (enabled) SberBalanceStore.latest(this) else null
+        val bankCard = card()
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
         }
+        row.addView(sberLogo(54), LinearLayout.LayoutParams(dp(54), dp(54)))
+        row.addView(View(this), LinearLayout.LayoutParams(dp(10), 1))
+        val subtitle = when {
+            !enabled -> "Push не подключён"
+            !granted -> "Нет доступа к уведомлениям"
+            snapshot == null -> "Ожидание банковского Push"
+            snapshot.lastFour != null -> "Последний Push · ••••" + snapshot.lastFour
+            else -> "Последний Push · номер не указан"
+        }
+        row.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(textLine("Сбербанк", 16f, ink, true))
+            addView(verticalGap(3))
+            addView(textLine(subtitle, 12f, muted))
+        }, LinearLayout.LayoutParams(0, -2, 1f))
+        val amount = textLine(
+            snapshot?.let { rubles(it.kopecks) } ?: "Нет данных",
+            if (snapshot == null) 15f else 22f,
+            Color.rgb(23, 55, 33), true
+        ).apply {
+            gravity = Gravity.CENTER
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            background = rounded(
+                if (isNight) Color.rgb(191, 239, 104)
+                else Color.rgb(216, 241, 166), 14
+            )
+        }
+        // Follow the same responsive layout as the mobile operator cards.
+        if (resources.configuration.screenWidthDp >= 395) {
+            row.addView(View(this), LinearLayout.LayoutParams(dp(6), 1))
+            row.addView(amount)
+        }
+        bankCard.addView(row)
+        if (resources.configuration.screenWidthDp < 395) {
+            bankCard.addView(verticalGap(9))
+            bankCard.addView(LinearLayout(this).apply {
+                gravity = Gravity.END
+                addView(amount)
+            })
+        }
+        if (snapshot != null) {
+            val time = DateFormat.getDateTimeInstance(
+                DateFormat.SHORT, DateFormat.SHORT
+            ).format(Date(snapshot.observedAt))
+            bankCard.addView(verticalGap(8))
+            bankCard.addView(textLine(
+                "Подтверждено Push СберБанк Онлайн: " + time, 12f, muted
+            ))
+        } else {
+            val state = when {
+                !enabled -> "Подключите Push в настройках Сбербанка"
+                !granted -> "Разрешите BalanceHub доступ к уведомлениям"
+                SberPushDiagnostics.latest(this)?.outcome ==
+                    SberPushDiagnostics.Outcome.SYSTEM_REDACTED ->
+                    "Android скрыл банковский текст от BalanceHub"
+                else -> "Ожидание Push с указанием остатка в рублях"
+            }
+            bankCard.addView(verticalGap(8))
+            bankCard.addView(textLine(state, 12f, muted))
+        }
+        bankCard.setOnClickListener {
+            currentTab = 3
+            bankSettingsOpen = true
+            tabViews.forEachIndexed { index, tab ->
+                val selected = index == currentTab
+                tab.setTextColor(if (selected) Color.WHITE else ink)
+                tab.setTypeface(null, if (selected) Typeface.BOLD else Typeface.NORMAL)
+                tab.background = tabBackground(selected)
+            }
+            renderTab()
+            dashboardScroll.scrollTo(0, 0)
+        }
+        contentContainer.addView(bankCard)
+        contentContainer.addView(verticalGap(12))
     }
 
     private fun refreshSimsInSequence(sims: List<MobileSim>, index: Int) {
