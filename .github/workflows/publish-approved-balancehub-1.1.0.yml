@@ -18,7 +18,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
-      ORG_GRADLE_PROJECT_BALANCEHUB_KEYSTORE_PATH: ${{ runner.temp }}/balancehub-upload.jks
       ORG_GRADLE_PROJECT_BALANCEHUB_KEYSTORE_PASSWORD: ${{ secrets.BALANCEHUB_KEYSTORE_PASSWORD }}
       ORG_GRADLE_PROJECT_BALANCEHUB_KEY_ALIAS: ${{ secrets.BALANCEHUB_KEY_ALIAS }}
       ORG_GRADLE_PROJECT_BALANCEHUB_KEY_PASSWORD: ${{ secrets.BALANCEHUB_KEY_PASSWORD }}
@@ -53,6 +52,8 @@ jobs:
       - name: Compile, lint and test
         run: ./gradlew --no-daemon --console=plain :app:compileReleaseKotlin :app:lintRelease :app:testDebugUnitTest
       - name: Build owner-approved release APK
+        env:
+          ORG_GRADLE_PROJECT_BALANCEHUB_KEYSTORE_PATH: ${{ runner.temp }}/balancehub-upload.jks
         run: |
           ./gradlew --no-daemon --console=plain :app:assembleRelease \
             -PAPP_VERSION_CODE=196 -PAPP_VERSION_NAME=1.1.0
