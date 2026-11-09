@@ -2,19 +2,20 @@ package com.github.russoturissto.buttonapp.app
 
 internal data class ReleaseNote(val iconId: String, val title: String, val description: String)
 
-/** Only changes shipped in this particular version belong in the welcome. */
+/** List only changes shipped with the current application update. */
 internal object AppReleaseNotes {
     val current: List<ReleaseNote> = listOf(
-        ReleaseNote("home", "Главная стала удобнее",
-            "Кнопка управления платежами теперь доступна над календарём. " +
-            "Размеры блоков подстраиваются под фактическую высоту экрана."),
-        ReleaseNote("calendar-days", "Даты больше не сливаются",
-            "В календаре появились промежутки между выделенными датами, " +
-            "а сегодняшнее число и выбранный день остаются заметными."),
-        ReleaseNote("settings", "Более компактная навигация",
-            "Нижняя панель стала немного уже. Плавное переключение разделов сохранено."),
-        ReleaseNote("book-open", "Подробная помощь по банковским Push",
-            "В настройках появилась инструкция по работе с Termux и ADB: " +
-            "проверка доступа, подключение уведомлений и восстановление защиты.")
+        ReleaseNote("download", "Обновления без браузера",
+            "BalanceHub проверяет новые релизы GitHub. Скачивайте APK прямо в приложении " +
+            "и следите за ходом загрузки."),
+        ReleaseNote("shield-check", "Безопасная установка",
+            "Перед установкой проверяются SHA-256, версия, пакет и сертификат подписи. " +
+            "Установку подтверждает Android."),
+        ReleaseNote("bell", "Уведомления о новых версиях",
+            "Управляйте оповещениями и вручную проверяйте обновления в настройках. " +
+            "Фоновая проверка учитывает энергосбережение телефона."),
+        ReleaseNote("settings", "Компактная нижняя панель",
+            "Плавающая панель стала уже и ниже. Плавные переходы между разделами " +
+            "и крупная шестерёнка сохранены.")
     )
 }

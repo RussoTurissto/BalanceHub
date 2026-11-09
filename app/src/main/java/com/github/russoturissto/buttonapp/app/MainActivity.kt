@@ -20,6 +20,11 @@ import android.app.TimePickerDialog
 import android.text.Editable
 import android.text.TextWatcher
 import android.widget.ImageView
+import android.widget.ProgressBar
+import android.app.DownloadManager
+import android.os.Handler
+import android.os.Looper
+import androidx.appcompat.widget.SwitchCompat
 import androidx.core.content.pm.PackageInfoCompat
 import androidx.appcompat.app.AlertDialog
 import android.app.PendingIntent
@@ -84,6 +89,10 @@ class MainActivity : AppCompatActivity() {
     private var expandedEventId: String? = null
     private var selectedPaymentIcon: String? = null
     private var welcomeShowing = false
+    private var checkingGithubUpdates = false
+    private var updateDialogOpen = false
+    private var pendingGithubInstall = false
+    private var deferredUpdate: UpdateRelease? = null
     private var upcomingListExpanded = true
     private var homeUpcomingExpanded = false
     private var homeExpandedPaymentId: String? = null
@@ -147,7 +156,13 @@ class MainActivity : AppCompatActivity() {
         loadPayments()
         for (sim in T2Balance.sims(this)) syncMobilePayment(sim)
         showDashboard()
-        window.decorView.post { showWhatsNewIfNeeded() }
+        GithubApkInstaller.cleanOld(this)
+        GithubUpdateEngine.schedule(this)
+        window.decorView.post {
+            showWhatsNewIfNeeded()
+            checkGithubUpdate(manual = false,
+                offer = true)
+        }
         onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 when {
@@ -197,6 +212,10 @@ class MainActivity : AppCompatActivity() {
         val archivedIds = PaymentArchiveStore.archived(this).map { it.id }.toSet()
         if (archivedIds.isNotEmpty()) payments.removeAll { it.id in archivedIds }
         if (currentTab == 3) EventStore.refreshRepetitions(this)
+        if (pendingGithubInstall && GithubApkInstaller.allowedToInstall(this)) {
+            pendingGithubInstall = false
+            GithubUpdateEngine.cached(this)?.let { tryInstallUpdate(it) }
+        }
         if (::contentContainer.isInitialized &&
             (currentTab == 1 || currentTab == 3 || currentTab == 4)) renderTab()
     }
@@ -461,15 +480,17 @@ class MainActivity : AppCompatActivity() {
         }
         screen.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
 
-        val navSidePadding = if (resources.configuration.screenWidthDp < 340)
-            dp(9) else dp(16)
+        // Variant 3: genuinely floating pill, 90–92% of screen width.
+        // Keep at least 48dp hit targets; allow extra width on small phones.
+        val navSidePadding = when {
+            resources.configuration.screenWidthDp < 340 -> dp(8)
+            resources.configuration.screenWidthDp < 370 -> dp(14)
+            else -> dp(19)
+        }
         val tabs = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(navSidePadding, dp(8), navSidePadding, dp(8))
-            background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
-                if (isNight) intArrayOf(Color.rgb(19, 39, 44), Color.rgb(17, 35, 40))
-                else intArrayOf(Color.rgb(234, 247, 244), Color.rgb(224, 243, 239))
-            )
+            background = null
         }
         val navigation = BalanceBottomNavigation(this, isNight, currentTab) {
             selectTab(it)
@@ -478,7 +499,7 @@ class MainActivity : AppCompatActivity() {
         tabViews = (0 until NavigationMotionPolicy.TAB_COUNT).mapNotNull {
             navigation.section(it)
         }
-        tabs.addView(navigation, LinearLayout.LayoutParams(-1, dp(72)))
+        tabs.addView(navigation, LinearLayout.LayoutParams(-1, dp(64)))
         // System navigation bars/gesture handles own the bottom inset.
         // Only this outer strip receives the inset; the pill never shifts.
         ViewCompat.setOnApplyWindowInsetsListener(tabs) { view, insets ->
@@ -1718,6 +1739,57 @@ class MainActivity : AppCompatActivity() {
         appearanceCard.addView(choices)
         appearanceCard.addView(verticalGap(12))
         contentContainer.addView(appearanceCard)
+        contentContainer.addView(verticalGap(14))
+
+        // Public GitHub Releases: the check is optional, but never transmits
+        // banking notification contents, payment history or device identifiers.
+        val updates = card()
+        updates.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(iconTile("download", 37),
+                LinearLayout.LayoutParams(dp(37), dp(37)))
+            addView(View(this@MainActivity),
+                LinearLayout.LayoutParams(dp(10), 1))
+            addView(textLine("Обновления приложения", 18f, ink, true))
+        })
+        updates.addView(verticalGap(7))
+        val installedInfo = packageManager.getPackageInfo(packageName, 0)
+        updates.addView(textLine("Установлена версия " +
+            (installedInfo.versionName ?: "неизвестна"), 13f, muted))
+        updates.addView(verticalGap(9))
+        val found = GithubUpdateEngine.cached(this)
+        if (found != null) {
+            updates.addView(textLine("Доступна версия " + found.tag,
+                14f, accent, true))
+            updates.addView(verticalGap(9))
+            updates.addView(primaryButton("Посмотреть и скачать обновление") {
+                showGithubUpdateDialog(found)
+            })
+            updates.addView(verticalGap(8))
+        }
+        val toggle = SwitchCompat(this).apply {
+            text = "Уведомлять о новых версиях"
+            textSize = 13f
+            setTextColor(ink)
+            isChecked = GithubUpdateEngine.enabled(this@MainActivity)
+            setOnCheckedChangeListener { _, checked ->
+                GithubUpdateEngine.setEnabled(this@MainActivity, checked)
+                if (checked) requestNotificationPermissionIfNeeded()
+            }
+        }
+        updates.addView(toggle)
+        updates.addView(verticalGap(9))
+        updates.addView(secondaryButton("Проверить обновления") {
+            checkGithubUpdate(manual = true, offer = true)
+        })
+        updates.addView(verticalGap(6))
+        updates.addView(textLine(
+            "Обновления загружаются с GitHub после вашего согласия. " +
+                "Установку подтверждает Android. Фоновая проверка " +
+                "примерно каждые 6 часов зависит от энергосбережения.",
+            12f, muted))
+        contentContainer.addView(updates)
         contentContainer.addView(verticalGap(14))
 
         val mobileSettings = card()
@@ -3510,6 +3582,186 @@ class MainActivity : AppCompatActivity() {
         dialog.show()
     }
 
+    /**
+     * GitHub is checked off the UI thread; manual checks do not depend on the
+     * background notification toggle.
+     */
+    private fun checkGithubUpdate(manual: Boolean, offer: Boolean) {
+        if (checkingGithubUpdates) return
+        checkingGithubUpdates = true
+        if (manual) Toast.makeText(this,
+            "Проверяем последние релизы GitHub…", Toast.LENGTH_SHORT).show()
+        GithubUpdateEngine.checkAsync(this, manual) { release, error ->
+            checkingGithubUpdates = false
+            if (isFinishing || isDestroyed) return@checkAsync
+            if (currentTab == 4 && !bankSettingsOpen && !mobileSettingsOpen) renderTab()
+            if (release != null) {
+                GithubUpdateEngine.announceIfNew(this, release)
+                if (offer && (manual || intent.getBooleanExtra("show_update", false) ||
+                        GithubUpdateEngine.shouldOfferInApp(this, release))) {
+                    GithubUpdateEngine.markInAppOffered(this, release)
+                    if (welcomeShowing) deferredUpdate = release
+                    else showGithubUpdateDialog(release)
+                }
+            } else if (manual) {
+                Toast.makeText(this,
+                    error ?: "У вас уже установлена актуальная версия.",
+                    Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    /** DownloadManager keeps working when the app is backgrounded or closed. */
+    private fun showGithubUpdateDialog(release: UpdateRelease) {
+        if (updateDialogOpen || isFinishing) return
+        updateDialogOpen = true
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(17), dp(9), dp(17), dp(13))
+        }
+        content.addView(textLine("Доступна версия " + release.tag,
+            19f, ink, true))
+        content.addView(verticalGap(8))
+        content.addView(textLine(
+            "Новая версия BalanceHub готова к установке. " +
+                "Посмотрите изменения и скачайте проверенный APK прямо здесь.",
+            13f, muted))
+        if (release.notes.isNotBlank()) {
+            content.addView(verticalGap(12))
+            content.addView(textLine("Что нового", 15f, ink, true))
+            content.addView(verticalGap(5))
+            content.addView(textLine(release.notes, 13f, muted))
+        }
+        content.addView(verticalGap(12))
+        val progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal)
+            .apply { max = 100; progress = 0 }
+        content.addView(progress)
+        val statusText = textLine("Обновление ещё не скачано.", 12f, muted)
+        content.addView(verticalGap(6))
+        content.addView(statusText)
+        content.addView(verticalGap(12))
+        val button = primaryButton("Скачать обновление") {}
+        content.addView(button, LinearLayout.LayoutParams(-1, dp(50)))
+        content.addView(verticalGap(8))
+        content.addView(textLine(
+            "После проверки файла Android запросит разрешение на установку. " +
+                "Текущие данные и настройки сохранятся.",
+            12f, muted))
+        val dialog = themedDialogBuilder().setTitle("Обновление BalanceHub")
+            .setView(android.widget.ScrollView(this).apply {
+                addView(content)
+            }).setNegativeButton("Позже", null).create()
+        dialog.setOnShowListener {
+            dialog.window?.setBackgroundDrawable(dialogGradient())
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.setTextColor(ink)
+        }
+        dialog.setOnDismissListener { updateDialogOpen = false }
+        val handler = Handler(Looper.getMainLooper())
+        val ticker = object : Runnable {
+            override fun run() {
+                if (!dialog.isShowing || isFinishing) return
+                val state = try { GithubApkInstaller.status(this@MainActivity, release) }
+                    catch (_: Exception) { null }
+                when (state?.status) {
+                    DownloadManager.STATUS_PENDING, DownloadManager.STATUS_RUNNING,
+                    DownloadManager.STATUS_PAUSED -> {
+                        val pct = if (state.total > 0) {
+                            (100 * state.received / state.total).toInt().coerceIn(0, 100)
+                        } else 0
+                        progress.isIndeterminate = state.total <= 0
+                        progress.progress = pct
+                        statusText.text = if (state.total > 0)
+                            "Загрузка: $pct%" else "Загрузка обновления…"
+                        button.text = "Загрузка…"
+                        button.isEnabled = false
+                    }
+                    DownloadManager.STATUS_SUCCESSFUL -> {
+                        progress.isIndeterminate = false
+                        progress.progress = 100
+                        statusText.text = "APK загружен. Осталось проверить и установить."
+                        button.text = "Проверить и установить"
+                        button.isEnabled = true
+                    }
+                    DownloadManager.STATUS_FAILED -> {
+                        progress.isIndeterminate = false
+                        progress.progress = 0
+                        statusText.text = "Загрузка не удалась. Можно повторить."
+                        button.text = "Повторить загрузку"
+                        button.isEnabled = true
+                    }
+                    else -> {
+                        progress.isIndeterminate = false
+                        progress.progress = 0
+                        statusText.text = "Размер обновления: " +
+                            (release.bytes / 1_000_000f).toString().take(4) + " МБ"
+                        button.text = "Скачать обновление"
+                        button.isEnabled = true
+                    }
+                }
+                handler.postDelayed(this, 950L)
+            }
+        }
+        button.setOnClickListener {
+            val state = GithubApkInstaller.status(this, release)
+            if (state?.status == DownloadManager.STATUS_SUCCESSFUL) {
+                tryInstallUpdate(release)
+            } else {
+                try {
+                    GithubApkInstaller.begin(this, release)
+                    statusText.text = "Загрузка запущена. Можно закрыть окно."
+                    button.isEnabled = false
+                } catch (e: Exception) {
+                    statusText.text = "Не удалось начать загрузку: " +
+                        (e.localizedMessage ?: "ошибка")
+                }
+            }
+        }
+        dialog.show()
+        handler.post(ticker)
+    }
+
+    private fun tryInstallUpdate(release: UpdateRelease) {
+        // PackageManager and SHA-256 checks may be expensive; never block UI.
+        Thread({
+            val file = try { GithubApkInstaller.verifiedApk(this, release) }
+            catch (e: Exception) {
+                runOnUiThread {
+                    Toast.makeText(this, "Проверка APK не пройдена: " +
+                        (e.localizedMessage ?: "ошибка"), Toast.LENGTH_LONG).show()
+                }
+                return@Thread
+            }
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                if (!GithubApkInstaller.allowedToInstall(this)) {
+                    pendingGithubInstall = true
+                    themedDialogBuilder().setTitle("Разрешение на установку")
+                        .setMessage("Android должен разрешить BalanceHub устанавливать " +
+                            "скачанные APK. Откройте системные настройки, " +
+                            "разрешите установку и вернитесь в приложение.")
+                        .setNegativeButton("Позже", null)
+                        .setPositiveButton("Открыть настройки") { _, _ ->
+                            try {
+                                startActivity(GithubApkInstaller.installPermissionIntent(this))
+                            } catch (_: Exception) {
+                                pendingGithubInstall = false
+                                Toast.makeText(this, "Системные настройки недоступны",
+                                    Toast.LENGTH_LONG).show()
+                            }
+                        }.show()
+                    return@runOnUiThread
+                }
+                try {
+                    startActivity(GithubApkInstaller.installerIntent(this, file))
+                } catch (_: Exception) {
+                    Toast.makeText(this,
+                        "Не удалось открыть системный установщик APK",
+                        Toast.LENGTH_LONG).show()
+                }
+            }
+        }, "BalanceHub-APK-verify").start()
+    }
+
     /** One warm, version-aware welcome after upgrading; never on every launch. */
     private fun showWhatsNewIfNeeded() {
         if (welcomeShowing || tutorialStep >= 0 || isFinishing) return
@@ -3561,7 +3813,13 @@ class MainActivity : AppCompatActivity() {
         }).setPositiveButton("Начать пользоваться") { _, _ ->
             preferences.edit().putLong("release_welcome_version", versionCode).apply()
         }.create()
-        dialog.setOnDismissListener { welcomeShowing = false }
+        dialog.setOnDismissListener {
+            welcomeShowing = false
+            deferredUpdate?.let {
+                deferredUpdate = null
+                window.decorView.post { showGithubUpdateDialog(it) }
+            }
+        }
         dialog.setOnShowListener { dialog.window?.setBackgroundDrawable(dialogGradient()) }
         dialog.show()
     }
@@ -3569,8 +3827,15 @@ class MainActivity : AppCompatActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        if (intent.getIntExtra("open_tab", -1) == 3) {
-            if (currentTab == 3) renderTab() else selectTab(3)
+        when (intent.getIntExtra("open_tab", -1)) {
+            3 -> if (currentTab == 3) renderTab() else selectTab(3)
+            4 -> {
+                if (currentTab != 4) selectTab(4)
+                if (intent.getBooleanExtra("show_update", false)) {
+                    GithubUpdateEngine.cached(this)?.let { showGithubUpdateDialog(it) }
+                        ?: checkGithubUpdate(manual = true, offer = true)
+                }
+            }
         }
     }
 
