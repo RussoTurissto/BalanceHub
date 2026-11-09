@@ -63,7 +63,7 @@ jobs:
           grep -q "versionName='1.1.0-test'" "$RUNNER_TEMP/preview-package.txt"
           echo "$RELEASE_KEY" | base64 -d > "$RUNNER_TEMP/release.jks"
           RELEASE_SHA="$(keytool -list -v -keystore "$RUNNER_TEMP/release.jks" -alias "$RELEASE_KEY_ALIAS" -storepass "$RELEASE_STORE_PASSWORD" | sed -n 's/.*SHA256: //p' | tr -d ':[:space:]' | tr '[:upper:]' '[:lower:]')"
-          PREVIEW_SHA="$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "$RUNNER_TEMP/preview-signature.txt" | tr -d ':[:space:]' | tr '[:upper:]' '[:lower:]')"
+          PREVIEW_SHA="$(sed -n 's/^V2 Signer: certificate SHA-256 digest: //p' "$RUNNER_TEMP/preview-signature.txt" | tr -d ':[:space:]' | tr '[:upper:]' '[:lower:]')"
           if [ -z "$PREVIEW_SHA" ] || [ -z "$RELEASE_SHA" ] || [ "$PREVIEW_SHA" = "$RELEASE_SHA" ]; then
             echo "::error::Preview signer missing or matching production"; exit 1
           fi
