@@ -16,6 +16,9 @@ val releaseStoreFile = providers.gradleProperty("BALANCEHUB_KEYSTORE_PATH").orNu
 val releaseStorePassword = providers.gradleProperty("BALANCEHUB_KEYSTORE_PASSWORD").orNull
 val releaseKeyAlias = providers.gradleProperty("BALANCEHUB_KEY_ALIAS").orNull
 val releaseKeyPassword = providers.gradleProperty("BALANCEHUB_KEY_PASSWORD").orNull
+val previewStoreFile = providers.gradleProperty("BALANCEHUB_PREVIEW_KEYSTORE_PATH").orNull
+val previewSigningConfigured = !previewStoreFile.isNullOrBlank()
+
 val releaseSigningConfigured = listOf(
     releaseStoreFile, releaseStorePassword, releaseKeyAlias, releaseKeyPassword
 ).all { !it.isNullOrBlank() }
@@ -44,6 +47,18 @@ android {
         }
     }
 
+    if (previewSigningConfigured) {
+        signingConfigs {
+            create("preview") {
+                storeFile = file(requireNotNull(previewStoreFile))
+                storeType = "pkcs12"
+                storePassword = "balancehub-preview"
+                keyAlias = "balancehub-preview"
+                keyPassword = "balancehub-preview"
+            }
+        }
+    }
+
     androidResources {
         noCompress.add("wav")
     }
@@ -64,6 +79,15 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+        }
+        create("preview") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".test"
+            versionNameSuffix = "-test"
+            isDebuggable = false
+            // Do not accidentally inherit production signing, even in local builds.
+            signingConfig = if (previewSigningConfigured) signingConfigs.getByName("preview")
+                else null
         }
     }
 

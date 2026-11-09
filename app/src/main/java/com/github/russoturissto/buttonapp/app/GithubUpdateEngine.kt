@@ -27,12 +27,16 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.TimeUnit
 import org.json.JSONObject
+import org.json.JSONArray
 
 /** Uses GitHub Releases only; never sends bank notification data to the network. */
 internal object GithubUpdateEngine {
     private const val SETTINGS = "balancehub_updates_v1"
-    private const val FEED =
-        "https://api.github.com/repos/RussoTurissto/BalanceHub/releases/latest"
+    private const val RELEASES =
+        "https://api.github.com/repos/RussoTurissto/BalanceHub/releases"
+    private fun isPreview(context: Context): Boolean = context.packageName.endsWith(".test")
+    private fun feed(context: Context): String = if (isPreview(context))
+        "$RELEASES?per_page=30" else "$RELEASES/latest"
     private const val PERIODIC_JOB = "balancehub_release_watch"
 
     fun preferences(context: Context) =
@@ -58,7 +62,7 @@ internal object GithubUpdateEngine {
     fun cached(context: Context): UpdateRelease? =
         UpdateReleasePolicy.fromCache(
             preferences(context).getString("cached_release", null),
-            installedCode(context))
+            installedCode(context), isPreview(context))
 
     fun schedule(context: Context) {
         if (!enabled(context)) return
@@ -71,7 +75,7 @@ internal object GithubUpdateEngine {
 
     @Throws(IOException::class)
     fun fetch(context: Context): UpdateRelease? {
-        val connection = (URL(FEED).openConnection() as HttpURLConnection).apply {
+        val connection = (URL(feed(context)).openConnection() as HttpURLConnection).apply {
             connectTimeout = 9_000
             readTimeout = 10_000
             instanceFollowRedirects = false
@@ -87,7 +91,14 @@ internal object GithubUpdateEngine {
                 it.readText().take(120_000)
             }
             val release = try {
-                UpdateReleasePolicy.parse(JSONObject(text), installedCode(context))
+                if (isPreview(context)) {
+                    val releases = JSONArray(text)
+                    (0 until releases.length()).mapNotNull { i ->
+                        releases.optJSONObject(i)?.let {
+                            UpdateReleasePolicy.parse(it, installedCode(context), preview = true)
+                        }
+                    }.maxByOrNull { it.code }
+                } else UpdateReleasePolicy.parse(JSONObject(text), installedCode(context))
             } catch (e: Exception) {
                 throw IOException("Некорректный ответ GitHub", e)
             }
