@@ -180,7 +180,7 @@ class MainActivity : AppCompatActivity() {
         tutorialStep = savedInstanceState?.getInt("tutorial_step") ?:
             if (preferences.getBoolean("onboarding_completed", false)) -1 else 0
         PaymentArchiveStore.archiveDue(this)
-        EventStore.reconcileElapsed(this)
+        EventScheduler.restoreAfterBoot(this)
         loadPayments()
         for (sim in T2Balance.sims(this)) syncMobilePayment(sim)
         showDashboard()
@@ -249,7 +249,12 @@ class MainActivity : AppCompatActivity() {
         // activity was paused. Always reconcile the in-memory list with history.
         val archivedIds = PaymentArchiveStore.archived(this).map { it.id }.toSet()
         if (archivedIds.isNotEmpty()) payments.removeAll { it.id in archivedIds }
+        val beforeEvents = EventStore.active(this).associate { it.id to it.dueAt }
         EventStore.reconcileElapsed(this)
+        for (event in EventStore.active(this)) {
+            if (beforeEvents[event.id] != event.dueAt)
+                EventScheduler.schedule(this, event)
+        }
         if (pendingGithubInstall && GithubApkInstaller.allowedToInstall(this)) {
             pendingGithubInstall = false
             GithubUpdateEngine.cached(this)?.let { tryInstallUpdate(it) }
