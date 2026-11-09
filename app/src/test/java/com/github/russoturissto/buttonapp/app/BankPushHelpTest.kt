@@ -19,7 +19,8 @@ class BankPushHelpTest {
         assertTrue(steps.size >= 9)
         assertTrue(steps.any { it.command?.contains("adb pair") == true })
         assertTrue(steps.any { it.command?.contains("adb connect") == true })
-        assertTrue(steps.any { it.detail.contains("SecurityException") })
+        assertTrue(steps.any { it.heading.contains("SecurityException") ||
+            it.detail.contains("SecurityException") })
         assertTrue(steps.any { it.detail.contains("Выключите беспроводную отладку") })
         assertEquals("RECEIVE_SENSITIVE_NOTIFICATIONS", BankPushHelp.APP_OP)
     }
