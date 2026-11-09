@@ -1,4 +1,6 @@
 [versions]
+work = "2.11.2"
+json = "20240303"
 agp = "8.13.2"
 androidx_activity_compose = "1.13.0"
 androidx_test = "1.7.0"
@@ -18,6 +20,8 @@ nexus_publish = "2.0.0"
 target_sdk_version = "36"
 
 [libraries]
+androidx-work = { module = "androidx.work:work-runtime", version.ref = "work" }
+json = { module = "org.json:json", version.ref = "json" }
 junit = { module = "junit:junit", version.ref = "junit" }
 androidx_activity_compose = { module = "androidx.activity:activity-compose", version.ref = "androidx_activity_compose" }
 androidx_appcompat = { module = "androidx.appcompat:appcompat", version.ref = "appcompat" }
