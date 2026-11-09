@@ -83,6 +83,7 @@ android {
         create("preview") {
             initWith(getByName("release"))
             applicationIdSuffix = ".test"
+            matchingFallbacks += listOf("release", "debug")
             versionNameSuffix = "-test"
             isDebuggable = false
             // Do not accidentally inherit production signing, even in local builds.
