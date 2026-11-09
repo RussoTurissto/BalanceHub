@@ -7,7 +7,7 @@ import org.junit.Test
 /** Examples are anonymised test fixtures, never a promise about current bank Push formats. */
 class RussianBankPushParserTest {
     @Test fun purchaseAmountIsNotBalance() {
-        val p = "ru.alfabank.mobile.android"
+        val p = "com.idamob.tinkoff.android"
         val a = RussianBankPushParser.analyze(p,
             listOf("Покупка 350 ₽. Остаток 12 450,30 ₽, карта ••1111"))
         assertEquals(1245030L, a.result?.kopecks)
@@ -24,7 +24,7 @@ class RussianBankPushParserTest {
         assertEquals(123455L, a.result?.kopecks)
     }
     @Test fun differentBalancesAreAmbiguous() {
-        val a = RussianBankPushParser.analyze("ru.alfabank.mobile.android",
+        val a = RussianBankPushParser.analyze("com.idamob.tinkoff.android",
             listOf("Остаток 123 ₽. Доступно 456 ₽"))
         assertEquals(RussianBankPushParser.Reason.AMBIGUOUS, a.reason)
     }
@@ -39,7 +39,7 @@ class RussianBankPushParserTest {
         assertNull(a.result)
     }
     @Test fun zeroRublesIsConfirmedBalance() {
-        val a = RussianBankPushParser.analyze("ru.alfabank.mobile.android",
+        val a = RussianBankPushParser.analyze("com.idamob.tinkoff.android",
             listOf("На карте ••2222. Остаток 0 ₽"))
         assertEquals(0L, a.result?.kopecks)
     }
