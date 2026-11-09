@@ -35,6 +35,12 @@
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/update_file_paths" />
         </provider>
+        <provider
+            android:name=".BalanceSoundProvider"
+            android:authorities="${applicationId}.sounds"
+            android:exported="true"
+            android:grantUriPermissions="true"
+            tools:ignore="ExportedContentProvider" />
         <service
             android:name=".SberPushNotificationListener"
             android:label="@string/sber_notification_listener_label"
