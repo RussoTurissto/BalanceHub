@@ -94,6 +94,8 @@ class MainActivity : AppCompatActivity() {
     private var eventArchiveExpanded = false
     private var eventListExpanded = false
     private var soundSettingsExpanded = false
+    private val settingsStack = mutableListOf<String>()
+    private val settingsScrollPositions = mutableMapOf<String, Int>()
     private var expandedEventId: String? = null
     private var selectedPaymentIcon: String? = null
     private var welcomeShowing = false
@@ -168,6 +170,10 @@ class MainActivity : AppCompatActivity() {
         currentTab = (savedInstanceState?.getInt("current_tab")
             ?: intent.getIntExtra("open_tab", 0)).coerceIn(0, 4)
         mobileSettingsOpen = savedInstanceState?.getBoolean("mobile_settings_open") ?: false
+        savedInstanceState?.getStringArrayList("settings_stack")?.let {
+            settingsStack.addAll(SettingsNavigationPolicy.sanitize(it))
+        }
+        settingsScrollPositions[settingsScreen()] = savedInstanceState?.getInt("settings_scroll", 0) ?: 0
         // Engineer access is never restored from saved state, disk, or deep links.
         bankSettingsOpen = false
         engineeringMenuOpen = false
@@ -194,6 +200,9 @@ class MainActivity : AppCompatActivity() {
         loadPayments()
         for (sim in T2Balance.sims(this)) syncMobilePayment(sim)
         showDashboard()
+        if (currentTab == 4) dashboardScroll.post {
+            dashboardScroll.scrollTo(0, settingsScrollPositions[settingsScreen()] ?: 0)
+        }
         GithubApkInstaller.cleanOld(this)
         GithubUpdateEngine.schedule(this)
         window.decorView.post {
@@ -222,8 +231,10 @@ class MainActivity : AppCompatActivity() {
                     }
                     mobileSettingsOpen && currentTab == 4 -> {
                         mobileSettingsOpen = false
-                        renderTab()
+                        if (settingsStack.lastOrNull() == "mobile") backSettingsPage()
+                        else renderTab()
                     }
+                    settingsStack.isNotEmpty() && currentTab == 4 -> backSettingsPage()
                     else -> {
                         isEnabled = false
                         onBackPressedDispatcher.onBackPressed()
@@ -297,6 +308,10 @@ class MainActivity : AppCompatActivity() {
         outState.putBoolean("event_archive_open", eventArchiveExpanded)
         outState.putBoolean("event_list_expanded", eventListExpanded)
         outState.putBoolean("sound_settings_expanded", soundSettingsExpanded)
+        outState.putStringArrayList("settings_stack", ArrayList(settingsStack))
+        if (::dashboardScroll.isInitialized && currentTab == 4) {
+            outState.putInt("settings_scroll", dashboardScroll.scrollY)
+        }
         outState.putString("expanded_event_id", expandedEventId)
         outState.putBoolean("payments_list_expanded", upcomingListExpanded)
         outState.putString("expanded_payment_id", expandedPaymentId)
@@ -598,6 +613,8 @@ class MainActivity : AppCompatActivity() {
         currentTab = index
         // Settings is index 4, not index 3 (Events).
         if (index != NavigationMotionPolicy.SETTINGS_INDEX) {
+            settingsStack.clear()
+            settingsScrollPositions.clear()
             closeEngineeringMenu()
             mobileSettingsOpen = false
             bankSettingsOpen = false
@@ -2047,16 +2064,160 @@ class MainActivity : AppCompatActivity() {
         dialog.show()
     }
 
+
+    private fun settingsScreen() = settingsStack.lastOrNull() ?: "root"
+    private fun openSettingsPage(page: String) {
+        if (!SettingsNavigationPolicy.canOpen(settingsScreen(), page)) return
+        settingsScrollPositions[settingsScreen()] = dashboardScroll.scrollY
+        settingsStack.add(page)
+        renderTab()
+        dashboardScroll.post { if (currentTab == 4) dashboardScroll.scrollTo(0, 0) }
+    }
+    private fun backSettingsPage() {
+        if (settingsStack.isEmpty()) return
+        settingsStack.removeAt(settingsStack.lastIndex)
+        val previous = settingsScrollPositions[settingsScreen()] ?: 0
+        renderTab()
+        dashboardScroll.post { if (currentTab == 4) dashboardScroll.scrollTo(0, previous) }
+    }
+
+    private fun compactSettingsCard() = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(dp(14), dp(12), dp(14), dp(12))
+        background = cardGradient()
+    }
+    private fun settingsPanel(vararg views: View) = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        background = cardGradient()
+        views.forEachIndexed { i, view ->
+            if (i > 0) addView(View(this@MainActivity).apply {
+                setBackgroundColor(if (isNight) Color.rgb(63, 100, 102)
+                    else Color.rgb(201, 228, 224))
+            }, LinearLayout.LayoutParams(-1, dp(1)).apply {
+                marginStart = dp(14)
+                marginEnd = dp(14)
+            })
+            addView(view)
+        }
+    }
+    private fun settingsGroup(panel: View) {
+        contentContainer.addView(panel)
+        contentContainer.addView(verticalGap(12))
+    }
+    private fun settingsRow(glyph: String, name: String, summary: String,
+        action: (() -> Unit)? = null) = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        minimumHeight = dp(60)
+        setPadding(dp(14), dp(8), dp(14), dp(8))
+        addView(iconTile(glyph, 33), LinearLayout.LayoutParams(dp(33), dp(33)))
+        addView(View(this@MainActivity), LinearLayout.LayoutParams(dp(11), 1))
+        addView(LinearLayout(this@MainActivity).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(textLine(name, 15f, ink, true).apply { maxLines = 2 })
+            if (summary.isNotBlank()) {
+                addView(verticalGap(3))
+                addView(textLine(summary, 12f, muted).apply { maxLines = 2 })
+            }
+        }, LinearLayout.LayoutParams(0, -2, 1f))
+        if (action != null) {
+            addView(textLine("›", 24f, muted, true))
+            isClickable = true
+            isFocusable = true
+            contentDescription = name + if (summary.isEmpty()) "" else ", " + summary
+            setOnClickListener { action() }
+        }
+    }
+    private fun settingsSwitch(glyph: String, name: String, summary: String,
+        checked: Boolean, change: (Boolean) -> Unit) = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        minimumHeight = dp(60)
+        setPadding(dp(14), dp(8), dp(14), dp(8))
+        addView(iconTile(glyph, 33), LinearLayout.LayoutParams(dp(33), dp(33)))
+        addView(View(this@MainActivity), LinearLayout.LayoutParams(dp(11), 1))
+        addView(LinearLayout(this@MainActivity).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(textLine(name, 15f, ink, true))
+            addView(verticalGap(3))
+            addView(textLine(summary, 12f, muted))
+        }, LinearLayout.LayoutParams(0, -2, 1f))
+        val control = SwitchCompat(this@MainActivity).apply {
+            isChecked = checked
+            contentDescription = name
+            setOnCheckedChangeListener { _, value -> change(value) }
+        }
+        addView(control)
+        isClickable = true
+        isFocusable = true
+        setOnClickListener { control.isChecked = !control.isChecked }
+    }
+    private fun settingsHeader(title: String, summary: String = "") {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(48)
+        }
+        row.addView(textLine("‹", 32f, accent, true).apply {
+            gravity = Gravity.CENTER
+            contentDescription = "Назад"
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                mobileSettingsOpen = false
+                backSettingsPage()
+            }
+        }, LinearLayout.LayoutParams(dp(43), dp(48)))
+        row.addView(textLine(title, 23f, ink, true))
+        contentContainer.addView(row)
+        if (summary.isNotBlank()) contentContainer.addView(textLine(summary, 12f, muted))
+        contentContainer.addView(verticalGap(13))
+    }
+
+    private fun openAndroidNotificationSettings(category: String? = null) {
+        val fallback = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+            ("package:" + packageName).toUri())
+        val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Intent(if (category == null) Settings.ACTION_APP_NOTIFICATION_SETTINGS
+                else Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS).apply {
+                putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+                if (category != null) putExtra(Settings.EXTRA_CHANNEL_ID,
+                    BalanceNotificationSounds.ensureChannel(this@MainActivity, category))
+            }
+        } else fallback
+        try { startActivity(intent) }
+        catch (_: Exception) {
+            try { startActivity(fallback) }
+            catch (_: Exception) {
+                Toast.makeText(this, "Откройте уведомления BalanceHub в Android",
+                    Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
     private fun renderSettings() {
         if (engineeringMenuOpen) {
             if (bankSettingsOpen) renderBankSettings() else renderEngineeringMenu()
             return
         }
         bankSettingsOpen = false
-        if (mobileSettingsOpen) {
+        if (mobileSettingsOpen || settingsScreen() == "mobile") {
             renderMobileSettings()
             return
         }
+        when (settingsScreen()) {
+            "appearance" -> renderAppearanceSettings()
+            "banks" -> renderBanksSettings()
+            "notifications" -> renderNotificationsMenu()
+            "payment", "event", "update_sound" -> renderNotificationCategory()
+            "vibration" -> renderVibrationDiagnostics()
+            "updates" -> renderUpdateSettings()
+            "help" -> renderHelpSettings()
+            "about" -> renderAboutSettings()
+            else -> renderSettingsHome()
+        }
+    }
+    private fun renderSettingsHome() {
         contentContainer.addView(textLine("Настройки", 23f, ink, true).apply {
             isClickable = true
             isFocusable = true
@@ -2075,184 +2236,269 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         })
-        contentContainer.addView(verticalGap(6))
-        contentContainer.addView(textLine("Управление BalanceHub", 14f, muted))
-        contentContainer.addView(verticalGap(18))
-
-        // First and more compact: three side-by-side theme selectors.
-        val appearanceCard = card()
-        appearanceCard.addView(LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            addView(iconTile("settings", 35),
-                LinearLayout.LayoutParams(dp(35), dp(35)))
-            addView(View(this@MainActivity), LinearLayout.LayoutParams(dp(9), 1))
-            addView(textLine("Оформление", 18f, ink, true))
-        })
-        appearanceCard.addView(verticalGap(5))
-        appearanceCard.addView(textLine("Тема приложения", 13f, muted))
-        appearanceCard.addView(verticalGap(12))
-        val currentAppearance = preferences.getString("appearance", "system") ?: "system"
-        val choices = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        listOf(
-            Triple("system", "Авто", "settings"),
-            Triple("day", "Светлая", "sun"),
-            Triple("night", "Тёмная", "moon")
-        ).forEachIndexed { index, (mode, label, glyph) ->
-            val chosen = currentAppearance == mode
-            val cell = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                gravity = Gravity.CENTER
-                setPadding(dp(3), dp(8), dp(3), dp(8))
-                background = GradientDrawable().apply {
-                    setColor(if (chosen) softAccent else surface)
-                    cornerRadius = dp(12).toFloat()
-                    setStroke(dp(if (chosen) 2 else 1), if (chosen) accent else muted)
-                }
-                contentDescription = "Тема: $label"
-                isClickable = true
-                isFocusable = true
-                setOnClickListener {
-                    if (mode != preferences.getString("appearance", "system")) {
-                        preferences.edit().putString("appearance", mode).apply()
-                        val nightMode = when (mode) {
-                            "day" -> AppCompatDelegate.MODE_NIGHT_NO
-                            "night" -> AppCompatDelegate.MODE_NIGHT_YES
-                            else -> AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
-                        }
-                        AppCompatDelegate.setDefaultNightMode(nightMode)
-                        recreate()
-                    }
-                }
+        contentContainer.addView(verticalGap(5))
+        contentContainer.addView(textLine("Управление BalanceHub", 12f, muted))
+        contentContainer.addView(verticalGap(16))
+        val appInfo = packageManager.getPackageInfo(packageName, 0)
+        settingsGroup(settingsPanel(
+            settingsRow("settings", "Оформление", "Авто, светлая или тёмная") {
+                openSettingsPage("appearance")
+            },
+            settingsRow("smartphone", "Мобильная связь", "SIM, баланс и абонентская плата") {
+                openSettingsPage("mobile")
+            },
+            settingsRow("credit-card", "Банки", "Карточки и банковские Push") {
+                openSettingsPage("banks")
+            },
+            settingsRow("music", "Уведомления", "Звуки, громкость и вибрация") {
+                openSettingsPage("notifications")
+            },
+            settingsRow("download", "Обновления",
+                "Версия " + (appInfo.versionName ?: "неизвестна")) {
+                openSettingsPage("updates")
+            },
+            settingsRow("settings", "Помощь и диагностика", "Проверки и инструкции") {
+                openSettingsPage("help")
+            },
+            settingsRow("settings", "О приложении", "Сведения о BalanceHub") {
+                openSettingsPage("about")
             }
-            cell.addView(iconTile(glyph, 28),
-                LinearLayout.LayoutParams(dp(28), dp(28)))
-            cell.addView(verticalGap(4))
-            cell.addView(textLine(label, 12f, ink, chosen).apply {
-                gravity = Gravity.CENTER
-            })
-            if (chosen) cell.addView(textLine("✓", 11f, accent, true))
-            choices.addView(cell, LinearLayout.LayoutParams(0, -2, 1f).apply {
-                if (index > 0) marginStart = dp(8)
-            })
-        }
-        appearanceCard.addView(choices)
-        appearanceCard.addView(verticalGap(12))
-        contentContainer.addView(appearanceCard)
-        contentContainer.addView(verticalGap(14))
-
-        // Public GitHub Releases: the check is optional, but never transmits
-        // banking notification contents, payment history or device identifiers.
-        val updates = card()
-        updates.addView(LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            addView(iconTile("download", 37),
-                LinearLayout.LayoutParams(dp(37), dp(37)))
-            addView(View(this@MainActivity),
-                LinearLayout.LayoutParams(dp(10), 1))
-            addView(textLine("Обновления приложения", 18f, ink, true))
-        })
-        updates.addView(verticalGap(7))
-        val installedInfo = packageManager.getPackageInfo(packageName, 0)
-        updates.addView(textLine("Установлена версия " +
-            (installedInfo.versionName ?: "неизвестна"), 13f, muted))
-        updates.addView(verticalGap(9))
-        val found = GithubUpdateEngine.cached(this)
-        if (found != null) {
-            updates.addView(textLine("Доступна версия " + found.tag,
-                14f, accent, true))
-            updates.addView(verticalGap(9))
-            updates.addView(primaryButton("Посмотреть и скачать обновление") {
-                showGithubUpdateDialog(found)
-            })
-            updates.addView(verticalGap(8))
-        }
-        val toggle = SwitchCompat(this).apply {
-            text = "Уведомлять о новых версиях"
-            textSize = 13f
-            setTextColor(ink)
-            isChecked = GithubUpdateEngine.enabled(this@MainActivity)
-            setOnCheckedChangeListener { _, checked ->
-                GithubUpdateEngine.setEnabled(this@MainActivity, checked)
-                if (checked) requestNotificationPermissionIfNeeded()
-            }
-        }
-        updates.addView(toggle)
-        updates.addView(verticalGap(9))
-        updates.addView(secondaryButton("Проверить обновления") {
-            checkGithubUpdate(manual = true, offer = true)
-        })
-        updates.addView(verticalGap(6))
-        updates.addView(textLine(
-            "Обновления загружаются с GitHub после вашего согласия. " +
-                "Установку подтверждает Android. Фоновая проверка " +
-                "примерно каждые 6 часов зависит от энергосбережения.",
-            12f, muted))
-        contentContainer.addView(updates)
-        contentContainer.addView(verticalGap(14))
-
-        val mobileSettings = card()
-        mobileSettings.addView(LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            addView(iconTile("smartphone", 37),
-                LinearLayout.LayoutParams(dp(37), dp(37)))
-            addView(View(this@MainActivity), LinearLayout.LayoutParams(dp(10), 1))
-            addView(textLine("Мобильная связь   ›", 18f, ink, true))
-        })
-        mobileSettings.addView(verticalGap(6))
-        mobileSettings.addView(textLine(
-            "SIM-карты, проверка баланса и настройки абонентской платы",
-            14f, muted
         ))
-        mobileSettings.addView(verticalGap(7))
-        mobileSettings.addView(textLine("Открыть параметры мобильной связи", 13f, accent))
-        mobileSettings.setOnClickListener {
-            mobileSettingsOpen = true
-            renderTab()
-        }
-        contentContainer.addView(mobileSettings)
-        contentContainer.addView(verticalGap(14))
-
-        val bankCards = card()
-        bankCards.addView(LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            addView(iconTile("credit-card", 37),
-                LinearLayout.LayoutParams(dp(37), dp(37)))
-            addView(View(this@MainActivity), LinearLayout.LayoutParams(dp(10), 1))
+    }
+    private fun renderAppearanceSettings() {
+        settingsHeader("Оформление", "Тема приложения")
+        val current = preferences.getString("appearance", "system") ?: "system"
+        val options = listOf(
+            Triple("system", "Автоматически", "Тема устройства"),
+            Triple("day", "Светлая", "Светлый интерфейс"),
+            Triple("night", "Тёмная", "Тёмный интерфейс")
+        )
+        settingsGroup(settingsPanel(*options.map { (mode, title, description) ->
+            settingsRow(if (mode == "day") "sun" else if (mode == "night") "moon"
+                else "settings", title,
+                description + if (mode == current) " · выбрано ✓" else "") {
+                if (mode != preferences.getString("appearance", "system")) {
+                    preferences.edit().putString("appearance", mode).apply()
+                    AppCompatDelegate.setDefaultNightMode(when (mode) {
+                        "day" -> AppCompatDelegate.MODE_NIGHT_NO
+                        "night" -> AppCompatDelegate.MODE_NIGHT_YES
+                        else -> AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
+                    })
+                    recreate()
+                }
+            }
+        }.toTypedArray()))
+    }
+    private fun renderBanksSettings() {
+        settingsHeader("Банки", "Карточки и получение Push")
+        val banks = RussianBankCatalog.available(this)
+        settingsGroup(settingsPanel(*banks.map { bank ->
+            val push = BankCardPreferences.enabled(this, bank.id)
+            settingsRow("credit-card", bank.name,
+                (if (push) "Push включён" else "Push не подключён") +
+                    if (BankCardPreferences.visible(this, bank.id))
+                        " · видимая карточка" else " · скрытая карточка") {
+                showBankCardManager()
+            }
+        }.toTypedArray()))
+        settingsGroup(settingsPanel(
+            settingsRow("settings", "Управление банками",
+                "Видимость и подключение Push") { showBankCardManager() },
+            settingsRow("settings", "Доступ Android",
+                "Разрешить чтение банковских Push") { openSberListenerSettings() }
+        ))
+    }
+    private fun renderNotificationsMenu() {
+        settingsHeader("Уведомления", "Звуки и вибрация")
+        settingsGroup(settingsPanel(
+            settingsRow("credit-card", "Платежи",
+                "Мелодия, громкость, двойной сигнал") { openSettingsPage("payment") },
+            settingsRow("calendar-days", "События",
+                "Мелодия, громкость, два импульса") { openSettingsPage("event") },
+            settingsRow("download", "Обновления",
+                "Мелодия, громкость, короткий сигнал") {
+                openSettingsPage("update_sound")
+            }
+        ))
+        settingsGroup(settingsPanel(
+            settingsSwitch("music", "Раздельная громкость",
+                "Уровень для каждого типа уведомлений",
+                BalanceNotificationSounds.separateVolume(this)) {
+                BalanceNotificationSounds.setSeparateVolume(this, it)
+            },
+            settingsSwitch("settings", "Вибрация уведомлений",
+                "Общий переключатель",
+                BalanceNotificationSounds.vibrationEnabled(this)) {
+                BalanceNotificationSounds.setVibrationEnabled(this, it)
+                renderTab()
+            }
+        ))
+        settingsGroup(settingsPanel(
+            settingsRow("settings", "Проверка вибрации",
+                "Мотор и системные уведомления") { openSettingsPage("vibration") },
+            settingsRow("settings", "Уведомления Android",
+                "Разрешения и системные каналы") {
+                openAndroidNotificationSettings()
+            }
+        ))
+    }
+    private fun notificationCategory() = when (settingsScreen()) {
+        "event" -> BalanceNotificationSounds.EVENT
+        "update_sound" -> BalanceNotificationSounds.UPDATE
+        else -> BalanceNotificationSounds.PAYMENT
+    }
+    private fun notificationTitle(category: String) = when (category) {
+        BalanceNotificationSounds.EVENT -> "События"
+        BalanceNotificationSounds.UPDATE -> "Обновления"
+        else -> "Платежи"
+    }
+    private fun renderNotificationCategory() {
+        val category = notificationCategory()
+        val title = notificationTitle(category)
+        settingsHeader(title, "Настройка оповещений")
+        val volumeKey = if (BalanceNotificationSounds.separateVolume(this)) category else null
+        val current = BalanceNotificationSounds.volume(this, category)
+        val level = textLine("$current%", 13f, accent, true)
+        val volumeRow = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(14), dp(10), dp(14), dp(7))
             addView(LinearLayout(this@MainActivity).apply {
-                orientation = LinearLayout.VERTICAL
-                addView(textLine("Банковские карточки", 18f, ink, true))
-                addView(verticalGap(3))
-                val count = RussianBankCatalog.available(this@MainActivity).size
-                val hidden = RussianBankCatalog.available(this@MainActivity)
-                    .count { !BankCardPreferences.visible(this@MainActivity, it.id) }
-                addView(textLine("В списке банков: $count · скрыто: $hidden",
-                    12f, muted))
-            }, LinearLayout.LayoutParams(0, -2, 1f))
-        })
-        bankCards.addView(verticalGap(12))
-        bankCards.addView(secondaryButton("Управление банками") {
-            showBankCardManager()
-        })
-        contentContainer.addView(bankCards)
-        contentContainer.addView(verticalGap(14))
-
-        renderSoundSettings()
-        contentContainer.addView(verticalGap(14))
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                addView(textLine("Громкость", 15f, ink, true),
+                    LinearLayout.LayoutParams(0, -2, 1f))
+                addView(level)
+            })
+            addView(SeekBar(this@MainActivity).apply {
+                max = 100
+                progress = current
+                progressTintList = android.content.res.ColorStateList.valueOf(accent)
+                thumbTintList = android.content.res.ColorStateList.valueOf(accent)
+                setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                    override fun onProgressChanged(bar: SeekBar?, value: Int,
+                        fromUser: Boolean) { level.text = "$value%" }
+                    override fun onStartTrackingTouch(bar: SeekBar?) = Unit
+                    override fun onStopTrackingTouch(bar: SeekBar?) {
+                        BalanceNotificationSounds.setVolume(this@MainActivity, volumeKey,
+                            (bar?.progress ?: current).coerceIn(0, 100))
+                    }
+                })
+            })
+        }
+        settingsGroup(settingsPanel(
+            settingsRow("music", "Мелодия",
+                BalanceNotificationSounds.title(this, category)) {
+                showSoundChooser(category, title)
+            },
+            volumeRow,
+            settingsSwitch("settings", "Вибрация",
+                when (category) {
+                    BalanceNotificationSounds.EVENT -> "Два коротких импульса"
+                    BalanceNotificationSounds.UPDATE -> "Короткий сигнал"
+                    else -> "Двойной сигнал"
+                },
+                BalanceNotificationSounds.vibrationFor(this, category)) { enabled ->
+                BalanceNotificationSounds.setVibrationFor(this, category, enabled)
+            }
+        ))
+        settingsGroup(settingsPanel(
+            settingsRow("settings", "Проверить уведомление",
+                "Звук и вибрация Android") { sendNotificationVibrationTest(category) },
+            settingsRow("settings", "Системные параметры",
+                "Канал уведомлений " + title.lowercase()) {
+                openAndroidNotificationSettings(category)
+            }
+        ))
+    }
+    private fun renderVibrationDiagnostics() {
+        settingsHeader("Проверка вибрации", "Мотор и системные каналы")
+        settingsGroup(settingsPanel(
+            settingsRow("settings", "Проверить вибромотор",
+                if (BalanceVibration.available(this))
+                    "Обнаружен · прямой двойной сигнал" else "Не обнаружен системой") {
+                sendVibrationTest()
+            },
+            settingsRow("credit-card", "Тест платежа", "Системное уведомление") {
+                sendNotificationVibrationTest(BalanceNotificationSounds.PAYMENT)
+            },
+            settingsRow("calendar-days", "Тест события", "Системное уведомление") {
+                sendNotificationVibrationTest(BalanceNotificationSounds.EVENT)
+            },
+            settingsRow("download", "Тест обновления", "Системное уведомление") {
+                sendNotificationVibrationTest(BalanceNotificationSounds.UPDATE)
+            }
+        ))
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        settingsGroup(settingsPanel(*listOf(
+            BalanceNotificationSounds.PAYMENT, BalanceNotificationSounds.EVENT,
+            BalanceNotificationSounds.UPDATE
+        ).map { category ->
+            val id = BalanceNotificationSounds.ensureChannel(this, category)
+            val channel = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                manager.getNotificationChannel(id) else null
+            val status = when {
+                !androidx.core.app.NotificationManagerCompat.from(this)
+                    .areNotificationsEnabled() -> "Уведомления выключены в Android"
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && channel == null ->
+                    "Канал не найден"
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+                    channel?.importance == NotificationManager.IMPORTANCE_NONE ->
+                    "Канал выключен в Android"
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+                    channel?.shouldVibrate() == false -> "Вибрация канала выключена"
+                !BalanceNotificationSounds.vibrationFor(this, category) ->
+                    "Выключена в BalanceHub"
+                else -> "Вибрация разрешена каналом"
+            }
+            settingsRow("settings", notificationTitle(category), status) {
+                openAndroidNotificationSettings(category)
+            }
+        }.toTypedArray()))
+        contentContainer.addView(textLine(
+            "Режим «Не беспокоить» и настройки устройства имеют приоритет. " +
+                "Тест мотора не гарантирует системную вибрацию.", 12f, muted))
+    }
+    private fun renderUpdateSettings() {
+        settingsHeader("Обновления", "Версия и проверка новых сборок")
+        val installed = packageManager.getPackageInfo(packageName, 0)
+        val found = GithubUpdateEngine.cached(this)
+        settingsGroup(settingsPanel(
+            settingsRow("download", "Установленная версия",
+                installed.versionName ?: "неизвестна"),
+            settingsSwitch("settings", "Уведомлять о версиях",
+                "Автоматическая проверка примерно раз в 6 часов",
+                GithubUpdateEngine.enabled(this)) {
+                GithubUpdateEngine.setEnabled(this, it)
+                if (it) requestNotificationPermissionIfNeeded()
+            },
+            settingsRow("download", "Проверить обновления",
+                found?.let { "Доступна " + it.tag } ?: "Проверить сейчас") {
+                checkGithubUpdate(manual = true, offer = true)
+            }
+        ))
+        if (found != null) settingsGroup(settingsPanel(
+            settingsRow("download", "Скачать новую версию", found.tag) {
+                showGithubUpdateDialog(found)
+            }
+        ))
+    }
+    private fun renderHelpSettings() {
+        settingsHeader("Помощь и диагностика", "Инструкции и системные проверки")
+        settingsGroup(settingsPanel(
+            settingsRow("settings", "Справка",
+                "Балансы, платежи, банки и обновления") { showHelpCenter() },
+            settingsRow("settings", "Диагностика вибрации",
+                "Вибромотор и уведомления Android") { openSettingsPage("vibration") },
+            settingsRow("settings", "Уведомления Android",
+                "Разрешения и системные каналы") {
+                openAndroidNotificationSettings()
+            }
+        ))
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
             !ExactReminderAlarms.allowed(this)) {
-            val reminderSettings = card()
-            reminderSettings.addView(textLine("Точность напоминаний", 18f, ink, true))
-            reminderSettings.addView(verticalGap(6))
-            reminderSettings.addView(textLine(
-                "Android пока не разрешил точные напоминания. " +
-                    "Уведомления о платежах и событиях могут задерживаться.",
-                13f, muted))
-            reminderSettings.addView(verticalGap(10))
-            reminderSettings.addView(secondaryButton("Разрешить точные напоминания") {
+            settingsGroup(settingsPanel(settingsRow("calendar-days",
+                "Разрешить точные напоминания",
+                "Android может задерживать сигналы без разрешения") {
                 try {
                     startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
                         ("package:" + packageName).toUri()))
@@ -2260,38 +2506,19 @@ class MainActivity : AppCompatActivity() {
                     startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                         ("package:" + packageName).toUri()))
                 }
-            })
-            contentContainer.addView(reminderSettings)
-            contentContainer.addView(verticalGap(14))
+            }))
         }
-
-        val info = card()
-        info.addView(textLine("О приложении", 18f, ink, true))
-        info.addView(verticalGap(6))
-        info.addView(textLine(
-            "BalanceHub · управление балансами и платежами",
-            13f, muted
+    }
+    private fun renderAboutSettings() {
+        settingsHeader("О приложении")
+        val info = packageManager.getPackageInfo(packageName, 0)
+        settingsGroup(settingsPanel(
+            settingsRow("settings", "BalanceHub",
+                "Балансы, платежи и события"),
+            settingsRow("download", "Версия",
+                (info.versionName ?: "неизвестна") + " · сборка " +
+                    PackageInfoCompat.getLongVersionCode(info))
         ))
-        contentContainer.addView(info)
-        contentContainer.addView(verticalGap(14))
-        val help = card()
-        help.addView(LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            addView(iconTile("settings", 37), LinearLayout.LayoutParams(dp(37), dp(37)))
-            addView(View(this@MainActivity), LinearLayout.LayoutParams(dp(10), 1))
-            addView(LinearLayout(this@MainActivity).apply {
-                orientation = LinearLayout.VERTICAL
-                addView(textLine("Помощь", 18f, ink, true))
-                addView(verticalGap(4))
-                addView(textLine("Инструкции, ответы и диагностика", 12f, muted))
-            }, LinearLayout.LayoutParams(0, -2, 1f))
-        })
-        help.addView(verticalGap(12))
-        help.addView(secondaryButton("Открыть справку") {
-            showHelpCenter()
-        })
-        contentContainer.addView(help)
     }
 
     private fun closeEngineeringMenu() {
@@ -2398,224 +2625,6 @@ class MainActivity : AppCompatActivity() {
         contentContainer.addView(textLine(
             "При выходе из инженерного меню доступ закрывается.",
             12f, muted))
-    }
-
-    private fun renderSoundSettings() {
-        val settings = card().apply { setPadding(0, 0, 0, 0) }
-        val header = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(15), dp(13), dp(15), dp(13))
-            isClickable = true
-            isFocusable = true
-            contentDescription = if (soundSettingsExpanded)
-                "Звуки уведомлений, свернуть настройки" else
-                "Звуки уведомлений, раскрыть настройки"
-            addView(iconTile("music", 38), LinearLayout.LayoutParams(dp(38), dp(38)))
-            addView(View(this@MainActivity), LinearLayout.LayoutParams(dp(10), 1))
-            addView(LinearLayout(this@MainActivity).apply {
-                orientation = LinearLayout.VERTICAL
-                addView(textLine("Звуки уведомлений", 17f, ink, true))
-                addView(verticalGap(3))
-                addView(textLine("Мелодии и громкость BalanceHub", 12f, muted))
-            }, LinearLayout.LayoutParams(0, -2, 1f))
-            addView(iconTile(if (soundSettingsExpanded) "chevron-up"
-                else "chevron-down", 32), LinearLayout.LayoutParams(dp(32), dp(32)))
-            setOnClickListener {
-                soundSettingsExpanded = !soundSettingsExpanded
-                preferences.edit().putBoolean("sound_settings_expanded",
-                    soundSettingsExpanded).apply()
-                renderTab()
-            }
-        }
-        settings.addView(header)
-        if (soundSettingsExpanded) {
-            settings.addView(View(this).apply {
-                setBackgroundColor(if (isNight) Color.rgb(63, 100, 102)
-                    else Color.rgb(201, 228, 224))
-            }, LinearLayout.LayoutParams(-1, dp(1)))
-            val body = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(16), dp(12), dp(16), dp(16))
-            }
-            for ((category, title) in listOf(
-                BalanceNotificationSounds.PAYMENT to "Платежи",
-                BalanceNotificationSounds.EVENT to "События",
-                BalanceNotificationSounds.UPDATE to "Обновления"
-            )) {
-                body.addView(verticalGap(8))
-                body.addView(LinearLayout(this).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = Gravity.CENTER_VERTICAL
-                    setPadding(dp(12), dp(10), dp(12), dp(10))
-                    background = rounded(softAccent, 12)
-                    isClickable = true
-                    isFocusable = true
-                    contentDescription = "Выбрать звук: " + title
-                    addView(LinearLayout(this@MainActivity).apply {
-                        orientation = LinearLayout.VERTICAL
-                        addView(textLine(title, 14f, ink, true))
-                        addView(verticalGap(3))
-                        addView(textLine(BalanceNotificationSounds.title(
-                            this@MainActivity, category), 12f, muted))
-                    }, LinearLayout.LayoutParams(0, -2, 1f))
-                    addView(iconTile("chevron-down", 26),
-                        LinearLayout.LayoutParams(dp(26), dp(26)))
-                    setOnClickListener { showSoundChooser(category, title) }
-                })
-            }
-            body.addView(verticalGap(15))
-            body.addView(textLine("Громкость уведомлений", 15f, ink, true))
-            body.addView(verticalGap(5))
-            body.addView(textLine(
-                "Уменьшает громкость фирменных звуков относительно громкости " +
-                    "уведомлений телефона. Не изменяет системные настройки.",
-                12f, muted))
-            body.addView(verticalGap(9))
-            val sliders = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(12), dp(10), dp(12), dp(10))
-                background = rounded(softAccent, 12)
-            }
-            val separate = SwitchCompat(this).apply {
-                text = "Отдельно для каждого типа"
-                textSize = 13f
-                setTextColor(ink)
-                isChecked = BalanceNotificationSounds.separateVolume(this@MainActivity)
-            }
-            body.addView(separate)
-            body.addView(verticalGap(8))
-            body.addView(sliders)
-            fun renderSliders() {
-                sliders.removeAllViews()
-                val selected = if (BalanceNotificationSounds.separateVolume(this))
-                    listOf(
-                        BalanceNotificationSounds.PAYMENT to "Платежи",
-                        BalanceNotificationSounds.EVENT to "События",
-                        BalanceNotificationSounds.UPDATE to "Обновления"
-                    ) else listOf(null to "Общая громкость")
-                for ((category, title) in selected) {
-                    val current = BalanceNotificationSounds.volume(this, category)
-                    val level = textLine("$current%", 13f, accent, true)
-                    sliders.addView(LinearLayout(this).apply {
-                        orientation = LinearLayout.HORIZONTAL
-                        gravity = Gravity.CENTER_VERTICAL
-                        addView(textLine(title, 13f, ink),
-                            LinearLayout.LayoutParams(0, -2, 1f))
-                        addView(level)
-                    })
-                    val seek = SeekBar(this).apply {
-                        max = 100
-                        progress = current
-                        progressTintList = android.content.res.ColorStateList.valueOf(accent)
-                        thumbTintList = android.content.res.ColorStateList.valueOf(accent)
-                        setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                            override fun onProgressChanged(bar: SeekBar?, value: Int,
-                                fromUser: Boolean) {
-                                level.text = "${((value + 2) / 5 * 5).coerceIn(0, 100)}%"
-                            }
-                            override fun onStartTrackingTouch(bar: SeekBar?) = Unit
-                            override fun onStopTrackingTouch(bar: SeekBar?) {
-                                val chosen = (((bar?.progress ?: current) + 2) / 5 * 5)
-                                    .coerceIn(0, 100)
-                                BalanceNotificationSounds.setVolume(
-                                    this@MainActivity, category, chosen)
-                                level.text = "$chosen%"
-                                bar?.progress = chosen
-                            }
-                        })
-                    }
-                    sliders.addView(seek)
-                    if (category != selected.last().first) sliders.addView(verticalGap(8))
-                }
-            }
-            separate.setOnCheckedChangeListener { _, checked ->
-                BalanceNotificationSounds.setSeparateVolume(this, checked)
-                renderSliders()
-            }
-            renderSliders()
-            body.addView(verticalGap(15))
-            body.addView(textLine("Вибрация уведомлений", 15f, ink, true))
-            body.addView(verticalGap(5))
-            body.addView(textLine(
-                "Отдельные вибросигналы для платежей, событий и обновлений. " +
-                    "Вибрация также зависит от настроек Android.",
-                12f, muted))
-            body.addView(verticalGap(8))
-            val vibrationOptions = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(12), dp(5), dp(12), dp(8))
-                background = rounded(softAccent, 12)
-            }
-            val vibrationToggle = SwitchCompat(this).apply {
-                text = "Вибрация включена"
-                textSize = 13f
-                setTextColor(ink)
-                isChecked = BalanceNotificationSounds.vibrationEnabled(this@MainActivity)
-            }
-            vibrationOptions.addView(vibrationToggle)
-            val vibrationCategories = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-            }
-            vibrationOptions.addView(vibrationCategories)
-            fun renderVibrationCategories() {
-                vibrationCategories.removeAllViews()
-                if (!BalanceNotificationSounds.vibrationEnabled(this)) return
-                for ((category, name) in listOf(
-                    BalanceNotificationSounds.PAYMENT to "Платежи · двойной сигнал",
-                    BalanceNotificationSounds.EVENT to "События · два импульса",
-                    BalanceNotificationSounds.UPDATE to "Обновления · короткий сигнал"
-                )) {
-                    vibrationCategories.addView(SwitchCompat(this).apply {
-                        text = name
-                        textSize = 13f
-                        setTextColor(ink)
-                        isChecked = BalanceNotificationSounds.vibrationFor(
-                            this@MainActivity, category)
-                        setOnCheckedChangeListener { _, selected ->
-                            BalanceNotificationSounds.setVibrationFor(
-                                this@MainActivity, category, selected)
-                        }
-                    })
-                }
-            }
-            vibrationToggle.setOnCheckedChangeListener { _, enabled ->
-                BalanceNotificationSounds.setVibrationEnabled(this, enabled)
-                renderVibrationCategories()
-            }
-            renderVibrationCategories()
-            body.addView(vibrationOptions)
-            body.addView(verticalGap(8))
-            body.addView(secondaryButton("Проверить вибрацию платежа") {
-                sendVibrationTest()
-            })
-            body.addView(verticalGap(7))
-            body.addView(textLine(
-                "В беззвучном режиме и режиме «Не беспокоить» действуют правила Android. " +
-                    "Если вибрации нет, проверьте системный канал уведомлений.",
-                12f, muted))
-            body.addView(verticalGap(8))
-            body.addView(secondaryButton("Открыть уведомления Android") {
-                val appDetails = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                    ("package:" + packageName).toUri())
-                val destination = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-                        .putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
-                } else appDetails
-                try {
-                    startActivity(destination)
-                } catch (_: Exception) {
-                    try {
-                        startActivity(appDetails)
-                    } catch (_: Exception) {
-                        Toast.makeText(this, "Откройте настройки BalanceHub в Android",
-                            Toast.LENGTH_LONG).show()
-                    }
-                }
-            })
-            settings.addView(body)
-        }
-        contentContainer.addView(settings)
     }
 
     private fun showSoundChooser(category: String, title: String) {
@@ -3230,15 +3239,17 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderMobileSettings() {
-        contentContainer.addView(secondaryButton("‹  Все настройки") {
-            mobileSettingsOpen = false
-            renderTab()
-        })
-        contentContainer.addView(verticalGap(16))
-        contentContainer.addView(textLine("Мобильная связь", 23f, ink, true))
-        contentContainer.addView(verticalGap(5))
-        contentContainer.addView(textLine("Отдельные настройки для каждой SIM", 14f, muted))
-        contentContainer.addView(verticalGap(14))
+        if (settingsStack.lastOrNull() == "mobile") {
+            settingsHeader("Мобильная связь", "Настройки каждой SIM-карты")
+        } else {
+            contentContainer.addView(secondaryButton("‹  Все настройки") {
+                mobileSettingsOpen = false
+                renderTab()
+            })
+            contentContainer.addView(verticalGap(12))
+            contentContainer.addView(textLine("Мобильная связь", 23f, ink, true))
+            contentContainer.addView(verticalGap(12))
+        }
         val sims = connectedSims()
         val sim = currentSim()
         if (sim == null) {
@@ -3251,7 +3262,7 @@ class MainActivity : AppCompatActivity() {
         val balance = MobileBalanceService.cached(this, sim)
 
         if (sims.size > 1) {
-            val simsCard = card()
+            val simsCard = compactSettingsCard()
             simsCard.addView(textLine("Выбранная SIM: " + sim.label, 17f, ink, true))
             simsCard.addView(verticalGap(9))
             simsCard.addView(secondaryButton("Выбрать другую SIM") {
@@ -3269,8 +3280,8 @@ class MainActivity : AppCompatActivity() {
             contentContainer.addView(simsCard)
             contentContainer.addView(verticalGap(12))
         }
-        val operatorCard = card()
-        operatorCard.addView(textLine("Оператор и баланс", 18f, ink, true))
+        val operatorCard = compactSettingsCard()
+        operatorCard.addView(textLine("Оператор и баланс", 16f, ink, true))
         operatorCard.addView(verticalGap(8))
         operatorCard.addView(textLine("Оператор: " + name, 15f, ink, true))
         operatorCard.addView(textLine("SIM: " + sim.label, 13f, muted))
@@ -3371,8 +3382,8 @@ class MainActivity : AppCompatActivity() {
         contentContainer.addView(operatorCard)
         contentContainer.addView(verticalGap(12))
 
-        val billing = card()
-        billing.addView(textLine("Абонентская плата и дата", 18f, ink, true))
+        val billing = compactSettingsCard()
+        billing.addView(textLine("Абонентская плата и дата", 16f, ink, true))
         billing.addView(verticalGap(7))
         billing.addView(textLine(
             "Стоимость тарифа вводится вручную и не берётся из баланса.",
@@ -3469,8 +3480,8 @@ class MainActivity : AppCompatActivity() {
         contentContainer.addView(billing)
         contentContainer.addView(verticalGap(14))
 
-        val refresh = card()
-        refresh.addView(textLine("Автоматическая проверка", 18f, ink, true))
+        val refresh = compactSettingsCard()
+        refresh.addView(textLine("Автоматическая проверка", 16f, ink, true))
         refresh.addView(verticalGap(8))
         val refreshRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -4916,33 +4927,57 @@ class MainActivity : AppCompatActivity() {
         renderTab()
     }
 
+
     private fun sendVibrationTest() {
+        val started = BalanceVibration.preview(this, BalanceNotificationSounds.PAYMENT)
+        Toast.makeText(this, if (started)
+            "Прямой тест мотора запущен: два импульса"
+            else "Вибромотор недоступен или Android отклонил запуск",
+            Toast.LENGTH_LONG).show()
+    }
+
+    private fun sendNotificationVibrationTest(category: String) {
         if (Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
                 PackageManager.PERMISSION_GRANTED) {
             requestNotificationPermissionIfNeeded()
             return
         }
-        if (!BalanceNotificationSounds.vibrationFor(this,
-                BalanceNotificationSounds.PAYMENT)) {
-            Toast.makeText(this, "Включите вибрацию платежей в настройках",
+        if (!BalanceNotificationSounds.vibrationFor(this, category)) {
+            Toast.makeText(this, "Включите вибрацию этой категории",
                 Toast.LENGTH_LONG).show()
             return
         }
-        val category = BalanceNotificationSounds.PAYMENT
-        val channel = BalanceNotificationSounds.ensureChannel(this, category)
-        val builder = androidx.core.app.NotificationCompat.Builder(this, channel)
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (!androidx.core.app.NotificationManagerCompat.from(this)
+                .areNotificationsEnabled()) {
+            Toast.makeText(this, "Разрешите уведомления в Android",
+                Toast.LENGTH_LONG).show()
+            openAndroidNotificationSettings()
+            return
+        }
+        val id = BalanceNotificationSounds.ensureChannel(this, category)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = manager.getNotificationChannel(id)
+            if (channel == null || channel.importance == NotificationManager.IMPORTANCE_NONE ||
+                !channel.shouldVibrate()) {
+                Toast.makeText(this, "Android отключил вибрацию канала",
+                    Toast.LENGTH_LONG).show()
+                openAndroidNotificationSettings(category)
+                return
+            }
+        }
+        val builder = androidx.core.app.NotificationCompat.Builder(this, id)
             .setSmallIcon(applicationInfo.icon)
             .setContentTitle("Проверка вибрации BalanceHub")
-            .setContentText("Платёж: двойной вибросигнал")
+            .setContentText("Тип: " + notificationTitle(category))
             .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
         BalanceNotificationSounds.configureLegacySound(this, category, builder)
         try {
             androidx.core.app.NotificationManagerCompat.from(this)
-                .notify(28510, builder.build())
-            Toast.makeText(this,
-                "Тест отправлен Android. Проверьте вибрацию и системные настройки.",
+                .notify(SystemClock.elapsedRealtime().toInt(), builder.build())
+            Toast.makeText(this, "Уведомление отправлено Android",
                 Toast.LENGTH_LONG).show()
         } catch (_: SecurityException) {
             Toast.makeText(this, "Android запретил уведомления",

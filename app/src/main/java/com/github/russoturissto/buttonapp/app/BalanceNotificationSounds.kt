@@ -9,6 +9,7 @@ import android.media.MediaPlayer
 import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
+import android.os.VibrationEffect
 
 /**
  * 15 original, bundled sounds. All preferences are local to the device.
@@ -123,7 +124,7 @@ internal object BalanceNotificationSounds {
 
     fun channelId(context: Context, category: String): String {
         val key = selected(context, category)
-        return category + "_tone_" + key + "_v4_" + volume(context, category) +
+        return category + "_tone_" + key + "_v5_" + volume(context, category) +
             "_vib_" + (if (vibrationFor(context, category)) "on" else "off")
     }
 
@@ -147,7 +148,10 @@ internal object BalanceNotificationSounds {
                 }
                 if (vibrationFor(context, category)) {
                     channel.enableVibration(true)
-                    channel.vibrationPattern = vibrationPattern(category)
+                    if (Build.VERSION.SDK_INT >= 35) {
+                        channel.setVibrationEffect(VibrationEffect.createWaveform(
+                            vibrationPattern(category), -1))
+                    } else channel.vibrationPattern = vibrationPattern(category)
                 } else channel.enableVibration(false)
                 manager.createNotificationChannel(channel)
             }
