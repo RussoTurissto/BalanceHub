@@ -2,7 +2,7 @@ package com.github.russoturissto.buttonapp.app
 
 internal data class ReleaseNote(val iconId: String, val title: String, val description: String)
 
-/** Draft for the owner-approved BalanceHub 1.0.0 release. */
+/** Draft for the owner-approved BalanceHub 1.1.0 release. */
 internal object AppReleaseNotes {
     val current: List<ReleaseNote> = listOf(
         ReleaseNote("home", "Главная: платежи и события",
