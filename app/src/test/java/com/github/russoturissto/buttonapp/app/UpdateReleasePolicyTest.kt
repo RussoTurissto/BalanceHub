@@ -26,6 +26,22 @@ class UpdateReleasePolicyTest {
         assertNotNull(UpdateReleasePolicy.fromCache(
             UpdateReleasePolicy.toCache(update), 137L))
     }
+    @Test fun acceptsApprovedSemanticVersionsWithIndependentAndroidCode() {
+        val approved = release("v1.0.0").put("body",
+            "Большое обновление\\n<!-- BalanceHub-VersionCode: 210 -->")
+        val result = UpdateReleasePolicy.parse(approved, 200L)
+        assertNotNull(result)
+        assertEquals("v1.0.0", result!!.tag)
+        assertEquals(210L, result.code)
+        assertEquals("Большое обновление", result.notes)
+        assertEquals(210L, UpdateReleasePolicy.fromCache(
+            UpdateReleasePolicy.toCache(result), 200L)!!.code)
+        assertNotNull(UpdateReleasePolicy.parse(release("v1.1.0").put("body",
+            "<!-- BalanceHub-VersionCode: 211 -->"), 210L))
+        assertNull(UpdateReleasePolicy.parse(release("v1.0.0"), 200L))
+        assertNull(UpdateReleasePolicy.parse(release("v1.1.0"), 200L))
+        assertNull(UpdateReleasePolicy.parse(approved, 210L))
+    }
     @Test fun rejectsOldDraftAndBadVersions() {
         assertNull(UpdateReleasePolicy.parse(release(), 140L))
         assertNull(UpdateReleasePolicy.parse(release("v1.0.133"), 137L))
