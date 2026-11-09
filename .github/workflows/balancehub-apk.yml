@@ -94,7 +94,7 @@ jobs:
             echo "Build attempt $attempt of 4"
             if ./gradlew --no-daemon --console=plain :app:assembleRelease \
               -PAPP_VERSION_CODE=${{ github.run_number }} \
-              -PAPP_VERSION_NAME=1.0.0 2>&1 | tee "$RUNNER_TEMP/balancehub-build.log"; then
+              -PAPP_VERSION_NAME=1.1.0 2>&1 | tee "$RUNNER_TEMP/balancehub-build.log"; then
               exit 0
             fi
             if grep -Eq "Compilation error|Unresolved reference|Too many arguments|e: file://" "$RUNNER_TEMP/balancehub-build.log"; then
@@ -129,6 +129,8 @@ jobs:
           grep -q "Verified using v2 scheme (APK Signature Scheme v2): true" "$RUNNER_TEMP/balancehub-signature.txt"
           "$BUILD_TOOLS/aapt" dump badging "$APK" > "$RUNNER_TEMP/balancehub-package-info.txt"
           grep -q "^package: name='com.github.russoturissto.buttonapp.app'" "$RUNNER_TEMP/balancehub-package-info.txt"
+          grep -q "versionCode='${{ github.run_number }}'" "$RUNNER_TEMP/balancehub-package-info.txt"
+          grep -q "versionName='1.1.0'" "$RUNNER_TEMP/balancehub-package-info.txt"
           APK_SHA="$(sed -n 's/^V2 Signer: certificate SHA-256 digest: //p' "$RUNNER_TEMP/balancehub-signature.txt" | tr -d '[:space:]:' | tr '[:upper:]' '[:lower:]')"
           keytool -list -v -keystore "$RUNNER_TEMP/balancehub-upload.jks" -alias "$KEY_ALIAS" -storepass "$KEYSTORE_PASSWORD" > "$RUNNER_TEMP/balancehub-keystore-info.txt"
           KEY_SHA="$(sed -n 's/.*SHA256: //p' "$RUNNER_TEMP/balancehub-keystore-info.txt" | tr -d '[:space:]:' | tr '[:upper:]' '[:lower:]')"
