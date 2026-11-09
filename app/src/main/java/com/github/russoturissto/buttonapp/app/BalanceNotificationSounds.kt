@@ -67,7 +67,7 @@ internal object BalanceNotificationSounds {
     private fun soundUri(context: Context, key: String): Uri? {
         if (key == "silent") return null
         if (key == "system") return RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-        return Uri.parse("android.resource://" + context.packageName + "/raw/bh_sound_" + key)
+        return Uri.parse("content://" + context.packageName + ".sounds/" + key)
     }
 
     fun legacyChannel(category: String): String = when (category) {
