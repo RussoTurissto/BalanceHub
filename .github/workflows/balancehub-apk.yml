@@ -17,6 +17,12 @@ permissions:
   contents: write
   issues: write
 
+# Intermediate pushes in a large approved feature update should not use
+# runner time or produce noisy notifications from obsolete APK attempts.
+concurrency:
+  group: balancehub-apk-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
