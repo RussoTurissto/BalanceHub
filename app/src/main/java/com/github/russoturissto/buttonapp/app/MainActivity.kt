@@ -2152,7 +2152,7 @@ class MainActivity : AppCompatActivity() {
         settings.addView(LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            addView(iconTile("music-2", 37),
+            addView(iconTile("music", 37),
                 LinearLayout.LayoutParams(dp(37), dp(37)))
             addView(View(this@MainActivity), LinearLayout.LayoutParams(dp(10), 1))
             addView(textLine("Звуки уведомлений", 18f, ink, true))
@@ -2182,7 +2182,7 @@ class MainActivity : AppCompatActivity() {
                         BalanceNotificationSounds.title(this@MainActivity, category),
                         12f, muted))
                 }, LinearLayout.LayoutParams(0, -2, 1f))
-                addView(iconTile("chevron-right", 26),
+                addView(iconTile("chevron-down", 26),
                     LinearLayout.LayoutParams(dp(26), dp(26)))
                 setOnClickListener { showSoundChooser(category, title) }
             }
