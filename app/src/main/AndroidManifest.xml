@@ -17,7 +17,9 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme"
         tools:ignore="AllowBackup">
-        <activity android:name=".MainActivity" android:exported="true">
+        <activity android:name=".MainActivity" android:exported="true"
+            android:screenOrientation="portrait"
+            tools:ignore="LockedOrientationActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -33,6 +35,8 @@
             </intent-filter>
         </service>
         <receiver android:name=".PaymentReminderReceiver" android:enabled="true" android:exported="false" />
+        <receiver android:name=".EventReminderReceiver" android:enabled="true" android:exported="false" />
+        <receiver android:name=".EventDueReceiver" android:enabled="true" android:exported="false" />
         <receiver android:name=".PaymentArchiveReceiver" android:enabled="true" android:exported="false" />
         <receiver android:name=".PaymentBootReceiver" android:enabled="true" android:exported="false">
             <intent-filter>

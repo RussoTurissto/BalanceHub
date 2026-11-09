@@ -14,6 +14,7 @@ class PaymentBootReceiver : BroadcastReceiver() {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
         // Process one-off payments that expired while the phone was turned off.
         PaymentArchiveStore.archiveDue(context)
+        EventScheduler.restoreAfterBoot(context)
         val prefs = context.getSharedPreferences("balancehub_data", Context.MODE_PRIVATE)
         val records = try {
             JSONArray(prefs.getString("payment_reminders", "[]") ?: "[]")
