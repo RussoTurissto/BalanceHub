@@ -88,7 +88,7 @@ jobs:
             echo "Build attempt $attempt of 4"
             if ./gradlew --no-daemon --console=plain :app:assembleRelease \
               -PAPP_VERSION_CODE=${{ github.run_number }} \
-              -PAPP_VERSION_NAME=1.0.${{ github.run_number }} 2>&1 | tee "$RUNNER_TEMP/balancehub-build.log"; then
+              -PAPP_VERSION_NAME=1.0.0 2>&1 | tee "$RUNNER_TEMP/balancehub-build.log"; then
               exit 0
             fi
             if grep -Eq "Compilation error|Unresolved reference|Too many arguments|e: file://" "$RUNNER_TEMP/balancehub-build.log"; then
@@ -144,27 +144,8 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Publish APK as a directly downloadable GitHub Release
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          APK="app/build/outputs/apk/release/BalanceHub.apk"
-          TAG="v1.0.${GITHUB_RUN_NUMBER}"
-          test -s "$APK"
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$TAG" "$APK" --repo "$GITHUB_REPOSITORY" --clobber
-            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file ".github/balancehub-release-notes.md" --latest
-          else
-            gh release create "$TAG" "$APK" \
-              --repo "$GITHUB_REPOSITORY" \
-              --target "$GITHUB_SHA" \
-              --title "BalanceHub v1.0.${GITHUB_RUN_NUMBER}" \
-              --notes-file ".github/balancehub-release-notes.md" \
-              --latest
-          fi
-          echo "Direct APK: https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/BalanceHub.apk"
+      # Release publication is deliberately separate from CI. The owner must
+      # approve the final changelog and version before any GitHub Release.
 
       - name: Notify build result in GitHub issue
         if: ${{ always() }}
@@ -181,7 +162,7 @@ jobs:
               `**${resultText}**`,
               `Запуск: ${runUrl}`,
               `Коммит: \`${context.sha.slice(0, 12)}\``,
-              status === 'success' ? `Скачать APK напрямую: https://github.com/${context.repo.owner}/${context.repo.repo}/releases/latest/download/BalanceHub.apk` : 'Диагностика: откройте журнал неуспешного шага сборки.',
+              status === 'success' ? `APK для проверки находится в артефактах запуска GitHub Actions. Релиз не опубликован.` : 'Диагностика: откройте журнал неуспешного шага сборки.',
               'Автоматический журнал: этот комментарий создаёт GitHub Actions сразу после завершения запуска.'
             ].join('\n\n');
             await github.rest.issues.createComment({
