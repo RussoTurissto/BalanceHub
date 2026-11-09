@@ -1964,15 +1964,21 @@ class MainActivity : AppCompatActivity() {
         contentContainer.addView(info)
         contentContainer.addView(verticalGap(14))
         val help = card()
-        help.addView(textLine("Помощь", 18f, ink, true))
-        help.addView(verticalGap(6))
-        help.addView(textLine(
-            "Руководства по настройке напоминаний и банковских Push",
-            13f, muted
-        ))
-        help.addView(verticalGap(10))
-        help.addView(secondaryButton("Пройти обучение повторно") {
-            restartTutorial()
+        help.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(iconTile("settings", 37), LinearLayout.LayoutParams(dp(37), dp(37)))
+            addView(View(this@MainActivity), LinearLayout.LayoutParams(dp(10), 1))
+            addView(LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(textLine("Помощь", 18f, ink, true))
+                addView(verticalGap(4))
+                addView(textLine("Инструкции, ответы и диагностика", 12f, muted))
+            }, LinearLayout.LayoutParams(0, -2, 1f))
+        })
+        help.addView(verticalGap(12))
+        help.addView(secondaryButton("Открыть справку") {
+            showHelpCenter()
         })
         contentContainer.addView(help)
     }
@@ -2242,6 +2248,203 @@ class MainActivity : AppCompatActivity() {
         dialog.setOnDismissListener { BalanceNotificationSounds.stopPreview() }
         dialog.setOnShowListener {
             dialog.window?.setBackgroundDrawable(dialogGradient())
+        }
+        dialog.show()
+    }
+
+    /**
+     * An accessible local help center. All topics remain on this screen,
+     * and the bank explanation is honest about the Push-only data source.
+     */
+    private fun showHelpCenter() {
+        val sections = listOf(
+            HelpSection("Как узнаём баланс Сбербанка", "Источник данных и ограничения",
+                "credit-card", listOf(
+                    "BalanceHub не подключается к банковскому счёту и не запрашивает " +
+                        "логин, пароль, SMS-коды или банковский API.",
+                    "Если СберБанк Онлайн прислал Push об операции и указал остаток " +
+                        "в рублях, Android может передать его BalanceHub через " +
+                        "разрешённый доступ к уведомлениям.",
+                    "BalanceHub локально ищет именно обозначенный остаток, а не " +
+                        "сумму покупки. Если значения неоднозначны, баланс не обновляется.",
+                    "Показывается последний подтверждённый Push-баланс, время его " +
+                        "получения и последние четыре цифры карты или счёта, если они есть. " +
+                        "Это не онлайн-выписка и не гарантия текущего остатка."
+                )),
+            HelpSection("Подключение Сбербанка", "Пошаговая настройка доступа",
+                "settings", listOf(
+                    "1. Установите СберБанк Онлайн и включите банковские Push " +
+                        "об операциях с информацией об остатке.",
+                    "2. Включите получение банковских Push в BalanceHub.",
+                    "3. Разрешите BalanceHub доступ к уведомлениям в настройках Android. " +
+                        "Это широкое системное разрешение ко всем уведомлениям, хотя " +
+                        "BalanceHub обрабатывает для баланса только Push Сбербанка.",
+                    "4. Дождитесь реального Push с остатком: приложение не запрашивает " +
+                        "банковские данные самостоятельно."
+                )),
+            HelpSection("Почему баланс не обновляется?", "Причины и способы проверки",
+                "alarm-clock", listOf(
+                    "Проверьте, включены ли банковские Push и доступ BalanceHub к уведомлениям.",
+                    "Уведомление может содержать только сумму покупки без остатка. " +
+                        "BalanceHub не будет выдавать расчётный остаток за настоящий.",
+                    "Android может скрывать чувствительный банковский текст, особенно " +
+                        "на новых версиях и отдельных прошивках. Скрытые данные " +
+                        "приложение не восстанавливает.",
+                    "Если баланс не меняется, дождитесь другого реального Push " +
+                        "или проверьте диагностику в инженерном меню."
+                )),
+            HelpSection("Платежи и события", "Планирование, повторения и архив",
+                "calendar-days", listOf(
+                    "Добавьте дату и выберите, за сколько времени напоминать. " +
+                        "Предстоящие платежи и события раскрываются нажатием на заголовок.",
+                    "Повторяющиеся записи продолжают расписание автоматически; " +
+                        "завершённые одноразовые записи попадают в архив.",
+                    "Для точного срабатывания разрешите точные напоминания Android. " +
+                        "Режим энергосбережения иногда откладывает уведомления."
+                )),
+            HelpSection("Звуки и громкость", "Настройки уведомлений BalanceHub",
+                "music", listOf(
+                    "Откройте Настройки → Звуки уведомлений. Выберите мелодии " +
+                        "для платежей, событий и обновлений.",
+                    "Общая или раздельная громкость BalanceHub уменьшает уровень " +
+                        "фирменных сигналов относительно системного. Приложение " +
+                        "не меняет громкость телефона.",
+                    "Если звук отключён системой, включён режим «Не беспокоить» " +
+                        "или запрещён канал уведомлений, настройки BalanceHub " +
+                        "не обходят эти ограничения."
+                )),
+            HelpSection("Обновления приложения", "Скачивание и сохранность данных",
+                "download", listOf(
+                    "Новые одобренные версии проверяются на GitHub. Фоновая проверка " +
+                        "обычно выполняется примерно раз в шесть часов.",
+                    "При обнаружении обновления откройте сведения о версии, " +
+                        "загрузите APK и подтвердите установку в Android.",
+                    "Не удаляйте BalanceHub перед обновлением: подписанный тем же " +
+                        "ключом APK с более высоким номером версии устанавливается " +
+                        "поверх приложения с сохранением локальных данных."
+                )),
+            HelpSection("Конфиденциальность", "Как защищаются банковские данные",
+                "archive", listOf(
+                    "Обработка банковского Push происходит на самом телефоне. " +
+                        "Полный текст уведомления и суммы отдельных покупок не сохраняются.",
+                    "BalanceHub сохраняет подтверждённый остаток, время и " +
+                        "необязательные последние четыре цифры карты или счёта. " +
+                        "В диагностике хранятся технические признаки обработки.",
+                    "Приложение не отправляет содержимое банковских Push на сервер. " +
+                        "Отключение получения Push очищает сохранённые банковские остатки.",
+                    "Не передавайте посторонним доступ к уведомлениям, ADB " +
+                        "или содержимое банковских сообщений."
+                ))
+        )
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(12), dp(18), dp(18))
+        }
+        val scroll = android.widget.ScrollView(this).apply { addView(content) }
+        val dialog = themedDialogBuilder().setTitle("Помощь BalanceHub")
+            .setView(scroll).setNegativeButton("Закрыть", null).create()
+        lateinit var showIndex: () -> Unit
+        fun showTopic(section: HelpSection) {
+            content.removeAllViews()
+            content.addView(secondaryButton("‹  Все разделы") { showIndex() })
+            content.addView(verticalGap(15))
+            content.addView(LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                addView(iconTile(section.icon, 38),
+                    LinearLayout.LayoutParams(dp(38), dp(38)))
+                addView(View(this@MainActivity), LinearLayout.LayoutParams(dp(10), 1))
+                addView(textLine(section.title, 18f, ink, true),
+                    LinearLayout.LayoutParams(0, -2, 1f))
+            })
+            content.addView(verticalGap(7))
+            content.addView(textLine(section.subtitle, 13f, muted))
+            for (paragraph in section.paragraphs) {
+                content.addView(verticalGap(13))
+                content.addView(textLine(paragraph, 14f, ink))
+            }
+            if (section.title == "Подключение Сбербанка") {
+                content.addView(verticalGap(17))
+                content.addView(primaryButton(
+                    if (SberBalanceStore.isEnabled(this)) "Открыть разрешения Android"
+                    else "Подключить банковские Push"
+                ) {
+                    if (SberBalanceStore.isEnabled(this)) {
+                        openSberListenerSettings()
+                    } else {
+                        themedDialogBuilder()
+                            .setTitle("Доступ к уведомлениям")
+                            .setMessage("Android предоставит BalanceHub широкий доступ " +
+                                "к уведомлениям телефона. Для банковского баланса " +
+                                "обрабатываются только уведомления Сбербанка. " +
+                                "Продолжить?")
+                            .setNegativeButton("Отмена", null)
+                            .setPositiveButton("Продолжить") { _, _ ->
+                                SberBalanceStore.setEnabled(this, true)
+                                openSberListenerSettings()
+                            }.show()
+                    }
+                })
+            }
+            if (section.title == "Почему баланс не обновляется?") {
+                content.addView(verticalGap(15))
+                val status = when {
+                    !SberBalanceStore.isEnabled(this) ->
+                        "Получение банковских Push отключено."
+                    !SberBalanceStore.isAccessGranted(this) ->
+                        "Нет разрешения Android на чтение уведомлений."
+                    SberBalanceStore.latest(this) == null ->
+                        "Разрешения есть, ожидаем Push с подтверждённым остатком."
+                    else -> "Последний подтверждённый баланс получен: " +
+                        DateFormat.getDateTimeInstance(DateFormat.SHORT,
+                            DateFormat.SHORT).format(Date(
+                            SberBalanceStore.latest(this)!!.observedAt))
+                }
+                content.addView(textLine("Сейчас: " + status, 13f, accent, true))
+            }
+            scroll.post { scroll.scrollTo(0, 0) }
+        }
+        showIndex = {
+            content.removeAllViews()
+            content.addView(textLine("Чем помочь?", 21f, ink, true))
+            content.addView(verticalGap(7))
+            content.addView(textLine(
+                "Выберите тему. Инструкции доступны без интернета.",
+                13f, muted))
+            for (section in sections) {
+                content.addView(verticalGap(11))
+                content.addView(LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(11), dp(11), dp(11), dp(11))
+                    background = rounded(softAccent, 12)
+                    isClickable = true
+                    isFocusable = true
+                    addView(iconTile(section.icon, 34),
+                        LinearLayout.LayoutParams(dp(34), dp(34)))
+                    addView(View(this@MainActivity),
+                        LinearLayout.LayoutParams(dp(10), 1))
+                    addView(LinearLayout(this@MainActivity).apply {
+                        orientation = LinearLayout.VERTICAL
+                        addView(textLine(section.title, 14f, ink, true))
+                        addView(verticalGap(3))
+                        addView(textLine(section.subtitle, 12f, muted))
+                    }, LinearLayout.LayoutParams(0, -2, 1f))
+                    addView(textLine("›", 23f, accent, true))
+                    setOnClickListener { showTopic(section) }
+                })
+            }
+            content.addView(verticalGap(15))
+            content.addView(secondaryButton("Пройти обучение повторно") {
+                dialog.dismiss()
+                restartTutorial()
+            })
+            scroll.post { scroll.scrollTo(0, 0) }
+        }
+        showIndex()
+        dialog.setOnShowListener {
+            dialog.window?.setBackgroundDrawable(dialogGradient())
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.setTextColor(accent)
         }
         dialog.show()
     }
@@ -4377,4 +4580,11 @@ private data class PaymentReminder(
     val id: String, val title: String, val amount: String, val currency: String,
     val dueAt: Long, val leadDays: Int, val recurrence: String = "once",
     val iconId: String? = null
+)
+
+private data class HelpSection(
+    val title: String,
+    val subtitle: String,
+    val icon: String,
+    val paragraphs: List<String>
 )
