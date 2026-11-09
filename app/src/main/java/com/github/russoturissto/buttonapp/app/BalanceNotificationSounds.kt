@@ -2,6 +2,7 @@ package com.github.russoturissto.buttonapp.app
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.annotation.SuppressLint
 import android.content.Context
 import android.media.AudioAttributes
 import android.media.MediaPlayer
@@ -14,6 +15,7 @@ import android.os.Build
  * Android 8+ owns channel sounds after creation, so every selected built-in
  * tone has a stable, distinct channel ID instead of editing an existing one.
  */
+@SuppressLint("UseKtx")
 internal object BalanceNotificationSounds {
     const val PAYMENT = "payment_reminders"
     const val EVENT = "event_reminders"
