@@ -11,8 +11,7 @@ internal object SettingsNavigationPolicy {
         "update_sound" to "notifications"
     )
     fun canOpen(current: String, dest: String): Boolean =
-        parents[dest] == current ||
-            (dest == "vibration" && (current == "notifications" || current == "help"))
+        parents[dest] == current
     fun sanitize(path: List<String>): List<String> {
         val result = mutableListOf<String>()
         for (page in path) {

@@ -2211,7 +2211,6 @@ class MainActivity : AppCompatActivity() {
             "banks" -> renderBanksSettings()
             "notifications" -> renderNotificationsMenu()
             "payment", "event", "update_sound" -> renderNotificationCategory()
-            "vibration" -> renderVibrationDiagnostics()
             "updates" -> renderUpdateSettings()
             "help" -> renderHelpSettings()
             "about" -> renderAboutSettings()
@@ -2358,8 +2357,6 @@ class MainActivity : AppCompatActivity() {
             }
         ))
         settingsGroup(settingsPanel(
-            settingsRow("settings", "Проверка вибрации",
-                "Мотор и системные уведомления") { openSettingsPage("vibration") },
             settingsRow("settings", "Уведомления Android",
                 "Разрешения и системные каналы") {
                 openAndroidNotificationSettings()
@@ -2426,61 +2423,11 @@ class MainActivity : AppCompatActivity() {
             }
         ))
         settingsGroup(settingsPanel(
-            settingsRow("settings", "Проверить уведомление",
-                "Звук и вибрация Android") { sendNotificationVibrationTest(category) },
             settingsRow("settings", "Системные параметры",
                 "Канал уведомлений " + title.lowercase()) {
                 openAndroidNotificationSettings(category)
             }
         ))
-    }
-    private fun renderVibrationDiagnostics() {
-        settingsHeader("Проверка вибрации", "Мотор и системные каналы")
-        settingsGroup(settingsPanel(
-            settingsRow("settings", "Проверить вибромотор",
-                if (BalanceVibration.available(this))
-                    "Обнаружен · прямой двойной сигнал" else "Не обнаружен системой") {
-                sendVibrationTest()
-            },
-            settingsRow("credit-card", "Тест платежа", "Системное уведомление") {
-                sendNotificationVibrationTest(BalanceNotificationSounds.PAYMENT)
-            },
-            settingsRow("calendar-days", "Тест события", "Системное уведомление") {
-                sendNotificationVibrationTest(BalanceNotificationSounds.EVENT)
-            },
-            settingsRow("download", "Тест обновления", "Системное уведомление") {
-                sendNotificationVibrationTest(BalanceNotificationSounds.UPDATE)
-            }
-        ))
-        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        settingsGroup(settingsPanel(*listOf(
-            BalanceNotificationSounds.PAYMENT, BalanceNotificationSounds.EVENT,
-            BalanceNotificationSounds.UPDATE
-        ).map { category ->
-            val id = BalanceNotificationSounds.ensureChannel(this, category)
-            val channel = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
-                manager.getNotificationChannel(id) else null
-            val status = when {
-                !androidx.core.app.NotificationManagerCompat.from(this)
-                    .areNotificationsEnabled() -> "Уведомления выключены в Android"
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && channel == null ->
-                    "Канал не найден"
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
-                    channel?.importance == NotificationManager.IMPORTANCE_NONE ->
-                    "Канал выключен в Android"
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
-                    channel?.shouldVibrate() == false -> "Вибрация канала выключена"
-                !BalanceNotificationSounds.vibrationFor(this, category) ->
-                    "Выключена в BalanceHub"
-                else -> "Вибрация разрешена каналом"
-            }
-            settingsRow("settings", notificationTitle(category), status) {
-                openAndroidNotificationSettings(category)
-            }
-        }.toTypedArray()))
-        contentContainer.addView(textLine(
-            "Режим «Не беспокоить» и настройки устройства имеют приоритет. " +
-                "Тест мотора не гарантирует системную вибрацию.", 12f, muted))
     }
     private fun renderUpdateSettings() {
         settingsHeader("Обновления", "Версия и проверка новых сборок")
@@ -2511,8 +2458,6 @@ class MainActivity : AppCompatActivity() {
         settingsGroup(settingsPanel(
             settingsRow("settings", "Справка",
                 "Балансы, платежи, банки и обновления") { showHelpCenter() },
-            settingsRow("settings", "Диагностика вибрации",
-                "Вибромотор и уведомления Android") { openSettingsPage("vibration") },
             settingsRow("settings", "Уведомления Android",
                 "Разрешения и системные каналы") {
                 openAndroidNotificationSettings()
@@ -2578,10 +2523,35 @@ class MainActivity : AppCompatActivity() {
         notifications.addView(textLine("Диагностика уведомлений", 17f, ink, true))
         notifications.addView(verticalGap(7))
         notifications.addView(textLine(
-            "Проверка разрешений и отправка тестового напоминания", 13f, muted))
+            "Тесты звука, вибромотора и настоящих системных уведомлений", 13f, muted))
         notifications.addView(verticalGap(11))
-        notifications.addView(primaryButton("Проверить уведомление") {
-            sendTestNotification()
+        notifications.addView(primaryButton("Проверить звук") {
+            selectDiagnosticCategory { category ->
+                Toast.makeText(this,
+                    BalanceNotificationSounds.previewChannel(this, category),
+                    Toast.LENGTH_LONG).show()
+            }
+        })
+        notifications.addView(verticalGap(9))
+        notifications.addView(secondaryButton("Проверить вибромотор") {
+            selectDiagnosticCategory { category -> sendVibrationTest(category) }
+        })
+        notifications.addView(verticalGap(9))
+        notifications.addView(secondaryButton("Проверить уведомление") {
+            selectDiagnosticCategory { category -> sendNotificationTest(category) }
+        })
+        notifications.addView(verticalGap(9))
+        notifications.addView(secondaryButton("Состояние звука и вибрации Android") {
+            selectDiagnosticCategory { category ->
+                themedDialogBuilder()
+                    .setTitle("Диагностика: " + notificationTitle(category))
+                    .setMessage(NotificationSignalAudit.report(this, category)
+                        .joinToString("\n"))
+                    .setNegativeButton("Закрыть", null)
+                    .setPositiveButton("Настройки канала") { _, _ ->
+                        openAndroidNotificationSettings(category)
+                    }.show()
+            }
         })
         notifications.addView(verticalGap(9))
         notifications.addView(secondaryButton("Тест платежа через 2 минуты") {
@@ -4952,79 +4922,66 @@ class MainActivity : AppCompatActivity() {
     }
 
 
-    private fun sendVibrationTest() {
-        val started = BalanceVibration.preview(this, BalanceNotificationSounds.PAYMENT)
+    private fun selectDiagnosticCategory(action: (String) -> Unit) {
+        val choices = listOf(BalanceNotificationSounds.PAYMENT,
+            BalanceNotificationSounds.EVENT, BalanceNotificationSounds.UPDATE)
+        showThemedChoices("Тип уведомления",
+            choices.map { notificationTitle(it) }, -1) { index ->
+            action(choices[index])
+        }
+    }
+
+    private fun sendVibrationTest(category: String) {
+        val started = BalanceVibration.preview(this, category)
         Toast.makeText(this, if (started)
-            "Прямой тест мотора запущен: два импульса"
+            "Команда вибромотору отправлена. Проверьте отклик устройства."
             else "Вибромотор недоступен или Android отклонил запуск",
             Toast.LENGTH_LONG).show()
     }
 
-    private fun sendNotificationVibrationTest(category: String) {
+    private fun sendNotificationTest(category: String) {
         if (Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
                 PackageManager.PERMISSION_GRANTED) {
             requestNotificationPermissionIfNeeded()
             return
         }
-        if (!BalanceNotificationSounds.vibrationFor(this, category)) {
-            Toast.makeText(this, "Включите вибрацию этой категории",
-                Toast.LENGTH_LONG).show()
-            return
-        }
-        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (!androidx.core.app.NotificationManagerCompat.from(this)
                 .areNotificationsEnabled()) {
-            Toast.makeText(this, "Разрешите уведомления в Android",
+            Toast.makeText(this, "Уведомления BalanceHub запрещены Android",
                 Toast.LENGTH_LONG).show()
             openAndroidNotificationSettings()
             return
         }
-        val id = BalanceNotificationSounds.ensureChannel(this, category)
+        val channelId = BalanceNotificationSounds.ensureChannel(this, category)
+        val system = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = manager.getNotificationChannel(id)
-            if (channel == null || channel.importance == NotificationManager.IMPORTANCE_NONE ||
-                !channel.shouldVibrate()) {
-                Toast.makeText(this, "Android отключил вибрацию канала",
+            val channel = system.getNotificationChannel(channelId)
+            if (channel == null || channel.importance == NotificationManager.IMPORTANCE_NONE) {
+                Toast.makeText(this, "Этот канал отключён в настройках Android",
                     Toast.LENGTH_LONG).show()
                 openAndroidNotificationSettings(category)
                 return
             }
         }
-        val builder = androidx.core.app.NotificationCompat.Builder(this, id)
+        val builder = androidx.core.app.NotificationCompat.Builder(this, channelId)
             .setSmallIcon(applicationInfo.icon)
-            .setContentTitle("Проверка вибрации BalanceHub")
-            .setContentText("Тип: " + notificationTitle(category))
+            .setContentTitle("Тест BalanceHub: " + notificationTitle(category))
+            .setContentText("Проверка звука и вибрации через Android")
             .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
         BalanceNotificationSounds.configureLegacySound(this, category, builder)
         try {
+            // A separate notification on every press, not an update of one test.
             androidx.core.app.NotificationManagerCompat.from(this)
-                .notify(SystemClock.elapsedRealtime().toInt(), builder.build())
-            Toast.makeText(this, "Уведомление отправлено Android",
+                .notify(ReminderNoticeIds.test(), builder.build())
+            Toast.makeText(this, "Уведомление передано Android. " +
+                "Фактическое воспроизведение зависит от настроек устройства.",
                 Toast.LENGTH_LONG).show()
         } catch (_: SecurityException) {
-            Toast.makeText(this, "Android запретил уведомления",
+            Toast.makeText(this, "Android отклонил отправку уведомления",
                 Toast.LENGTH_LONG).show()
         }
-    }
-
-    private fun sendTestNotification() {
-        if (Build.VERSION.SDK_INT >= 33 &&
-            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) {
-            requestNotificationPermissionIfNeeded()
-            Toast.makeText(this, "Разрешите уведомления и нажмите кнопку ещё раз", Toast.LENGTH_LONG).show()
-            return
-        }
-        val intent = Intent(this, PaymentReminderReceiver::class.java).apply {
-            putExtra("title", "Тест BalanceHub")
-            putExtra("amount", "1")
-            putExtra("currency", "RUB")
-            putExtra("id", "balancehub-test-notification")
-        }
-        sendBroadcast(intent)
-        Toast.makeText(this, "Тестовое уведомление отправлено", Toast.LENGTH_SHORT).show()
     }
 
     private fun requestNotificationPermissionIfNeeded() {

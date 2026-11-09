@@ -45,14 +45,15 @@ class PaymentReminderReceiver : BroadcastReceiver() {
             .setContentTitle("Скоро платёж: $title")
             .setContentText(displayAmount)
             .setStyle(NotificationCompat.BigTextStyle().bigText("Не забудьте оплатить: $title — $displayAmount"))
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
         BalanceNotificationSounds.configureLegacySound(
             context, BalanceNotificationSounds.PAYMENT, builder)
         val notification = builder.build()
         try {
             NotificationManagerCompat.from(context).notify(
-                (intent.getStringExtra("id") ?: title).hashCode(), notification
+                ReminderNoticeIds.payment(id, intent.getLongExtra("dueAt", -1L)),
+                notification
             )
         } catch (_: SecurityException) {
             // Notifications are disabled or permission has not been granted.

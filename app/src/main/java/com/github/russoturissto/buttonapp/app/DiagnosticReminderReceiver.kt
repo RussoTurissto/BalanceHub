@@ -67,7 +67,7 @@ class DiagnosticReminderReceiver : BroadcastReceiver() {
             .build()
         try {
             NotificationManagerCompat.from(context)
-                .notify(("diagnostic_" + key).hashCode(), notification)
+                .notify(ReminderNoticeIds.diagnostic(key, expected), notification)
             prefs.edit { putLong("${key}_posted", System.currentTimeMillis()) }
         } catch (_: SecurityException) { /* Android notification permission was denied. */ }
     }

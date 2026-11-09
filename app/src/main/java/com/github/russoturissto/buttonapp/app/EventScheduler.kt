@@ -86,13 +86,13 @@ class EventReminderReceiver : BroadcastReceiver() {
             .setStyle(NotificationCompat.BigTextStyle().bigText(message))
             .setContentIntent(launch)
             .setAutoCancel(true)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
         BalanceNotificationSounds.configureLegacySound(
             context, BalanceNotificationSounds.EVENT, builder)
         val notification = builder.build()
         try {
             NotificationManagerCompat.from(context).notify(
-                ("event_notice_" + id).hashCode(), notification)
+                ReminderNoticeIds.event(id, due), notification)
         } catch (_: SecurityException) { /* User disabled notifications */ }
     }
 }
