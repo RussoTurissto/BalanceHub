@@ -2331,17 +2331,45 @@ class MainActivity : AppCompatActivity() {
             scheduleDiagnosticReminder(BalanceNotificationSounds.EVENT)
         })
         val log = getSharedPreferences("balancehub_reminder_diagnostics", MODE_PRIVATE)
+        notifications.addView(verticalGap(8))
+        notifications.addView(secondaryButton("Настройки батареи Android") {
+            try {
+                startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+            } catch (_: Exception) {
+                startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    ("package:" + packageName).toUri()))
+            }
+        })
         notifications.addView(verticalGap(9))
         for ((key, title) in listOf("payment" to "Платёж", "event" to "Событие")) {
             val planned = log.getLong("${key}_planned", 0L)
             val delivered = log.getLong("${key}_delivered", 0L)
+            val posted = log.getLong("${key}_posted", 0L)
             if (planned > 0L) {
                 val delta = if (delivered >= planned) {
-                    " · срабатывание +" + ((delivered - planned) / 1000L) + " сек"
+                    " · запуск +" + ((delivered - planned) / 1000L) + " сек"
                 } else " · ожидается"
                 notifications.addView(textLine("$title: " +
                     DateFormat.getTimeInstance(DateFormat.MEDIUM).format(Date(planned)) +
                     delta, 12f, muted))
+                val method = when (log.getString("${key}_mode", "")) {
+                    "exact_idle" -> "точный будильник"
+                    "inexact_idle" -> "резервный неточный"
+                    "expired" -> "время уже прошло"
+                    else -> "неизвестен"
+                }
+                notifications.addView(textLine(
+                    "Метод: $method · разрешение точных: " +
+                        (if (log.getBoolean("${key}_exact_allowed", false))
+                            "да" else "нет") +
+                        " · без ограничений батареи: " +
+                        (if (log.getBoolean("${key}_battery_unrestricted", false))
+                            "да" else "нет"),
+                    12f, muted))
+                if (posted >= delivered && delivered > 0L)
+                    notifications.addView(textLine("Отправка в Android спустя " +
+                        ((posted - delivered) / 1000L) + " сек после запуска",
+                        12f, muted))
             }
         }
         contentContainer.addView(notifications)
@@ -2496,10 +2524,76 @@ class MainActivity : AppCompatActivity() {
                 renderSliders()
             }
             renderSliders()
-            body.addView(verticalGap(8))
+            body.addView(verticalGap(15))
+            body.addView(textLine("Вибрация уведомлений", 15f, ink, true))
+            body.addView(verticalGap(5))
             body.addView(textLine(
-                "В беззвучном режиме и режиме «Не беспокоить» действуют правила Android.",
+                "Отдельные вибросигналы для платежей, событий и обновлений. " +
+                    "Вибрация также зависит от настроек Android.",
                 12f, muted))
+            body.addView(verticalGap(8))
+            val vibrationOptions = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(12), dp(5), dp(12), dp(8))
+                background = rounded(softAccent, 12)
+            }
+            val vibrationToggle = SwitchCompat(this).apply {
+                text = "Вибрация включена"
+                textSize = 13f
+                setTextColor(ink)
+                isChecked = BalanceNotificationSounds.vibrationEnabled(this@MainActivity)
+            }
+            vibrationOptions.addView(vibrationToggle)
+            val vibrationCategories = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+            }
+            vibrationOptions.addView(vibrationCategories)
+            fun renderVibrationCategories() {
+                vibrationCategories.removeAllViews()
+                if (!BalanceNotificationSounds.vibrationEnabled(this)) return
+                for ((category, name) in listOf(
+                    BalanceNotificationSounds.PAYMENT to "Платежи · двойной сигнал",
+                    BalanceNotificationSounds.EVENT to "События · два импульса",
+                    BalanceNotificationSounds.UPDATE to "Обновления · короткий сигнал"
+                )) {
+                    vibrationCategories.addView(SwitchCompat(this).apply {
+                        text = name
+                        textSize = 13f
+                        setTextColor(ink)
+                        isChecked = BalanceNotificationSounds.vibrationFor(
+                            this@MainActivity, category)
+                        setOnCheckedChangeListener { _, selected ->
+                            BalanceNotificationSounds.setVibrationFor(
+                                this@MainActivity, category, selected)
+                        }
+                    })
+                }
+            }
+            vibrationToggle.setOnCheckedChangeListener { _, enabled ->
+                BalanceNotificationSounds.setVibrationEnabled(this, enabled)
+                renderVibrationCategories()
+            }
+            renderVibrationCategories()
+            body.addView(vibrationOptions)
+            body.addView(verticalGap(8))
+            body.addView(secondaryButton("Проверить вибрацию платежа") {
+                sendVibrationTest()
+            })
+            body.addView(verticalGap(7))
+            body.addView(textLine(
+                "В беззвучном режиме и режиме «Не беспокоить» действуют правила Android. " +
+                    "Если вибрации нет, проверьте системный канал уведомлений.",
+                12f, muted))
+            body.addView(verticalGap(8))
+            body.addView(secondaryButton("Открыть уведомления Android") {
+                try {
+                    startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                        .putExtra(Settings.EXTRA_APP_PACKAGE, packageName))
+                } catch (_: Exception) {
+                    startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        ("package:" + packageName).toUri()))
+                }
+            })
             settings.addView(body)
         }
         contentContainer.addView(settings)
@@ -4782,6 +4876,40 @@ class MainActivity : AppCompatActivity() {
         Toast.makeText(this, "Напоминание запланировано через 2 минуты",
             Toast.LENGTH_LONG).show()
         renderTab()
+    }
+
+    private fun sendVibrationTest() {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+                PackageManager.PERMISSION_GRANTED) {
+            requestNotificationPermissionIfNeeded()
+            return
+        }
+        if (!BalanceNotificationSounds.vibrationFor(this,
+                BalanceNotificationSounds.PAYMENT)) {
+            Toast.makeText(this, "Включите вибрацию платежей в настройках",
+                Toast.LENGTH_LONG).show()
+            return
+        }
+        val category = BalanceNotificationSounds.PAYMENT
+        val channel = BalanceNotificationSounds.ensureChannel(this, category)
+        val builder = androidx.core.app.NotificationCompat.Builder(this, channel)
+            .setSmallIcon(applicationInfo.icon)
+            .setContentTitle("Проверка вибрации BalanceHub")
+            .setContentText("Платёж: двойной вибросигнал")
+            .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+        BalanceNotificationSounds.configureLegacySound(this, category, builder)
+        try {
+            androidx.core.app.NotificationManagerCompat.from(this)
+                .notify(28510, builder.build())
+            Toast.makeText(this,
+                "Тест отправлен Android. Проверьте вибрацию и системные настройки.",
+                Toast.LENGTH_LONG).show()
+        } catch (_: SecurityException) {
+            Toast.makeText(this, "Android запретил уведомления",
+                Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun sendTestNotification() {
