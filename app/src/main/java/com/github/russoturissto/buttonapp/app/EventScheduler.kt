@@ -35,8 +35,9 @@ internal object EventScheduler {
     fun schedule(context: Context, event: PlannedEvent) {
         cancel(context, event.id)
         val now = System.currentTimeMillis()
-        if (event.dueAt <= now) return
         val manager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        // A one-off event may already have started today after a reboot.
+        // Its end-of-day archival alarm must still be registered.
         EventDateRules.alertAt(event.dueAt, event.leadMinutes, now)?.let {
             manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, it,
                 pending(context, event.id, event.dueAt, true))
