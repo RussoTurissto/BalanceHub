@@ -13,6 +13,7 @@ import android.os.Looper
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import androidx.core.content.edit
 import androidx.core.content.pm.PackageInfoCompat
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -41,7 +42,7 @@ internal object GithubUpdateEngine {
         preferences(context).getBoolean("notify", true)
 
     fun setEnabled(context: Context, enable: Boolean) {
-        preferences(context).edit().putBoolean("notify", enable).apply()
+        preferences(context).edit { putBoolean("notify", enable) }
         if (enable) schedule(context) else {
             WorkManager.getInstance(context).cancelUniqueWork(PERIODIC_JOB)
             NotificationManagerCompat.from(context).cancel(13772)
@@ -90,10 +91,10 @@ internal object GithubUpdateEngine {
             } catch (e: Exception) {
                 throw IOException("Некорректный ответ GitHub", e)
             }
-            preferences(context).edit().putLong("last_success",
-                System.currentTimeMillis())
-                .putString("cached_release",
-                    release?.let(UpdateReleasePolicy::toCache)).apply()
+            preferences(context).edit {
+                putLong("last_success", System.currentTimeMillis())
+                putString("cached_release", release?.let(UpdateReleasePolicy::toCache))
+            }
             return release
         } finally { connection.disconnect() }
     }
@@ -124,7 +125,7 @@ internal object GithubUpdateEngine {
         preferences(context).getLong("shown_in_app", 0L) < release.code
 
     fun markInAppOffered(context: Context, release: UpdateRelease) {
-        preferences(context).edit().putLong("shown_in_app", release.code).apply()
+        preferences(context).edit { putLong("shown_in_app", release.code) }
     }
 
     fun announceIfNew(context: Context, release: UpdateRelease) {
@@ -160,7 +161,7 @@ internal object GithubUpdateEngine {
             .setPriority(NotificationCompat.PRIORITY_DEFAULT).build()
         try {
             NotificationManagerCompat.from(context).notify(13772, note)
-            prefs.edit().putLong("announced", release.code).apply()
+            prefs.edit { putLong("announced", release.code) }
         } catch (_: SecurityException) { /* user revoked notifications */ }
     }
 }

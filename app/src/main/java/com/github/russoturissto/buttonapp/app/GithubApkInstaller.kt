@@ -1,5 +1,6 @@
 package com.github.russoturissto.buttonapp.app
 
+import android.annotation.SuppressLint
 import android.app.DownloadManager
 import android.content.Context
 import android.content.Intent
@@ -10,6 +11,8 @@ import android.os.Build
 import android.os.Environment
 import android.provider.Settings
 import androidx.core.content.FileProvider
+import androidx.core.content.edit
+import androidx.core.net.toUri
 import androidx.core.content.pm.PackageInfoCompat
 import java.io.File
 import java.io.FileInputStream
@@ -57,7 +60,7 @@ internal object GithubApkInstaller {
             return current.id
         if (current != null) manager(context).remove(current.id)
         localFile(context, release).delete()
-        val request = DownloadManager.Request(Uri.parse(release.url))
+        val request = DownloadManager.Request(release.url.toUri())
             .setTitle("BalanceHub " + release.tag)
             .setDescription("Подписанное обновление приложения")
             .setMimeType("application/vnd.android.package-archive")
@@ -66,8 +69,10 @@ internal object GithubApkInstaller {
             .setDestinationInExternalFilesDir(context,
                 Environment.DIRECTORY_DOWNLOADS, fileName(release))
         val id = manager(context).enqueue(request)
-        GithubUpdateEngine.preferences(context).edit()
-            .putLong(KEY_ID, id).putLong(KEY_VERSION, release.code).apply()
+        GithubUpdateEngine.preferences(context).edit {
+            putLong(KEY_ID, id)
+            putLong(KEY_VERSION, release.code)
+        }
         return id
     }
 
@@ -127,9 +132,11 @@ internal object GithubApkInstaller {
         Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||
             context.packageManager.canRequestPackageInstalls()
 
+    // Called only after API 26+ has been verified by allowedToInstall().
+    @SuppressLint("InlinedApi")
     fun installPermissionIntent(context: Context): Intent =
         Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-            Uri.parse("package:" + context.packageName))
+            ("package:" + context.packageName).toUri())
 
     fun installerIntent(context: Context, file: File): Intent =
         Intent(Intent.ACTION_VIEW).apply {
