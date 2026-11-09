@@ -1,5 +1,6 @@
 package com.github.russoturissto.buttonapp.app
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
@@ -11,6 +12,7 @@ import android.graphics.RectF
 import android.graphics.drawable.Drawable
 
 /** Unified calendar language: teal payment, muted blue event, diagonal combination. */
+@SuppressLint("UseKtx")
 internal class BalanceCalendarDayDrawable(
     private val context: Context,
     private val night: Boolean,
