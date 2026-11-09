@@ -1667,7 +1667,7 @@ class MainActivity : AppCompatActivity() {
         themedDialogBuilder().setTitle("Скрыть " + bank.name + "?")
             .setMessage("Карточка исчезнет из раздела «Балансы». " +
                 "Сохранённый баланс не удалится, получение Push продолжится. " +
-                "Вернуть банк можно через Настройки → Банковские карточки.")
+                "Вернуть банк можно через Настройки → Банки.")
             .setNegativeButton("Отмена", null)
             .setPositiveButton("Скрыть") { _, _ ->
                 BankCardPreferences.setVisible(this, bank.id, false)
@@ -2168,7 +2168,8 @@ class MainActivity : AppCompatActivity() {
                 backSettingsPage()
             }
         }, LinearLayout.LayoutParams(dp(43), dp(48)))
-        row.addView(textLine(title, 23f, ink, true))
+        row.addView(textLine(title, 23f, ink, true).apply { maxLines = 2 },
+            LinearLayout.LayoutParams(0, -2, 1f))
         contentContainer.addView(row)
         if (summary.isNotBlank()) contentContainer.addView(textLine(summary, 12f, muted))
         contentContainer.addView(verticalGap(13))
@@ -2289,24 +2290,47 @@ class MainActivity : AppCompatActivity() {
             }
         }.toTypedArray()))
     }
+    private fun toggleBankPush(bank: RussianBank) {
+        val enabled = BankCardPreferences.enabled(this, bank.id)
+        themedDialogBuilder()
+            .setTitle((if (enabled) "Отключить " else "Подключить ") +
+                "Push " + bank.name + "?")
+            .setMessage(if (enabled)
+                "Отключение удалит сохранённый остаток банка. " +
+                    "Чтобы скрыть карточку, используйте переключатель видимости."
+                else "BalanceHub распознаёт только подтверждённые остатки из " +
+                    "Push выбранного банка. Нужен системный доступ Android к уведомлениям.")
+            .setNegativeButton("Отмена", null)
+            .setPositiveButton(if (enabled) "Отключить" else "Подключить") { _, _ ->
+                BankCardPreferences.setEnabled(this, bank.id, !enabled)
+                renderTab()
+                if (!enabled && !SberBalanceStore.isAccessGranted(this))
+                    openSberListenerSettings()
+            }.show()
+    }
+
     private fun renderBanksSettings() {
-        settingsHeader("Банки", "Карточки и получение Push")
-        val banks = RussianBankCatalog.available(this)
-        settingsGroup(settingsPanel(*banks.map { bank ->
-            val push = BankCardPreferences.enabled(this, bank.id)
-            settingsRow("credit-card", bank.name,
-                (if (push) "Push включён" else "Push не подключён") +
-                    if (BankCardPreferences.visible(this, bank.id))
-                        " · видимая карточка" else " · скрытая карточка") {
-                showBankCardManager()
-            }
-        }.toTypedArray()))
-        settingsGroup(settingsPanel(
-            settingsRow("settings", "Управление банками",
-                "Видимость и подключение Push") { showBankCardManager() },
-            settingsRow("settings", "Доступ Android",
-                "Разрешить чтение банковских Push") { openSberListenerSettings() }
-        ))
+        settingsHeader("Банки", "Карточки и банковские Push")
+        for (bank in RussianBankCatalog.available(this)) {
+            settingsGroup(settingsPanel(
+                settingsSwitch("credit-card", bank.name,
+                    "Показывать карточку в «Балансах»",
+                    BankCardPreferences.visible(this, bank.id)) { show ->
+                    BankCardPreferences.setVisible(this, bank.id, show)
+                    renderTab()
+                },
+                settingsRow("settings", "Получение Push",
+                    if (BankCardPreferences.enabled(this, bank.id))
+                        "Включено · нажмите для отключения"
+                    else "Не подключено · нажмите для подключения") {
+                    toggleBankPush(bank)
+                }
+            ))
+        }
+        settingsGroup(settingsPanel(settingsRow("settings", "Доступ Android",
+            "Разрешить чтение банковских уведомлений") {
+            openSberListenerSettings()
+        }))
     }
     private fun renderNotificationsMenu() {
         settingsHeader("Уведомления", "Звуки и вибрация")
@@ -2710,7 +2734,7 @@ class MainActivity : AppCompatActivity() {
                 "credit-card", listOf(
                     "BalanceHub обнаруживает установленные приложения ВТБ Онлайн и " +
                         "Т-Банка (бывший Тинькофф) локально. Увидеть и подключить " +
-                        "их можно в Настройки → Банковские карточки.",
+                        "их можно в Настройки → Банки.",
                     "После включения получения Push предоставьте Android доступ к " +
                         "уведомлениям для BalanceHub. Это широкое системное " +
                         "разрешение; приложению не нужны логин и пароль банка.",
@@ -2746,7 +2770,7 @@ class MainActivity : AppCompatActivity() {
                 )),
             HelpSection("Звуки и громкость", "Настройки уведомлений BalanceHub",
                 "music", listOf(
-                    "Откройте Настройки → Звуки уведомлений. Выберите мелодии " +
+                    "Откройте Настройки → Уведомления. Выберите мелодии " +
                         "для платежей, событий и обновлений.",
                     "Общая или раздельная громкость BalanceHub уменьшает уровень " +
                         "фирменных сигналов относительно системного. Приложение " +
