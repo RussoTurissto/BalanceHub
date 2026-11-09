@@ -43,13 +43,23 @@ internal object EventScheduler {
         }
         // Do not advance the active recurrence before the same-minute reminder
         // receiver has had a chance to read its original due timestamp.
-        if (event.recurrence != "once") manager.setAndAllowWhileIdle(
-            AlarmManager.RTC_WAKEUP, event.dueAt + 60_000L,
+        val completeAt = if (event.recurrence == "once") {
+            java.util.Calendar.getInstance().apply {
+                timeInMillis = event.dueAt
+                set(java.util.Calendar.HOUR_OF_DAY, 0)
+                set(java.util.Calendar.MINUTE, 0)
+                set(java.util.Calendar.SECOND, 0)
+                set(java.util.Calendar.MILLISECOND, 0)
+                add(java.util.Calendar.DAY_OF_MONTH, 1)
+            }.timeInMillis
+        } else event.dueAt + 60_000L
+        if (completeAt > now) manager.setAndAllowWhileIdle(
+            AlarmManager.RTC_WAKEUP, completeAt,
             pending(context, event.id, event.dueAt, false))
     }
 
     fun restoreAfterBoot(context: Context) {
-        EventStore.refreshRepetitions(context)
+        EventStore.reconcileElapsed(context)
         for (event in EventStore.active(context)) schedule(context, event)
     }
 }
@@ -92,8 +102,17 @@ class EventDueReceiver : BroadcastReceiver() {
         val id = intent.getStringExtra("id") ?: return
         val due = intent.getLongExtra("dueAt", -1L)
         if (due <= 0L) return
-        EventStore.advance(context, id, due, System.currentTimeMillis())?.let {
-            EventScheduler.schedule(context, it)
+        val event = EventStore.active(context).firstOrNull {
+            it.id == id && it.dueAt == due
+        } ?: return
+        if (event.recurrence == "once") {
+            EventStore.reconcileElapsed(context)
+        } else if (System.currentTimeMillis() >= due + 60_000L) {
+            if (EventStore.archive(context, id, "completed", nextForRepeated = true) != null) {
+                EventStore.active(context).firstOrNull { it.id == id }?.let {
+                    EventScheduler.schedule(context, it)
+                }
+            }
         }
     }
 }
