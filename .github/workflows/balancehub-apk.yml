@@ -155,13 +155,13 @@ jobs:
           test -s "$APK"
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$TAG" "$APK" --repo "$GITHUB_REPOSITORY" --clobber
-            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --latest
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file ".github/balancehub-release-notes.md" --latest
           else
             gh release create "$TAG" "$APK" \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
               --title "BalanceHub v1.0.${GITHUB_RUN_NUMBER}" \
-              --notes "Signed Android APK. Build checks, lint, unit tests and signing certificate verification passed." \
+              --notes-file ".github/balancehub-release-notes.md" \
               --latest
           fi
           echo "Direct APK: https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/BalanceHub.apk"
