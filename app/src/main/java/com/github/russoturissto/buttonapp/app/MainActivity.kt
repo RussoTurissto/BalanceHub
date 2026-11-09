@@ -70,7 +70,8 @@ class MainActivity : AppCompatActivity() {
     private var mobileSettingsOpen = false
     private var bankSettingsOpen = false
     private var operatorDetailsOpen = false
-    private var archiveOpen = false    private var eventArchiveExpanded = false
+    private var archiveOpen = false
+    private var eventArchiveExpanded = false
     private var expandedEventId: String? = null
     private var selectedPaymentIcon: String? = null
     private var welcomeShowing = false
@@ -117,7 +118,8 @@ class MainActivity : AppCompatActivity() {
         mobileSettingsOpen = savedInstanceState?.getBoolean("mobile_settings_open") ?: false
         bankSettingsOpen = savedInstanceState?.getBoolean("bank_settings_open") ?: false
         operatorDetailsOpen = savedInstanceState?.getBoolean("operator_details_open") ?: false
-        archiveOpen = savedInstanceState?.getBoolean("archive_open") ?: false        eventArchiveExpanded = savedInstanceState?.getBoolean("event_archive_open") ?: false
+        archiveOpen = savedInstanceState?.getBoolean("archive_open") ?: false
+        eventArchiveExpanded = savedInstanceState?.getBoolean("event_archive_open") ?: false
         expandedEventId = savedInstanceState?.getString("expanded_event_id")
         upcomingListExpanded = savedInstanceState?.getBoolean("payments_list_expanded")
             ?: preferences.getBoolean("payments_list_expanded", true)
@@ -135,7 +137,8 @@ class MainActivity : AppCompatActivity() {
         PaymentArchiveStore.archiveDue(this)
         loadPayments()
         for (sim in T2Balance.sims(this)) syncMobilePayment(sim)
-        showDashboard()        window.decorView.post { showWhatsNewIfNeeded() }
+        showDashboard()
+        window.decorView.post { showWhatsNewIfNeeded() }
         onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 when {
@@ -200,7 +203,8 @@ class MainActivity : AppCompatActivity() {
         outState.putBoolean("mobile_settings_open", mobileSettingsOpen)
         outState.putBoolean("bank_settings_open", bankSettingsOpen)
         outState.putBoolean("operator_details_open", operatorDetailsOpen)
-        outState.putBoolean("archive_open", archiveOpen)        outState.putBoolean("event_archive_open", eventArchiveExpanded)
+        outState.putBoolean("archive_open", archiveOpen)
+        outState.putBoolean("event_archive_open", eventArchiveExpanded)
         outState.putString("expanded_event_id", expandedEventId)
         outState.putBoolean("payments_list_expanded", upcomingListExpanded)
         outState.putString("expanded_payment_id", expandedPaymentId)
@@ -531,7 +535,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderTab() {
         contentContainer.removeAllViews()
-        // All four top-level headings must share the exact same Y position.
+        // All top-level headings share the same vertical position.
         // Reuse the responsive top inset already approved for "Главная";
         // do not shift the home title or change the wave/header itself.
         val topPadding = HomeDashboardSizing.forHeight(
