@@ -1,0 +1,121 @@
+name: Publish approved BalanceHub 1.1.1
+on:
+  push:
+    branches:
+      - feature/balancehub-foundation
+    paths:
+      - ".github/workflows/publish-approved-balancehub-1.1.1.yml"
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: balancehub-approved-v1-1-1
+  cancel-in-progress: false
+
+jobs:
+  publish-approved-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      APPROVED_RUN: "42645755219"
+      APPROVED_SHA: "20d7144510046797ed431c2205cd83579e1b35ff"
+    steps:
+      - name: Verify release does not already exist
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view v1.1.1 >/dev/null 2>&1; then
+            echo "::error::v1.1.1 already published; never overwrite an approved release"
+            exit 1
+          fi
+      - name: Wait for and verify approved tested APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 90); do
+            gh api "repos/$GH_REPO/actions/runs/$APPROVED_RUN" > "$RUNNER_TEMP/approved-run.json"
+            STATUS="$(jq -r '.status' "$RUNNER_TEMP/approved-run.json")"
+            if [ "$STATUS" = "completed" ]; then break; fi
+            sleep 10
+          done
+          jq -e --arg sha "$APPROVED_SHA" \
+            '.head_sha == $sha and .status == "completed" and .conclusion == "success"' \
+            "$RUNNER_TEMP/approved-run.json"
+      - name: Retrieve exactly the APK verified by CI
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/approved"
+          gh run download "$APPROVED_RUN" --name BalanceHub --dir "$RUNNER_TEMP/approved"
+          test -s "$RUNNER_TEMP/approved/BalanceHub.apk"
+          cp "$RUNNER_TEMP/approved/BalanceHub.apk" BalanceHub.apk
+      - name: Verify installed package, version, signature and checksum
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.BALANCEHUB_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.BALANCEHUB_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.BALANCEHUB_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          : "${KEYSTORE_BASE64:?Missing release signing keystore}"
+          : "${KEYSTORE_PASSWORD:?Missing release keystore password}"
+          : "${KEY_ALIAS:?Missing release key alias}"
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release-signing.jks"
+          chmod 600 "$RUNNER_TEMP/release-signing.jks"
+          BT="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
+          "$BT/apksigner" verify --verbose --print-certs BalanceHub.apk > "$RUNNER_TEMP/apk-signature.txt"
+          grep -q "Verified using v2 scheme (APK Signature Scheme v2): true" "$RUNNER_TEMP/apk-signature.txt"
+          "$BT/aapt" dump badging BalanceHub.apk > "$RUNNER_TEMP/apk-info.txt"
+          grep -q "^package: name='com.github.russoturissto.buttonapp.app'" "$RUNNER_TEMP/apk-info.txt"
+          grep -q "versionCode='231'" "$RUNNER_TEMP/apk-info.txt"
+          grep -q "versionName='1.1.1'" "$RUNNER_TEMP/apk-info.txt"
+          APK_CERT="$(sed -n 's/^V2 Signer: certificate SHA-256 digest: //p' "$RUNNER_TEMP/apk-signature.txt" | tr -d '[:space:]:' | tr '[:upper:]' '[:lower:]')"
+          KEY_CERT="$(keytool -list -v -keystore "$RUNNER_TEMP/release-signing.jks" -alias "$KEY_ALIAS" -storepass "$KEYSTORE_PASSWORD" | sed -n 's/.*SHA256: //p' | tr -d '[:space:]:' | tr '[:upper:]' '[:lower:]')"
+          test -n "$APK_CERT"
+          test -n "$KEY_CERT"
+          if [ "$APK_CERT" != "$KEY_CERT" ]; then
+            echo "::error::APK certificate does not match original BalanceHub release signing"
+            exit 1
+          fi
+          DIGEST="$(sha256sum BalanceHub.apk | cut -d' ' -f1)"
+          echo "APK_SHA256=$DIGEST" >> "$GITHUB_ENV"
+          echo "APK signing identity verified, SHA-256: $DIGEST"
+      - name: Create public BalanceHub v1.1.1 release
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/release-notes.txt" <<'NOTES'
+          BalanceHub 1.1.1 — звуки, настройки, справка и единая сетка.
+
+          - 15 полностью переработанных уникальных звуков: кристалл, капля, бамбук, бриз, пульс, космические эффекты и другие.
+          - Звуки уведомлений свёрнуты по умолчанию. Общая или раздельная громкость для платежей, событий и обновлений — прямо в приложении; системная громкость и «Не беспокоить» сохраняют приоритет.
+          - Карточки событий приведены к единой сетке с платежами.
+          - Карточка разрешения точных напоминаний показывается только при отсутствии разрешения Android.
+          - Справочный центр: как BalanceHub извлекает остаток Сбербанка из Push, подключение, ограничения, диагностика, конфиденциальность.
+          - В подробностях мобильной связи и Сбербанка понятно объясняется отсутствие подтверждённого баланса; ноль распознаётся как настоящий баланс.
+
+          Установите APK поверх установленного BalanceHub, не удаляя приложение.
+
+          <!-- BalanceHub-VersionCode: 231 -->
+          NOTES
+          if gh release view v1.1.1 >/dev/null 2>&1; then
+            echo "::error::Release already exists, refusing replacement"
+            exit 1
+          fi
+          gh release create v1.1.1 BalanceHub.apk \
+            --target "$APPROVED_SHA" --title "BalanceHub 1.1.1" \
+            --notes-file "$RUNNER_TEMP/release-notes.txt" --latest
+      - name: Confirm public release asset is the tested APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GH_REPO/releases/tags/v1.1.1" > "$RUNNER_TEMP/published.json"
+          jq -e --arg sha "sha256:$APK_SHA256" \
+            '.tag_name == "v1.1.1" and .draft == false and .prerelease == false and
+             ([.assets[] | select(.name == "BalanceHub.apk" and .digest == $sha)] | length == 1)' \
+            "$RUNNER_TEMP/published.json"
+          echo "Verified: https://github.com/$GH_REPO/releases/tag/v1.1.1"
