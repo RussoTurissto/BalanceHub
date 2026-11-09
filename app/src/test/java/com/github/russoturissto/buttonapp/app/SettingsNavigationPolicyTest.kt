@@ -17,7 +17,9 @@ class SettingsNavigationPolicyTest {
             assertTrue(SettingsNavigationPolicy.canOpen("notifications", page))
             assertFalse(SettingsNavigationPolicy.canOpen("root", page))
         }
-        assertTrue(SettingsNavigationPolicy.canOpen("help", "vibration"))
+        // Diagnostic tests must remain invisible outside the engineering menu.
+        assertFalse(SettingsNavigationPolicy.canOpen("help", "vibration"))
+        assertFalse(SettingsNavigationPolicy.canOpen("notifications", "vibration"))
     }
     @Test fun restorationStopsAtInvalidPage() {
         assertEquals(listOf("notifications", "payment"),
