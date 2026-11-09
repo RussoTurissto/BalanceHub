@@ -3,6 +3,7 @@ package com.github.russoturissto.buttonapp.app
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import androidx.core.content.edit
 import java.util.Calendar
 import org.json.JSONArray
 
@@ -38,7 +39,7 @@ class PaymentBootReceiver : BroadcastReceiver() {
             } catch (_: Exception) { /* Ignore invalid records, keep others. */ }
         }
         // Commit before any near-immediate alarm can be delivered.
-        if (advanced && !prefs.edit().putString("payment_reminders", items.toString()).commit())
+        if (advanced && !prefs.edit(commit = true) { putString("payment_reminders", items.toString()) })
             return
         for (i in 0 until items.length()) {
             val p = items.optJSONObject(i) ?: continue
