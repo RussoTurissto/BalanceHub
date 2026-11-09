@@ -16,25 +16,22 @@ import androidx.core.app.NotificationManagerCompat
 
 class PaymentReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        val channelId = "payment_reminders"
-        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            manager.createNotificationChannel(NotificationChannel(
-                channelId, "Напоминания о платежах", NotificationManager.IMPORTANCE_DEFAULT
-            ))
-        }
+        val channelId = BalanceNotificationSounds.ensureChannel(
+            context, BalanceNotificationSounds.PAYMENT)
         val title = intent.getStringExtra("title") ?: "Предстоящий платёж"
         val amount = intent.getStringExtra("amount").orEmpty()
         val currency = intent.getStringExtra("currency").orEmpty()
         val displayAmount = PaymentCurrencyFormatter.amountWithCurrency(amount, currency)
-        val notification = NotificationCompat.Builder(context, channelId)
+        val builder = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(context.applicationInfo.icon)
             .setContentTitle("Скоро платёж: $title")
             .setContentText(displayAmount)
             .setStyle(NotificationCompat.BigTextStyle().bigText("Не забудьте оплатить: $title — $displayAmount"))
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
-            .build()
+        BalanceNotificationSounds.configureLegacySound(
+            context, BalanceNotificationSounds.PAYMENT, builder)
+        val notification = builder.build()
         try {
             NotificationManagerCompat.from(context).notify(
                 (intent.getStringExtra("id") ?: title).hashCode(), notification
