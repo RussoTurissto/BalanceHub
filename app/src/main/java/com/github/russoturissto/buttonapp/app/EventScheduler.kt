@@ -13,6 +13,9 @@ import androidx.core.app.NotificationManagerCompat
 
 /** AlarmManager-based reminders; exact alarm privilege is deliberately not requested. */
 internal object EventScheduler {
+    const val ACTION_EVENTS_CHANGED =
+        "com.github.russoturissto.buttonapp.app.EVENTS_CHANGED"
+
     private fun pending(context: Context, id: String, dueAt: Long,
         reminder: Boolean): PendingIntent {
         val target = if (reminder) EventReminderReceiver::class.java
@@ -36,24 +39,17 @@ internal object EventScheduler {
         cancel(context, event.id)
         val now = System.currentTimeMillis()
         val manager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        // A one-off event may already have started today after a reboot.
-        // Its end-of-day archival alarm must still be registered.
+        // Keep a separate one-minute grace period so due-time reminder
+        // notifications can fire before the one-off event is archived.
         EventDateRules.alertAt(event.dueAt, event.leadMinutes, now)?.let {
             manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, it,
                 pending(context, event.id, event.dueAt, true))
         }
         // Do not advance the active recurrence before the same-minute reminder
         // receiver has had a chance to read its original due timestamp.
-        val completeAt = if (event.recurrence == "once") {
-            java.util.Calendar.getInstance().apply {
-                timeInMillis = event.dueAt
-                set(java.util.Calendar.HOUR_OF_DAY, 0)
-                set(java.util.Calendar.MINUTE, 0)
-                set(java.util.Calendar.SECOND, 0)
-                set(java.util.Calendar.MILLISECOND, 0)
-                add(java.util.Calendar.DAY_OF_MONTH, 1)
-            }.timeInMillis
-        } else event.dueAt + 60_000L
+        val completeAt = if (event.recurrence == "once")
+            EventArchivePolicy.archiveAt(event.dueAt)
+        else event.dueAt + 60_000L
         if (completeAt > now) manager.setAndAllowWhileIdle(
             AlarmManager.RTC_WAKEUP, completeAt,
             pending(context, event.id, event.dueAt, false))
@@ -108,11 +104,17 @@ class EventDueReceiver : BroadcastReceiver() {
         } ?: return
         if (event.recurrence == "once") {
             EventStore.reconcileElapsed(context)
+            if (EventStore.active(context).none { it.id == id }) {
+                context.sendBroadcast(Intent(EventScheduler.ACTION_EVENTS_CHANGED)
+                    .setPackage(context.packageName))
+            }
         } else if (System.currentTimeMillis() >= due + 60_000L) {
             if (EventStore.archive(context, id, "completed", nextForRepeated = true) != null) {
                 EventStore.active(context).firstOrNull { it.id == id }?.let {
                     EventScheduler.schedule(context, it)
                 }
+                context.sendBroadcast(Intent(EventScheduler.ACTION_EVENTS_CHANGED)
+                    .setPackage(context.packageName))
             }
         }
     }

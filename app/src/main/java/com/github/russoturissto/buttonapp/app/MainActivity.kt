@@ -88,11 +88,10 @@ class MainActivity : AppCompatActivity() {
     private var engineeringMenuOpen = false
     private var engineeringTapCount = 0
     private var engineeringTapStartedAt = 0L
-    private var homeEventsExpanded = false
-    private var homeExpandedEventId: String? = null
     private var operatorDetailsOpen = false
     private var archiveOpen = false
     private var eventArchiveExpanded = false
+    private var eventListExpanded = false
     private var expandedEventId: String? = null
     private var selectedPaymentIcon: String? = null
     private var welcomeShowing = false
@@ -116,8 +115,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
     private var upcomingListExpanded = true
-    private var homeUpcomingExpanded = false
-    private var homeExpandedPaymentId: String? = null
     private var homeSelectedDay: Int? = null
     private val homeCalendarMonth: Calendar = Calendar.getInstance().apply {
         set(Calendar.DAY_OF_MONTH, 1)
@@ -140,6 +137,18 @@ class MainActivity : AppCompatActivity() {
                 ::contentContainer.isInitialized) renderTab()
         }
     }
+    private val eventChangedReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == EventScheduler.ACTION_EVENTS_CHANGED &&
+                ::contentContainer.isInitialized && (currentTab == 0 || currentTab == 3)) {
+                if (currentTab == 3) {
+                    val activeIds = EventStore.active(this@MainActivity).map { it.id }.toSet()
+                    expandedEventId = expandedEventId?.takeIf { it in activeIds }
+                }
+                renderTab()
+            }
+        }
+    }
     private var editingId: String? = null
     private var dueDate = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, 7) }
 
@@ -159,19 +168,15 @@ class MainActivity : AppCompatActivity() {
         // Engineer access is never restored from saved state, disk, or deep links.
         bankSettingsOpen = false
         engineeringMenuOpen = false
-        homeEventsExpanded = savedInstanceState?.getBoolean("home_events_expanded")
-            ?: preferences.getBoolean("home_events_expanded", false)
-        homeExpandedEventId = savedInstanceState?.getString("home_expanded_event_id")
         operatorDetailsOpen = savedInstanceState?.getBoolean("operator_details_open") ?: false
         archiveOpen = savedInstanceState?.getBoolean("archive_open") ?: false
         eventArchiveExpanded = savedInstanceState?.getBoolean("event_archive_open") ?: false
+        eventListExpanded = savedInstanceState?.getBoolean("event_list_expanded")
+            ?: preferences.getBoolean("event_list_expanded", false)
         expandedEventId = savedInstanceState?.getString("expanded_event_id")
         upcomingListExpanded = savedInstanceState?.getBoolean("payments_list_expanded")
             ?: preferences.getBoolean("payments_list_expanded", true)
         expandedPaymentId = savedInstanceState?.getString("expanded_payment_id")
-        homeUpcomingExpanded = savedInstanceState?.getBoolean("home_payments_expanded")
-            ?: preferences.getBoolean("home_payments_expanded", false)
-        homeExpandedPaymentId = savedInstanceState?.getString("home_expanded_payment_id")
         homeSelectedDay = savedInstanceState?.getInt("home_selected_day", -1)
             ?.takeIf { it in 1..31 }
         savedInstanceState?.getLong("home_calendar_month", 0L)
@@ -229,6 +234,9 @@ class MainActivity : AppCompatActivity() {
         ContextCompat.registerReceiver(this, bankUpdateReceiver,
             IntentFilter(SberPushNotificationListener.ACTION_BALANCE_UPDATED),
             ContextCompat.RECEIVER_NOT_EXPORTED)
+        ContextCompat.registerReceiver(this, eventChangedReceiver,
+            IntentFilter(EventScheduler.ACTION_EVENTS_CHANGED),
+            ContextCompat.RECEIVER_NOT_EXPORTED)
         ContextCompat.registerReceiver(this, downloadedApkReceiver,
             IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE),
             ContextCompat.RECEIVER_EXPORTED)
@@ -238,6 +246,7 @@ class MainActivity : AppCompatActivity() {
         closeEngineeringMenu()
         BalanceNotificationSounds.stopPreview()
         unregisterReceiver(bankUpdateReceiver)
+        unregisterReceiver(eventChangedReceiver)
         unregisterReceiver(downloadedApkReceiver)
         super.onStop()
     }
@@ -274,16 +283,13 @@ class MainActivity : AppCompatActivity() {
         outState.putBoolean("mobile_settings_open", mobileSettingsOpen)
         // Never serialize engineering access or its internal screen.
         outState.putBoolean("bank_settings_open", false)
-        outState.putBoolean("home_events_expanded", homeEventsExpanded)
-        outState.putString("home_expanded_event_id", homeExpandedEventId)
         outState.putBoolean("operator_details_open", operatorDetailsOpen)
         outState.putBoolean("archive_open", archiveOpen)
         outState.putBoolean("event_archive_open", eventArchiveExpanded)
+        outState.putBoolean("event_list_expanded", eventListExpanded)
         outState.putString("expanded_event_id", expandedEventId)
         outState.putBoolean("payments_list_expanded", upcomingListExpanded)
         outState.putString("expanded_payment_id", expandedPaymentId)
-        outState.putBoolean("home_payments_expanded", homeUpcomingExpanded)
-        outState.putString("home_expanded_payment_id", homeExpandedPaymentId)
         outState.putInt("home_selected_day", homeSelectedDay ?: -1)
         outState.putLong("home_calendar_month", homeCalendarMonth.timeInMillis)
         selectedOperatorId?.let { outState.putInt("selected_operator_id", it) }
@@ -858,10 +864,6 @@ class MainActivity : AppCompatActivity() {
         contentContainer.addView(summary)
         contentContainer.addView(verticalGap(10))
         renderHomeCalendar(upcomingPayments, upcomingEvents)
-        contentContainer.addView(verticalGap(10))
-        renderHomePayments(upcomingPayments.sortedBy { it.dueAt })
-        contentContainer.addView(verticalGap(10))
-        renderHomeEvents(upcomingEvents.sortedBy { it.dueAt })
     }
 
     private fun renderHomeCalendar(upcoming: List<PaymentReminder>,
@@ -1066,10 +1068,10 @@ class MainActivity : AppCompatActivity() {
             nearestRow.isFocusable = true
             nearestRow.contentDescription = "Открыть ближайший платёж " + nearest.title
             nearestRow.setOnClickListener {
-                homeUpcomingExpanded = true
-                homeExpandedPaymentId = nearest.id
-                preferences.edit().putBoolean("home_payments_expanded", true).apply()
-                renderTab()
+                upcomingListExpanded = true
+                expandedPaymentId = nearest.id
+                preferences.edit().putBoolean("payments_list_expanded", true).apply()
+                selectTab(2)
             }
         }
         calendar.addView(nearestRow)
@@ -1137,245 +1139,6 @@ class MainActivity : AppCompatActivity() {
             calendar.addView(details)
         }
         contentContainer.addView(calendar)
-    }
-
-    private fun renderHomePayments(upcoming: List<PaymentReminder>) {
-        if (homeExpandedPaymentId != null &&
-            upcoming.none { it.id == homeExpandedPaymentId }) {
-            homeExpandedPaymentId = null
-        }
-        val section = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            background = cardGradient()
-            elevation = dp(2).toFloat()
-        }
-        val heading = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(14), dp(15), dp(14), dp(15))
-            isClickable = true
-            isFocusable = true
-            contentDescription = if (homeUpcomingExpanded)
-                "Все предстоящие платежи, свернуть"
-            else "Все предстоящие платежи, раскрыть"
-        }
-        heading.addView(iconTile("credit-card", 36),
-            LinearLayout.LayoutParams(dp(36), dp(36)))
-        heading.addView(View(this), LinearLayout.LayoutParams(dp(9), 1))
-        heading.addView(textLine("Все предстоящие платежи (" +
-            upcoming.size + ")", 16f, ink, true),
-            LinearLayout.LayoutParams(0, -2, 1f))
-        heading.addView(iconTile(if (homeUpcomingExpanded)
-            "chevron-up" else "chevron-down", 30),
-            LinearLayout.LayoutParams(dp(30), dp(30)))
-        heading.setOnClickListener {
-            homeUpcomingExpanded = !homeUpcomingExpanded
-            if (!homeUpcomingExpanded) homeExpandedPaymentId = null
-            preferences.edit().putBoolean(
-                "home_payments_expanded", homeUpcomingExpanded).apply()
-            renderTab()
-        }
-        section.addView(heading)
-        if (homeUpcomingExpanded) {
-            section.addView(View(this).apply {
-                setBackgroundColor(if (isNight) Color.rgb(63, 98, 100)
-                    else Color.rgb(207, 229, 224))
-            }, LinearLayout.LayoutParams(-1, dp(1)))
-            if (upcoming.isEmpty()) {
-                section.addView(textLine("Пока нет предстоящих платежей",
-                    13f, muted).apply {
-                    setPadding(dp(14), dp(14), dp(14), dp(14))
-                })
-            }
-            for ((index, payment) in upcoming.withIndex()) {
-                val expanded = homeExpandedPaymentId == payment.id
-                val item = LinearLayout(this).apply {
-                    orientation = LinearLayout.VERTICAL
-                    if (expanded) background = rounded(softAccent, 12)
-                }
-                val row = LinearLayout(this).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = Gravity.CENTER_VERTICAL
-                    setPadding(dp(13), dp(10), dp(13), dp(10))
-                    isClickable = true
-                    isFocusable = true
-                    contentDescription = "Платёж " + payment.title +
-                        if (expanded) ", свернуть" else ", раскрыть"
-                }
-                row.addView(iconTile(payment.iconId ?: IconRegistry.select(
-                    payment.title, "credit-card"), 36),
-                    LinearLayout.LayoutParams(dp(36), dp(36)))
-                row.addView(View(this), LinearLayout.LayoutParams(dp(9), 1))
-                row.addView(LinearLayout(this).apply {
-                    orientation = LinearLayout.VERTICAL
-                    addView(textLine(payment.title, 13f, ink, true).apply {
-                        maxLines = 2
-                        ellipsize = android.text.TextUtils.TruncateAt.END
-                    })
-                    addView(verticalGap(3))
-                    addView(textLine(DateFormat.getDateInstance(DateFormat.MEDIUM)
-                        .format(Date(payment.dueAt)), 11f, muted))
-                }, LinearLayout.LayoutParams(0, -2, 1f))
-                row.addView(View(this), LinearLayout.LayoutParams(dp(7), 1))
-                row.addView(textLine(PaymentCurrencyFormatter.amountWithCurrency(
-                    payment.amount, payment.currency), 13f, ink, true).apply {
-                    gravity = Gravity.END
-                })
-                row.setOnClickListener {
-                    homeExpandedPaymentId = PaymentListInteraction.toggleRow(
-                        homeExpandedPaymentId, payment.id)
-                    renderTab()
-                }
-                item.addView(row)
-                if (expanded) {
-                    item.addView(LinearLayout(this).apply {
-                        orientation = LinearLayout.VERTICAL
-                        setPadding(dp(13), 0, dp(13), dp(12))
-                        addView(textLine("Напомнить за " + payment.leadDays +
-                            " дн. · " + recurrenceLabel(payment.recurrence),
-                            12f, muted))
-                        addView(verticalGap(8))
-                        addView(secondaryButton("Открыть во вкладке «Платежи»") {
-                            upcomingListExpanded = true
-                            expandedPaymentId = payment.id
-                            preferences.edit().putBoolean(
-                                "payments_list_expanded", true).apply()
-                            selectTab(2)
-                        }, LinearLayout.LayoutParams(-1, dp(42)))
-                    })
-                }
-                section.addView(item)
-                if (index != upcoming.lastIndex) {
-                    section.addView(View(this).apply {
-                        setBackgroundColor(if (isNight) Color.rgb(55, 87, 90)
-                            else Color.rgb(215, 234, 230))
-                    }, LinearLayout.LayoutParams(-1, dp(1)))
-                }
-            }
-        }
-        contentContainer.addView(section)
-    }
-
-    private fun renderHomeEvents(upcoming: List<PlannedEvent>) {
-        if (homeExpandedEventId != null &&
-            upcoming.none { it.id == homeExpandedEventId }) homeExpandedEventId = null
-        val eventTint = if (isNight) Color.rgb(155, 193, 219)
-            else Color.rgb(63, 110, 146)
-        val section = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            background = GradientDrawable(GradientDrawable.Orientation.TL_BR,
-                if (isNight) intArrayOf(Color.rgb(37, 61, 74), Color.rgb(31, 51, 64))
-                else intArrayOf(Color.rgb(247, 251, 255), Color.rgb(228, 240, 250))
-            ).apply {
-                cornerRadius = dp(20).toFloat()
-                setStroke(dp(1), if (isNight) Color.rgb(76, 116, 139)
-                    else Color.rgb(186, 212, 232))
-            }
-            elevation = dp(2).toFloat()
-        }
-        val heading = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(14), dp(15), dp(14), dp(15))
-            isClickable = true
-            isFocusable = true
-            contentDescription = if (homeEventsExpanded)
-                "Все предстоящие события, свернуть"
-            else "Все предстоящие события, раскрыть"
-            addView(iconTile("calendar-days", 36),
-                LinearLayout.LayoutParams(dp(36), dp(36)))
-            addView(View(this@MainActivity), LinearLayout.LayoutParams(dp(9), 1))
-            addView(textLine("Все предстоящие события (" +
-                upcoming.size + ")", 16f, ink, true),
-                LinearLayout.LayoutParams(0, -2, 1f))
-            addView(iconTile(if (homeEventsExpanded) "chevron-up"
-                else "chevron-down", 30), LinearLayout.LayoutParams(dp(30), dp(30)))
-            setOnClickListener {
-                homeEventsExpanded = !homeEventsExpanded
-                if (!homeEventsExpanded) homeExpandedEventId = null
-                preferences.edit().putBoolean(
-                    "home_events_expanded", homeEventsExpanded).apply()
-                renderTab()
-            }
-        }
-        section.addView(heading)
-        if (homeEventsExpanded) {
-            section.addView(View(this).apply {
-                setBackgroundColor(if (isNight) Color.rgb(79, 110, 133)
-                    else Color.rgb(190, 217, 235))
-            }, LinearLayout.LayoutParams(-1, dp(1)))
-            if (upcoming.isEmpty()) {
-                section.addView(textLine("Пока нет предстоящих событий",
-                    13f, muted).apply {
-                    setPadding(dp(14), dp(14), dp(14), dp(14))
-                })
-            }
-            for ((index, event) in upcoming.withIndex()) {
-                val expanded = homeExpandedEventId == event.id
-                val item = LinearLayout(this).apply {
-                    orientation = LinearLayout.VERTICAL
-                    if (expanded) background = rounded(
-                        if (isNight) Color.rgb(44, 77, 93)
-                        else Color.rgb(225, 239, 250), 12)
-                }
-                val row = LinearLayout(this).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = Gravity.CENTER_VERTICAL
-                    setPadding(dp(13), dp(10), dp(13), dp(10))
-                    isClickable = true
-                    isFocusable = true
-                    contentDescription = "Событие " + event.title +
-                        if (expanded) ", свернуть" else ", раскрыть"
-                    addView(iconTile(event.iconId ?: IconRegistry.select(
-                        event.title, "calendar-days"), 36),
-                        LinearLayout.LayoutParams(dp(36), dp(36)))
-                    addView(View(this@MainActivity), LinearLayout.LayoutParams(dp(9), 1))
-                    addView(LinearLayout(this@MainActivity).apply {
-                        orientation = LinearLayout.VERTICAL
-                        addView(textLine(event.title, 13f, ink, true).apply {
-                            maxLines = 2
-                            ellipsize = android.text.TextUtils.TruncateAt.END
-                        })
-                        addView(verticalGap(3))
-                        addView(textLine(eventDateLabel(event.dueAt), 11f, muted))
-                    }, LinearLayout.LayoutParams(0, -2, 1f))
-                    addView(iconTile(if (expanded) "chevron-up"
-                        else "chevron-down", 25),
-                        LinearLayout.LayoutParams(dp(25), dp(25)))
-                    setOnClickListener {
-                        homeExpandedEventId =
-                            if (expanded) null else event.id
-                        renderTab()
-                    }
-                }
-                item.addView(row)
-                if (expanded) {
-                    item.addView(LinearLayout(this).apply {
-                        orientation = LinearLayout.VERTICAL
-                        setPadding(dp(13), 0, dp(13), dp(12))
-                        addView(textLine(
-                            event.details.ifBlank { "Описание отсутствует" },
-                            12f, muted))
-                        addView(verticalGap(5))
-                        addView(textLine(eventRepeatLabel(event.recurrence),
-                            12f, eventTint))
-                        addView(verticalGap(8))
-                        addView(secondaryButton("Открыть во вкладке «События»") {
-                            expandedEventId = event.id
-                            selectTab(3)
-                        }, LinearLayout.LayoutParams(-1, dp(42)))
-                    })
-                }
-                section.addView(item)
-                if (index < upcoming.lastIndex) {
-                    section.addView(View(this).apply {
-                        setBackgroundColor(if (isNight) Color.rgb(69, 99, 119)
-                            else Color.rgb(202, 226, 240))
-                    }, LinearLayout.LayoutParams(-1, dp(1)))
-                }
-            }
-        }
-        contentContainer.addView(section)
     }
 
     private fun connectedSims(): List<MobileSim> = T2Balance.sims(this)
@@ -1595,14 +1358,83 @@ class MainActivity : AppCompatActivity() {
             bankCard.addView(verticalGap(8))
             bankCard.addView(textLine(state, 12f, muted))
         }
-        // The banking summary must not bypass the private engineer entry.
-        bankCard.setOnClickListener {
-            if (currentTab != NavigationMotionPolicy.SETTINGS_INDEX) {
-                selectTab(NavigationMotionPolicy.SETTINGS_INDEX)
-            }
-        }
+        // Bank details are read-only. Connection settings remain in the engineer menu.
+        bankCard.isClickable = true
+        bankCard.isFocusable = true
+        bankCard.contentDescription = "Подробнее о последнем балансе Сбербанка"
+        bankCard.setOnClickListener { showSberBalanceDetails() }
         contentContainer.addView(bankCard)
         contentContainer.addView(verticalGap(12))
+    }
+
+    /** Display the latest confirmed Push balance, not a live bank account query. */
+    private fun showSberBalanceDetails() {
+        val enabled = SberBalanceStore.isEnabled(this)
+        val granted = SberBalanceStore.isAccessGranted(this)
+        val snapshot = if (enabled) SberBalanceStore.latest(this) else null
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(19), dp(13), dp(19), dp(15))
+        }
+        val heading = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(sberLogo(48), LinearLayout.LayoutParams(dp(48), dp(48)))
+            addView(View(this@MainActivity), LinearLayout.LayoutParams(dp(12), 1))
+            addView(LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(textLine("Сбербанк", 19f, ink, true))
+                addView(verticalGap(3))
+                addView(textLine("Информация о последнем балансе", 12f, muted))
+            }, LinearLayout.LayoutParams(0, -2, 1f))
+        }
+        panel.addView(heading)
+        panel.addView(verticalGap(18))
+        val balancePanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(15), dp(16), dp(15))
+            background = rounded(softAccent, 17)
+            addView(textLine("Последний подтверждённый баланс", 12f, muted))
+            addView(verticalGap(5))
+            addView(textLine(snapshot?.let { rubles(it.kopecks) } ?: "Нет данных",
+                29f, accent, true))
+        }
+        panel.addView(balancePanel)
+        panel.addView(verticalGap(15))
+        panel.addView(textLine("Карта / счёт", 12f, muted))
+        panel.addView(verticalGap(3))
+        panel.addView(textLine(snapshot?.lastFour?.let { "•••• $it" }
+            ?: "Номер не указан", 16f, ink, true))
+        panel.addView(verticalGap(13))
+        panel.addView(textLine("Последнее обновление", 12f, muted))
+        panel.addView(verticalGap(3))
+        panel.addView(textLine(snapshot?.let {
+            DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
+                .format(Date(it.observedAt))
+        } ?: "Нет подтверждённых Push", 15f, ink, true))
+        panel.addView(verticalGap(13))
+        panel.addView(textLine("Источник данных", 12f, muted))
+        panel.addView(verticalGap(3))
+        panel.addView(textLine("Push СберБанк Онлайн", 15f, ink, true))
+        panel.addView(verticalGap(13))
+        panel.addView(textLine("Статус данных", 12f, muted))
+        panel.addView(verticalGap(3))
+        val status = when {
+            !enabled -> "Получение Push отключено"
+            !granted -> "Доступ к уведомлениям отключён"
+            snapshot == null -> "Ожидание подтверждённого Push"
+            System.currentTimeMillis() - snapshot.observedAt !in 0L..86_400_000L ->
+                "Данные могут быть устаревшими"
+            else -> "Последние полученные данные, не онлайн-баланс"
+        }
+        panel.addView(textLine(status, 13f, muted))
+        val dialog = themedDialogBuilder()
+            .setTitle("Сведения о балансе")
+            .setView(android.widget.ScrollView(this).apply { addView(panel) })
+            .setPositiveButton("Закрыть", null)
+            .create()
+        dialog.setOnShowListener { dialog.window?.setBackgroundDrawable(dialogGradient()) }
+        dialog.show()
     }
 
     private fun refreshSimsInSequence(sims: List<MobileSim>, index: Int) {
@@ -1820,6 +1652,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderPaymentScreen() {
         contentContainer.addView(textLine("Платежи", 23f, ink, true))
+        contentContainer.addView(verticalGap(6))
+        contentContainer.addView(textLine(
+            "Все ваши платежи и расходы под контролем", 13f, muted
+        ))
         contentContainer.addView(verticalGap(13))
         contentContainer.addView(primaryButton("＋  Добавить платёж") {
             showNewPaymentDialog()
@@ -3640,23 +3476,48 @@ class MainActivity : AppCompatActivity() {
         })
         contentContainer.addView(verticalGap(17))
 
+        // Reconcile also when switching tabs while the app has stayed open.
+        EventStore.reconcileElapsed(this)
         val upcoming = EventStore.active(this)
         val list = card()
-        list.addView(LinearLayout(this).apply {
+        val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            addView(iconTile("calendar-days", 40),
-                LinearLayout.LayoutParams(dp(40), dp(40)))
+            setPadding(dp(14), dp(13), dp(14), dp(13))
+            isClickable = true
+            isFocusable = true
+            contentDescription = "Предстоящие события, " + upcoming.size +
+                if (eventListExpanded) ", свернуть список" else ", раскрыть список"
+            addView(iconTile("calendar-days", 38),
+                LinearLayout.LayoutParams(dp(38), dp(38)))
             addView(View(this@MainActivity), LinearLayout.LayoutParams(dp(10), 1))
-            addView(textLine("Предстоящие события", 17f, ink, true),
-                LinearLayout.LayoutParams(0, -2, 1f))
-            addView(textLine(upcoming.size.toString(), 14f, accent, true))
-        })
-        if (upcoming.isEmpty()) {
-            list.addView(verticalGap(16))
-            list.addView(textLine("Событий пока нет. Запланируйте первое событие.",
-                13f, muted))
+            addView(LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(textLine("Предстоящие события", 17f, ink, true))
+                addView(verticalGap(3))
+                addView(textLine(
+                    if (eventListExpanded) "Нажмите, чтобы свернуть · " + upcoming.size
+                    else "Нажмите, чтобы раскрыть · " + upcoming.size, 12f, muted))
+            }, LinearLayout.LayoutParams(0, -2, 1f))
+            addView(iconTile(if (eventListExpanded) "chevron-up" else "chevron-down", 32),
+                LinearLayout.LayoutParams(dp(32), dp(32)))
+            setOnClickListener {
+                eventListExpanded = !eventListExpanded
+                if (!eventListExpanded) expandedEventId = null
+                preferences.edit().putBoolean("event_list_expanded", eventListExpanded).apply()
+                renderTab()
+            }
         }
+        list.addView(header)
+        if (eventListExpanded) {
+            list.addView(View(this).apply {
+                setBackgroundColor(if (isNight) Color.rgb(63, 100, 102)
+                    else Color.rgb(201, 228, 224))
+            }, LinearLayout.LayoutParams(-1, dp(1)))
+            if (upcoming.isEmpty()) {
+                list.addView(textLine("Событий пока нет. Запланируйте первое событие.",
+                    13f, muted).apply { setPadding(dp(15), dp(17), dp(15), dp(17)) })
+            }
         val now = System.currentTimeMillis()
         for (event in upcoming) {
             list.addView(verticalGap(12))
@@ -3730,6 +3591,7 @@ class MainActivity : AppCompatActivity() {
                 details.addView(controls)
                 list.addView(details)
             }
+        }
         }
         contentContainer.addView(list)
         contentContainer.addView(verticalGap(16))
