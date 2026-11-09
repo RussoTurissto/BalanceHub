@@ -4,6 +4,8 @@ import android.content.ContentProvider
 import android.content.ContentValues
 import android.content.res.AssetFileDescriptor
 import android.database.Cursor
+import android.database.MatrixCursor
+import android.provider.OpenableColumns
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import java.io.File
@@ -73,7 +75,22 @@ class BalanceSoundProvider : ContentProvider() {
 
     override fun query(uri: Uri, projection: Array<out String>?,
         selection: String?, selectionArgs: Array<out String>?,
-        sortOrder: String?): Cursor? = null
+        sortOrder: String?): Cursor? {
+        val file = try { soundFile(uri, "r") } catch (_: FileNotFoundException) {
+            return null
+        }
+        val columns = projection?.toList() ?: listOf(
+            OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE)
+        return MatrixCursor(columns.toTypedArray()).apply {
+            addRow(columns.map { column ->
+                when (column) {
+                    OpenableColumns.DISPLAY_NAME -> file.name
+                    OpenableColumns.SIZE -> file.length()
+                    else -> null
+                }
+            }.toTypedArray())
+        }
+    }
     override fun insert(uri: Uri, values: ContentValues?): Uri? = null
     override fun update(uri: Uri, values: ContentValues?,
         selection: String?, selectionArgs: Array<out String>?): Int = 0

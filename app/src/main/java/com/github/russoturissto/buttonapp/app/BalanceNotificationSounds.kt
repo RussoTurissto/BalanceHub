@@ -218,12 +218,12 @@ internal object BalanceNotificationSounds {
                 if (!readable) return "Фирменная мелодия недоступна системе Android"
             }
             val player = MediaPlayer()
+            previewPlayer = player
             player.setAudioAttributes(AudioAttributes.Builder()
                 .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                 .setUsage(AudioAttributes.USAGE_NOTIFICATION).build())
             player.setDataSource(context, uri)
             player.prepare()
-            previewPlayer = player
             player.setOnCompletionListener { finished ->
                 if (previewPlayer === finished) previewPlayer = null
                 finished.release()
