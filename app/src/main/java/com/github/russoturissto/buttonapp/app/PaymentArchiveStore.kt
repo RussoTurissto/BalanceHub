@@ -18,7 +18,8 @@ internal data class ArchivedPayment(
     val leadDays: Int,
     val recurrence: String,
     val archivedAt: Long,
-    val reason: String
+    val reason: String,
+    val iconId: String? = null
 )
 
 // Synchronous commit is intentional: changing active and archived sets is one
@@ -54,7 +55,8 @@ internal object PaymentArchiveStore {
                     record.getLong("dueAt"), record.getInt("leadDays"),
                     record.optString("recurrence", "once"),
                     record.optLong("archivedAt", 0L),
-                    record.optString("archiveReason", DELETED)
+                    record.optString("archiveReason", DELETED),
+                    record.optString("icon").takeIf { IconRegistry.find(it) != null }
                 ))
             } catch (_: Exception) {
                 // Keep other valid history entries visible if a legacy entry is malformed.
