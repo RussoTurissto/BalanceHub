@@ -157,9 +157,34 @@ internal object EventStore {
         return updated.takeIf { save(context, updated) }
     }
 
+    /** Archive elapsed one-off dates after their local day ends. Repeating
+     * occurrences are archived after their reminder can fire; the rule keeps
+     * the repeating plan alive at its next due date.
+     */
+    @Synchronized
+    fun reconcileElapsed(context: Context, now: Long = System.currentTimeMillis()) {
+        for (event in active(context)) {
+            if (event.recurrence == "once") {
+                if (endOfLocalDay(event.dueAt) <= now)
+                    archive(context, event.id, "completed")
+            } else if (event.dueAt + 60_000L <= now) {
+                archive(context, event.id, "completed", nextForRepeated = true)
+            }
+        }
+    }
+
+    private fun endOfLocalDay(dueAt: Long): Long =
+        java.util.Calendar.getInstance().apply {
+            timeInMillis = dueAt
+            set(java.util.Calendar.HOUR_OF_DAY, 0)
+            set(java.util.Calendar.MINUTE, 0)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+            add(java.util.Calendar.DAY_OF_MONTH, 1)
+        }.timeInMillis
+
     @Synchronized
     fun refreshRepetitions(context: Context, now: Long = System.currentTimeMillis()) {
-        active(context).filter { it.dueAt <= now && it.recurrence != "once" }
-            .forEach { advance(context, it.id, it.dueAt, now) }
+        reconcileElapsed(context, now)
     }
 }
