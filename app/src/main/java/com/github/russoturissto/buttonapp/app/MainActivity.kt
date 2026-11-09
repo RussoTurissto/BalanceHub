@@ -22,6 +22,7 @@ import android.text.Editable
 import android.text.TextWatcher
 import android.widget.ImageView
 import android.widget.ProgressBar
+import android.widget.SeekBar
 import android.app.DownloadManager
 import android.os.Handler
 import android.os.Looper
@@ -92,6 +93,7 @@ class MainActivity : AppCompatActivity() {
     private var archiveOpen = false
     private var eventArchiveExpanded = false
     private var eventListExpanded = false
+    private var soundSettingsExpanded = false
     private var expandedEventId: String? = null
     private var selectedPaymentIcon: String? = null
     private var welcomeShowing = false
@@ -174,6 +176,8 @@ class MainActivity : AppCompatActivity() {
         eventArchiveExpanded = savedInstanceState?.getBoolean("event_archive_open") ?: false
         eventListExpanded = savedInstanceState?.getBoolean("event_list_expanded")
             ?: preferences.getBoolean("event_list_expanded", false)
+        soundSettingsExpanded = savedInstanceState?.getBoolean("sound_settings_expanded")
+            ?: preferences.getBoolean("sound_settings_expanded", false)
         expandedEventId = savedInstanceState?.getString("expanded_event_id")
         upcomingListExpanded = savedInstanceState?.getBoolean("payments_list_expanded")
             ?: preferences.getBoolean("payments_list_expanded", true)
@@ -292,6 +296,7 @@ class MainActivity : AppCompatActivity() {
         outState.putBoolean("archive_open", archiveOpen)
         outState.putBoolean("event_archive_open", eventArchiveExpanded)
         outState.putBoolean("event_list_expanded", eventListExpanded)
+        outState.putBoolean("sound_settings_expanded", soundSettingsExpanded)
         outState.putString("expanded_event_id", expandedEventId)
         outState.putBoolean("payments_list_expanded", upcomingListExpanded)
         outState.putString("expanded_payment_id", expandedPaymentId)
@@ -1401,8 +1406,16 @@ class MainActivity : AppCompatActivity() {
             background = rounded(softAccent, 17)
             addView(textLine("Последний подтверждённый баланс", 12f, muted))
             addView(verticalGap(5))
-            addView(textLine(snapshot?.let { rubles(it.kopecks) } ?: "Нет данных",
-                29f, accent, true))
+            addView(textLine(snapshot?.let { rubles(it.kopecks) }
+                ?: "Упс, пока нет данных", if (snapshot == null) 19f else 29f, accent, true))
+            if (snapshot == null) {
+                addView(verticalGap(7))
+                addView(textLine(when {
+                    !enabled -> "Получение Push Сбербанка отключено."
+                    !granted -> "Разрешите BalanceHub доступ к уведомлениям Android."
+                    else -> "Ожидаем Push Сбербанка с явно указанным остатком."
+                }, 13f, muted))
+            }
         }
         panel.addView(balancePanel)
         panel.addView(verticalGap(15))
@@ -1552,8 +1565,13 @@ class MainActivity : AppCompatActivity() {
         summary.addView(textLine(name + " · " + sim.label, 18f, ink, true))
         summary.addView(verticalGap(7))
         summary.addView(textLine("Текущий известный баланс", 13f, muted))
-        summary.addView(textLine(balance?.first?.let { it + " ₽" } ?: "Нет данных",
-            28f, accent, true))
+        summary.addView(textLine(balance?.first?.let { it + " ₽" }
+            ?: "Упс, пока нет данных", if (balance == null) 19f else 28f, accent, true))
+        if (balance == null) {
+            summary.addView(verticalGap(7))
+            summary.addView(textLine("Баланс ещё не получен. Проверьте SIM-карту, " +
+                "разрешения и попробуйте обновить данные.", 13f, muted))
+        }
         balance?.let {
             summary.addView(textLine("Обновлён: " + formatT2DateTime(it.second), 12f, muted))
         }
@@ -1913,16 +1931,15 @@ class MainActivity : AppCompatActivity() {
 
         renderSoundSettings()
         contentContainer.addView(verticalGap(14))
-        val reminderSettings = card()
-        reminderSettings.addView(textLine("Точность напоминаний", 18f, ink, true))
-        reminderSettings.addView(verticalGap(6))
-        reminderSettings.addView(textLine(
-            if (ExactReminderAlarms.allowed(this)) "Точные напоминания разрешены Android."
-            else "Для своевременных напоминаний разрешите точные будильники. " +
-                "Пока разрешения нет, система может задерживать уведомления.",
-            13f, muted))
-        if (!ExactReminderAlarms.allowed(this) &&
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            !ExactReminderAlarms.allowed(this)) {
+            val reminderSettings = card()
+            reminderSettings.addView(textLine("Точность напоминаний", 18f, ink, true))
+            reminderSettings.addView(verticalGap(6))
+            reminderSettings.addView(textLine(
+                "Android пока не разрешил точные напоминания. " +
+                    "Уведомления о платежах и событиях могут задерживаться.",
+                13f, muted))
             reminderSettings.addView(verticalGap(10))
             reminderSettings.addView(secondaryButton("Разрешить точные напоминания") {
                 try {
@@ -1933,9 +1950,9 @@ class MainActivity : AppCompatActivity() {
                         ("package:" + packageName).toUri()))
                 }
             })
+            contentContainer.addView(reminderSettings)
+            contentContainer.addView(verticalGap(14))
         }
-        contentContainer.addView(reminderSettings)
-        contentContainer.addView(verticalGap(14))
 
         val info = card()
         info.addView(textLine("О приложении", 18f, ink, true))
@@ -2039,45 +2056,144 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderSoundSettings() {
-        val settings = card()
-        settings.addView(LinearLayout(this).apply {
+        val settings = card().apply { setPadding(0, 0, 0, 0) }
+        val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            addView(iconTile("music", 37),
-                LinearLayout.LayoutParams(dp(37), dp(37)))
+            setPadding(dp(15), dp(13), dp(15), dp(13))
+            isClickable = true
+            isFocusable = true
+            contentDescription = if (soundSettingsExpanded)
+                "Звуки уведомлений, свернуть настройки" else
+                "Звуки уведомлений, раскрыть настройки"
+            addView(iconTile("music", 38), LinearLayout.LayoutParams(dp(38), dp(38)))
             addView(View(this@MainActivity), LinearLayout.LayoutParams(dp(10), 1))
-            addView(textLine("Звуки уведомлений", 18f, ink, true))
-        })
-        settings.addView(verticalGap(6))
-        settings.addView(textLine("15 фирменных мелодий BalanceHub",
-            13f, muted))
-        for ((category, title) in listOf(
-            BalanceNotificationSounds.PAYMENT to "Платежи",
-            BalanceNotificationSounds.EVENT to "События",
-            BalanceNotificationSounds.UPDATE to "Обновления"
-        )) {
-            settings.addView(verticalGap(11))
-            val row = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(dp(9), dp(10), dp(9), dp(10))
-                background = rounded(softAccent, 12)
-                isClickable = true
-                isFocusable = true
-                contentDescription = "Выбрать звук: " + title
-                addView(LinearLayout(this@MainActivity).apply {
-                    orientation = LinearLayout.VERTICAL
-                    addView(textLine(title, 14f, ink, true))
-                    addView(verticalGap(3))
-                    addView(textLine(
-                        BalanceNotificationSounds.title(this@MainActivity, category),
-                        12f, muted))
-                }, LinearLayout.LayoutParams(0, -2, 1f))
-                addView(iconTile("chevron-down", 26),
-                    LinearLayout.LayoutParams(dp(26), dp(26)))
-                setOnClickListener { showSoundChooser(category, title) }
+            addView(LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(textLine("Звуки уведомлений", 17f, ink, true))
+                addView(verticalGap(3))
+                addView(textLine("Мелодии и громкость BalanceHub", 12f, muted))
+            }, LinearLayout.LayoutParams(0, -2, 1f))
+            addView(iconTile(if (soundSettingsExpanded) "chevron-up"
+                else "chevron-down", 32), LinearLayout.LayoutParams(dp(32), dp(32)))
+            setOnClickListener {
+                soundSettingsExpanded = !soundSettingsExpanded
+                preferences.edit().putBoolean("sound_settings_expanded",
+                    soundSettingsExpanded).apply()
+                renderTab()
             }
-            settings.addView(row)
+        }
+        settings.addView(header)
+        if (soundSettingsExpanded) {
+            settings.addView(View(this).apply {
+                setBackgroundColor(if (isNight) Color.rgb(63, 100, 102)
+                    else Color.rgb(201, 228, 224))
+            }, LinearLayout.LayoutParams(-1, dp(1)))
+            val body = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(16), dp(12), dp(16), dp(16))
+            }
+            for ((category, title) in listOf(
+                BalanceNotificationSounds.PAYMENT to "Платежи",
+                BalanceNotificationSounds.EVENT to "События",
+                BalanceNotificationSounds.UPDATE to "Обновления"
+            )) {
+                body.addView(verticalGap(8))
+                body.addView(LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(12), dp(10), dp(12), dp(10))
+                    background = rounded(softAccent, 12)
+                    isClickable = true
+                    isFocusable = true
+                    contentDescription = "Выбрать звук: " + title
+                    addView(LinearLayout(this@MainActivity).apply {
+                        orientation = LinearLayout.VERTICAL
+                        addView(textLine(title, 14f, ink, true))
+                        addView(verticalGap(3))
+                        addView(textLine(BalanceNotificationSounds.title(
+                            this@MainActivity, category), 12f, muted))
+                    }, LinearLayout.LayoutParams(0, -2, 1f))
+                    addView(iconTile("chevron-down", 26),
+                        LinearLayout.LayoutParams(dp(26), dp(26)))
+                    setOnClickListener { showSoundChooser(category, title) }
+                })
+            }
+            body.addView(verticalGap(15))
+            body.addView(textLine("Громкость уведомлений", 15f, ink, true))
+            body.addView(verticalGap(5))
+            body.addView(textLine(
+                "Уменьшает громкость фирменных звуков относительно громкости " +
+                    "уведомлений телефона. Не изменяет системные настройки.",
+                12f, muted))
+            body.addView(verticalGap(9))
+            val sliders = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(12), dp(10), dp(12), dp(10))
+                background = rounded(softAccent, 12)
+            }
+            val separate = SwitchCompat(this).apply {
+                text = "Отдельно для каждого типа"
+                textSize = 13f
+                setTextColor(ink)
+                isChecked = BalanceNotificationSounds.separateVolume(this@MainActivity)
+            }
+            body.addView(separate)
+            body.addView(verticalGap(8))
+            body.addView(sliders)
+            fun renderSliders() {
+                sliders.removeAllViews()
+                val selected = if (BalanceNotificationSounds.separateVolume(this))
+                    listOf(
+                        BalanceNotificationSounds.PAYMENT to "Платежи",
+                        BalanceNotificationSounds.EVENT to "События",
+                        BalanceNotificationSounds.UPDATE to "Обновления"
+                    ) else listOf(null to "Общая громкость")
+                for ((category, title) in selected) {
+                    val current = BalanceNotificationSounds.volume(this, category)
+                    val level = textLine("$current%", 13f, accent, true)
+                    sliders.addView(LinearLayout(this).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        gravity = Gravity.CENTER_VERTICAL
+                        addView(textLine(title, 13f, ink),
+                            LinearLayout.LayoutParams(0, -2, 1f))
+                        addView(level)
+                    })
+                    val seek = SeekBar(this).apply {
+                        max = 100
+                        progress = current
+                        progressTintList = android.content.res.ColorStateList.valueOf(accent)
+                        thumbTintList = android.content.res.ColorStateList.valueOf(accent)
+                        setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                            override fun onProgressChanged(bar: SeekBar?, value: Int,
+                                fromUser: Boolean) {
+                                level.text = "${((value + 2) / 5 * 5).coerceIn(0, 100)}%"
+                            }
+                            override fun onStartTrackingTouch(bar: SeekBar?) = Unit
+                            override fun onStopTrackingTouch(bar: SeekBar?) {
+                                val chosen = (((bar?.progress ?: current) + 2) / 5 * 5)
+                                    .coerceIn(0, 100)
+                                BalanceNotificationSounds.setVolume(
+                                    this@MainActivity, category, chosen)
+                                level.text = "$chosen%"
+                                bar?.progress = chosen
+                            }
+                        })
+                    }
+                    sliders.addView(seek)
+                    if (category != selected.last().first) sliders.addView(verticalGap(8))
+                }
+            }
+            separate.setOnCheckedChangeListener { _, checked ->
+                BalanceNotificationSounds.setSeparateVolume(this, checked)
+                renderSliders()
+            }
+            renderSliders()
+            body.addView(verticalGap(8))
+            body.addView(textLine(
+                "В беззвучном режиме и режиме «Не беспокоить» действуют правила Android.",
+                12f, muted))
+            settings.addView(body)
         }
         contentContainer.addView(settings)
     }
@@ -2117,7 +2233,7 @@ class MainActivity : AppCompatActivity() {
             }
             if (BalanceNotificationSounds.tones.any { it.key == key }) {
                 row.addView(secondaryButton("▶") {
-                    BalanceNotificationSounds.preview(this, key)
+                    BalanceNotificationSounds.preview(this, key, category)
                 }, LinearLayout.LayoutParams(dp(52), dp(43)))
             }
             content.addView(row)
@@ -3529,7 +3645,11 @@ class MainActivity : AppCompatActivity() {
         // Reconcile also when switching tabs while the app has stayed open.
         EventStore.reconcileElapsed(this)
         val upcoming = EventStore.active(this)
-        val list = card()
+        val list = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = cardGradient()
+            elevation = dp(2).toFloat()
+        }
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -3644,7 +3764,7 @@ class MainActivity : AppCompatActivity() {
         }
         }
         contentContainer.addView(list)
-        contentContainer.addView(verticalGap(16))
+        contentContainer.addView(verticalGap(18))
         val history = EventStore.archived(this)
         val archived = card()
         val archiveHeader = LinearLayout(this).apply {
@@ -3654,8 +3774,8 @@ class MainActivity : AppCompatActivity() {
             isFocusable = true
             contentDescription = if (eventArchiveExpanded) "Свернуть архив событий"
                 else "Раскрыть архив событий"
-            addView(iconTile("archive", 41),
-                LinearLayout.LayoutParams(dp(41), dp(41)))
+            addView(iconTile("archive", 40),
+                LinearLayout.LayoutParams(dp(40), dp(40)))
             addView(View(this@MainActivity), LinearLayout.LayoutParams(dp(12), 1))
             addView(LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.VERTICAL
@@ -3663,8 +3783,8 @@ class MainActivity : AppCompatActivity() {
                 addView(verticalGap(3))
                 addView(textLine("Записей: " + history.size, 12f, muted))
             }, LinearLayout.LayoutParams(0, -2, 1f))
-            addView(iconTile(if (eventArchiveExpanded) "chevron-up"
-                else "chevron-down", 32), LinearLayout.LayoutParams(dp(32), dp(32)))
+            addView(textLine(if (eventArchiveExpanded) "⌃" else "›",
+                25f, accent, true))
             setOnClickListener {
                 eventArchiveExpanded = !eventArchiveExpanded
                 renderTab()
