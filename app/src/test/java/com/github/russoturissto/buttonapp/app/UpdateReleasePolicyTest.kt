@@ -28,7 +28,7 @@ class UpdateReleasePolicyTest {
     }
     @Test fun acceptsApprovedSemanticVersionsWithIndependentAndroidCode() {
         val approved = release("v1.0.0").put("body",
-            "Большое обновление\\n<!-- BalanceHub-VersionCode: 210 -->")
+            "Большое обновление\n<!-- BalanceHub-VersionCode: 210 -->")
         val result = UpdateReleasePolicy.parse(approved, 200L)
         assertNotNull(result)
         assertEquals("v1.0.0", result!!.tag)
