@@ -44,6 +44,9 @@ android {
         }
     }
 
+    androidResources {
+        noCompress.add("wav")
+    }
     buildFeatures {
         viewBinding = true
     }
