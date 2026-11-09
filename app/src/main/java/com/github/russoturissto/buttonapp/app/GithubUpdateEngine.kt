@@ -86,9 +86,20 @@ internal object GithubUpdateEngine {
         try {
             if (connection.responseCode != HttpURLConnection.HTTP_OK)
                 throw IOException("GitHub HTTP " + connection.responseCode)
-            // Cap untrusted response size; release notes are truncated separately.
-            val text = connection.inputStream.bufferedReader(Charsets.UTF_8).use {
-                it.readText().take(120_000)
+            // The preview feed lists up to 30 releases. A 120k-character
+            // truncation silently broke JSON parsing as the release history grew.
+            // Bound what is read instead of truncating a JSON document.
+            val text = connection.inputStream.bufferedReader(Charsets.UTF_8).use { reader ->
+                val buffer = CharArray(8_192)
+                val body = StringBuilder()
+                while (true) {
+                    val count = reader.read(buffer)
+                    if (count == -1) break
+                    if (body.length + count > 1_000_000)
+                        throw IOException("Ответ GitHub превышает допустимый размер")
+                    body.append(buffer, 0, count)
+                }
+                body.toString()
             }
             val release = try {
                 if (isPreview(context)) {
