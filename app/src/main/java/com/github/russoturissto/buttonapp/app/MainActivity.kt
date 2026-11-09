@@ -1298,6 +1298,7 @@ class MainActivity : AppCompatActivity() {
         contentContainer.addView(textLine("Банковские счета", 14f, muted))
         contentContainer.addView(verticalGap(14))
 
+        if (BankCardPreferences.visible(this, "sber")) {
         val enabled = SberBalanceStore.isEnabled(this)
         val granted = SberBalanceStore.isAccessGranted(this)
         // A masked card suffix and masked account suffix may identify the same
@@ -1375,6 +1376,16 @@ class MainActivity : AppCompatActivity() {
         bankCard.setOnClickListener { showSberBalanceDetails() }
         contentContainer.addView(bankCard)
         contentContainer.addView(verticalGap(12))
+        }
+        renderOtherBankBalances()
+        if (RussianBankCatalog.available(this).none {
+                BankCardPreferences.visible(this, it.id)
+            }) {
+            contentContainer.addView(textLine(
+                "Все банковские карточки скрыты. Верните их через Настройки → Банки.",
+                13f, muted))
+            contentContainer.addView(verticalGap(12))
+        }
     }
 
     /** Display the latest confirmed Push balance, not a live bank account query. */
@@ -1449,8 +1460,273 @@ class MainActivity : AppCompatActivity() {
         val dialog = themedDialogBuilder()
             .setTitle("Сведения о балансе")
             .setView(android.widget.ScrollView(this).apply { addView(panel) })
+            .setNeutralButton("Скрыть карточку") { _, _ ->
+                RussianBankCatalog.byId("sber")?.let(::confirmHideBankCard)
+            }
             .setPositiveButton("Закрыть", null)
             .create()
+        dialog.setOnShowListener { dialog.window?.setBackgroundDrawable(dialogGradient()) }
+        dialog.show()
+    }
+
+    private fun bankLogo(bank: RussianBank, size: Int): View {
+        if (bank.id == "sber") return sberLogo(size)
+        val installed = RussianBankCatalog.installedPackage(this, bank)
+        if (installed != null) {
+            try {
+                return ImageView(this).apply {
+                    setImageDrawable(packageManager.getApplicationIcon(installed))
+                    scaleType = ImageView.ScaleType.FIT_CENTER
+                    contentDescription = "Значок установленного приложения: " + bank.name
+                    layoutParams = LinearLayout.LayoutParams(dp(size), dp(size))
+                }
+            } catch (_: PackageManager.NameNotFoundException) {
+                // Bank was uninstalled while the card was being constructed.
+            }
+        }
+        return textLine(bank.monogram, 19f, accent, true).apply {
+            gravity = Gravity.CENTER
+            background = rounded(softAccent, 14)
+            contentDescription = "Обозначение банка " + bank.name
+            layoutParams = LinearLayout.LayoutParams(dp(size), dp(size))
+        }
+    }
+
+    private fun renderOtherBankBalances() {
+        for (bank in RussianBankCatalog.available(this)) {
+            if (bank.id == "sber" || !BankCardPreferences.visible(this, bank.id)) continue
+            val enabled = BankCardPreferences.enabled(this, bank.id)
+            val granted = SberBalanceStore.isAccessGranted(this)
+            val snapshot = if (enabled) RussianBankBalanceStore.latest(this, bank.id)
+                else null
+            val bankCard = card()
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            row.addView(bankLogo(bank, 54),
+                LinearLayout.LayoutParams(dp(54), dp(54)))
+            row.addView(View(this), LinearLayout.LayoutParams(dp(10), 1))
+            val subtitle = when {
+                !enabled -> "Push не подключён"
+                !granted -> "Нет доступа к уведомлениям"
+                snapshot == null -> "Ожидание банковского Push"
+                snapshot.lastFour != null -> "Последний Push · ••••" + snapshot.lastFour
+                else -> "Последний Push · номер не указан"
+            }
+            row.addView(LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(textLine(bank.name, 16f, ink, true))
+                addView(verticalGap(3))
+                addView(textLine(subtitle, 12f, muted))
+            }, LinearLayout.LayoutParams(0, -2, 1f))
+            val amount = textLine(
+                snapshot?.let { rubles(it.kopecks) } ?: "Нет данных",
+                if (snapshot == null) 15f else 22f,
+                Color.rgb(23, 55, 33), true
+            ).apply {
+                gravity = Gravity.CENTER
+                setPadding(dp(10), dp(8), dp(10), dp(8))
+                background = rounded(
+                    if (isNight) Color.rgb(191, 239, 104)
+                    else Color.rgb(216, 241, 166), 14)
+            }
+            if (resources.configuration.screenWidthDp >= 395) {
+                row.addView(View(this), LinearLayout.LayoutParams(dp(6), 1))
+                row.addView(amount)
+            }
+            bankCard.addView(row)
+            if (resources.configuration.screenWidthDp < 395) {
+                bankCard.addView(verticalGap(9))
+                bankCard.addView(LinearLayout(this).apply {
+                    gravity = Gravity.END
+                    addView(amount)
+                })
+            }
+            bankCard.addView(verticalGap(8))
+            if (snapshot != null) {
+                val time = DateFormat.getDateTimeInstance(DateFormat.SHORT,
+                    DateFormat.SHORT).format(Date(snapshot.observedAt))
+                bankCard.addView(textLine("Подтверждено Push " + bank.name + ": " +
+                    time, 12f, muted))
+            } else bankCard.addView(textLine(when {
+                !enabled -> "Подключите Push в настройках банков"
+                !granted -> "Разрешите BalanceHub доступ к уведомлениям"
+                else -> RussianBankDiagnostics.last(this, bank)
+                    ?: "Ожидание Push с указанием остатка в рублях"
+            }, 12f, muted))
+            bankCard.isClickable = true
+            bankCard.isFocusable = true
+            bankCard.contentDescription = "Подробнее о последнем балансе " + bank.name
+            bankCard.setOnClickListener { showOtherBankDetails(bank) }
+            contentContainer.addView(bankCard)
+            contentContainer.addView(verticalGap(12))
+        }
+    }
+
+    private fun showOtherBankDetails(bank: RussianBank) {
+        val enabled = BankCardPreferences.enabled(this, bank.id)
+        val granted = SberBalanceStore.isAccessGranted(this)
+        val snapshot = if (enabled) RussianBankBalanceStore.latest(this, bank.id)
+            else null
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(19), dp(13), dp(19), dp(15))
+        }
+        panel.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(bankLogo(bank, 48), LinearLayout.LayoutParams(dp(48), dp(48)))
+            addView(View(this@MainActivity), LinearLayout.LayoutParams(dp(12), 1))
+            addView(LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(textLine(bank.name, 19f, ink, true))
+                addView(verticalGap(3))
+                addView(textLine("Информация о последнем балансе", 12f, muted))
+            }, LinearLayout.LayoutParams(0, -2, 1f))
+        })
+        panel.addView(verticalGap(18))
+        panel.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(15), dp(16), dp(15))
+            background = rounded(softAccent, 17)
+            addView(textLine("Последний подтверждённый баланс", 12f, muted))
+            addView(verticalGap(5))
+            addView(textLine(snapshot?.let { rubles(it.kopecks) }
+                ?: "Упс, пока нет данных",
+                if (snapshot == null) 19f else 29f, accent, true))
+            if (snapshot == null) {
+                addView(verticalGap(7))
+                addView(textLine(when {
+                    !enabled -> "Получение Push этого банка пока отключено."
+                    !granted -> "Разрешите BalanceHub доступ к уведомлениям Android."
+                    else -> "Ожидаем уведомление банка с явно указанным остатком."
+                }, 13f, muted))
+            }
+        })
+        for ((heading, value) in listOf(
+            "Карта / счёт" to
+                (snapshot?.lastFour?.let { "•••• $it" } ?: "Номер не указан"),
+            "Последнее обновление" to
+                (snapshot?.let { DateFormat.getDateTimeInstance(
+                    DateFormat.MEDIUM, DateFormat.SHORT).format(Date(it.observedAt)) }
+                    ?: "Нет подтверждённых Push"),
+            "Источник данных" to ("Push " + bank.name),
+            "Статус данных" to (when {
+                !enabled -> "Получение Push отключено"
+                !granted -> "Доступ к уведомлениям отключён"
+                snapshot == null -> RussianBankDiagnostics.last(this, bank)
+                    ?: "Ожидание подтверждённого Push"
+                System.currentTimeMillis() - snapshot.observedAt !in 0L..86_400_000L ->
+                    "Данные могут быть устаревшими"
+                else -> "Последние полученные данные, не онлайн-баланс"
+            })
+        )) {
+            panel.addView(verticalGap(13))
+            panel.addView(textLine(heading, 12f, muted))
+            panel.addView(verticalGap(3))
+            panel.addView(textLine(value, 15f, ink, true))
+        }
+        val dialog = themedDialogBuilder().setTitle("Сведения о балансе")
+            .setView(android.widget.ScrollView(this).apply { addView(panel) })
+            .setNeutralButton("Скрыть карточку") { _, _ ->
+                confirmHideBankCard(bank)
+            }.setPositiveButton("Закрыть", null).create()
+        dialog.setOnShowListener { dialog.window?.setBackgroundDrawable(dialogGradient()) }
+        dialog.show()
+    }
+
+    private fun confirmHideBankCard(bank: RussianBank) {
+        themedDialogBuilder().setTitle("Скрыть " + bank.name + "?")
+            .setMessage("Карточка исчезнет из раздела «Балансы». " +
+                "Сохранённый баланс не удалится, получение Push продолжится. " +
+                "Вернуть банк можно через Настройки → Банковские карточки.")
+            .setNegativeButton("Отмена", null)
+            .setPositiveButton("Скрыть") { _, _ ->
+                BankCardPreferences.setVisible(this, bank.id, false)
+                renderTab()
+            }.show()
+    }
+
+    private fun showBankCardManager() {
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(8), dp(18), dp(15))
+        }
+        val dialog = themedDialogBuilder()
+            .setTitle("Банковские карточки")
+            .setView(android.widget.ScrollView(this).apply { addView(content) })
+            .setPositiveButton("Готово", null).create()
+        content.addView(textLine(
+            "Показ карточки не влияет на сохранённый баланс или получение Push. " +
+                "Подключение Push требует отдельного разрешения Android.",
+            13f, muted))
+        for (bank in RussianBankCatalog.available(this)) {
+            content.addView(verticalGap(12))
+            val entry = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(12), dp(10), dp(12), dp(10))
+                background = rounded(softAccent, 14)
+            }
+            entry.addView(LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                addView(bankLogo(bank, 39),
+                    LinearLayout.LayoutParams(dp(39), dp(39)))
+                addView(View(this@MainActivity), LinearLayout.LayoutParams(dp(10), 1))
+                addView(textLine(bank.name, 15f, ink, true),
+                    LinearLayout.LayoutParams(0, -2, 1f))
+            })
+            val showToggle = SwitchCompat(this).apply {
+                text = "Показывать карточку"
+                textSize = 13f
+                setTextColor(ink)
+                isChecked = BankCardPreferences.visible(this@MainActivity, bank.id)
+                setOnCheckedChangeListener { _, shown ->
+                    BankCardPreferences.setVisible(this@MainActivity, bank.id, shown)
+                }
+            }
+            entry.addView(showToggle)
+            entry.addView(verticalGap(5))
+            entry.addView(textLine(when {
+                BankCardPreferences.enabled(this, bank.id) ->
+                    "Получение Push включено"
+                RussianBankCatalog.installedPackage(this, bank) != null ->
+                    "Приложение найдено · Push не подключён"
+                else -> "Приложение не найдено"
+            }, 12f, muted))
+            entry.addView(verticalGap(8))
+            entry.addView(secondaryButton(if (BankCardPreferences.enabled(this, bank.id))
+                "Отключить получение Push" else "Подключить Push") {
+                if (BankCardPreferences.enabled(this, bank.id)) {
+                    themedDialogBuilder().setTitle("Отключить Push " + bank.name + "?")
+                        .setMessage("Будет удалён сохранённый остаток этого банка. " +
+                            "Карточку можно скрыть отдельно, не отключая Push.")
+                        .setNegativeButton("Отмена", null)
+                        .setPositiveButton("Отключить") { _, _ ->
+                            BankCardPreferences.setEnabled(this, bank.id, false)
+                            dialog.dismiss()
+                            renderTab()
+                        }.show()
+                } else {
+                    themedDialogBuilder().setTitle("Подключить " + bank.name + "?")
+                        .setMessage("Для получения баланса BalanceHub нужен широкий " +
+                            "системный доступ к уведомлениям. Приложение обрабатывает " +
+                            "Push выбранного банка локально; распознавание возможно " +
+                            "только при наличии однозначного остатка в рублях.")
+                        .setNegativeButton("Отмена", null)
+                        .setPositiveButton("Подключить") { _, _ ->
+                            BankCardPreferences.setEnabled(this, bank.id, true)
+                            dialog.dismiss()
+                            renderTab()
+                            if (!SberBalanceStore.isAccessGranted(this))
+                                openSberListenerSettings()
+                        }.show()
+                }
+            })
+            content.addView(entry)
+        }
+        dialog.setOnDismissListener { if (currentTab == 4) renderTab() }
         dialog.setOnShowListener { dialog.window?.setBackgroundDrawable(dialogGradient()) }
         dialog.show()
     }
@@ -1927,6 +2203,31 @@ class MainActivity : AppCompatActivity() {
             renderTab()
         }
         contentContainer.addView(mobileSettings)
+        contentContainer.addView(verticalGap(14))
+
+        val bankCards = card()
+        bankCards.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(iconTile("credit-card", 37),
+                LinearLayout.LayoutParams(dp(37), dp(37)))
+            addView(View(this@MainActivity), LinearLayout.LayoutParams(dp(10), 1))
+            addView(LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(textLine("Банковские карточки", 18f, ink, true))
+                addView(verticalGap(3))
+                val count = RussianBankCatalog.available(this@MainActivity).size
+                val hidden = RussianBankCatalog.available(this@MainActivity)
+                    .count { !BankCardPreferences.visible(this@MainActivity, it.id) }
+                addView(textLine("Обнаружено и добавлено: $count · скрыто: $hidden",
+                    12f, muted))
+            }, LinearLayout.LayoutParams(0, -2, 1f))
+        })
+        bankCards.addView(verticalGap(12))
+        bankCards.addView(secondaryButton("Управление банками") {
+            showBankCardManager()
+        })
+        contentContainer.addView(bankCards)
         contentContainer.addView(verticalGap(14))
 
         renderSoundSettings()
