@@ -65,6 +65,14 @@ class MainActivity : AppCompatActivity() {
     private lateinit var listContainer: LinearLayout
     private lateinit var contentContainer: LinearLayout
     private lateinit var dashboardScroll: android.widget.ScrollView
+    private var measuredDashboardViewportDp: Int = 0
+    private fun dashboardSizing(weeks: Int = 5): HomeDashboardSize {
+        val viewport = measuredDashboardViewportDp
+        return if (viewport > 0) HomeDashboardSizing.forViewport(
+            viewport, resources.configuration.fontScale, weeks)
+        else HomeDashboardSizing.forHeight(
+            resources.configuration.screenHeightDp, resources.configuration.fontScale)
+    }
     private var tabViews: List<View> = emptyList()
     private var bottomNavigation: BalanceBottomNavigation? = null
     private var currentTab = 0
@@ -436,11 +444,28 @@ class MainActivity : AppCompatActivity() {
         }
         scroll.addView(contentContainer)
         dashboardScroll = scroll
+        // Insets, header size and device font scale all change the real viewport.
+        // Use its measured height instead of guessing from screenHeightDp.
+        scroll.addOnLayoutChangeListener { _, _, top, _, bottom, _, oldTop, _, oldBottom ->
+            val height = ((bottom - top) / resources.displayMetrics.density).toInt()
+            val previous = measuredDashboardViewportDp
+            if (height > 0 && kotlin.math.abs(previous - height) >= 2) {
+                measuredDashboardViewportDp = height
+                if (currentTab == 0) {
+                    scroll.post {
+                        if (currentTab == 0 && measuredDashboardViewportDp == height &&
+                            !isFinishing) renderTab()
+                    }
+                }
+            }
+        }
         screen.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
 
+        val navSidePadding = if (resources.configuration.screenWidthDp < 340)
+            dp(9) else dp(16)
         val tabs = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(9), dp(8), dp(9), dp(8))
+            setPadding(navSidePadding, dp(8), navSidePadding, dp(8))
             background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
                 if (isNight) intArrayOf(Color.rgb(19, 39, 44), Color.rgb(17, 35, 40))
                 else intArrayOf(Color.rgb(234, 247, 244), Color.rgb(224, 243, 239))
@@ -458,7 +483,7 @@ class MainActivity : AppCompatActivity() {
         // Only this outer strip receives the inset; the pill never shifts.
         ViewCompat.setOnApplyWindowInsetsListener(tabs) { view, insets ->
             val bottom = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
-            view.setPadding(dp(9), dp(8), dp(9), bottom + dp(8))
+            view.setPadding(navSidePadding, dp(8), navSidePadding, bottom + dp(8))
             insets
         }
         screen.addView(tabs)
@@ -519,10 +544,7 @@ class MainActivity : AppCompatActivity() {
         // All top-level headings share the same vertical position.
         // Reuse the responsive top inset already approved for "Главная";
         // do not shift the home title or change the wave/header itself.
-        val topPadding = HomeDashboardSizing.forHeight(
-            resources.configuration.screenHeightDp,
-            resources.configuration.fontScale
-        ).topPaddingDp
+        val topPadding = dashboardSizing().topPaddingDp
         contentContainer.setPadding(dp(18), dp(topPadding), dp(18),
             dp(if (currentTab == 0) 12 else 24))
         if (tutorialStep >= 0) {
@@ -691,7 +713,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderHome() {
         contentContainer.addView(textLine("Главная", 23f, ink, true))
-        contentContainer.addView(verticalGap(11))
+        contentContainer.addView(verticalGap(8))
         val startOfToday = Calendar.getInstance().apply {
             set(Calendar.HOUR_OF_DAY, 0)
             set(Calendar.MINUTE, 0)
@@ -699,21 +721,23 @@ class MainActivity : AppCompatActivity() {
             set(Calendar.MILLISECOND, 0)
         }.timeInMillis
         val upcomingPayments = payments.filter { it.dueAt >= startOfToday }
-        val summary = card()
+        val summary = card().apply {
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+        }
         summary.addView(textLine("Предстоящие платежи", 14f, muted))
-        summary.addView(verticalGap(10))
+        summary.addView(verticalGap(6))
         val totals = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
         val count = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            addView(textLine(upcomingPayments.size.toString(), 34f, ink, true))
+            addView(textLine(upcomingPayments.size.toString(), 31f, ink, true))
             addView(textLine("Запланировано\nнапоминаний", 12f, muted))
         }
         totals.addView(count, LinearLayout.LayoutParams(0, -2, 1f))
         val divider = View(this).apply { setBackgroundColor(muted) }
-        totals.addView(divider, LinearLayout.LayoutParams(dp(1), dp(65)).apply {
+        totals.addView(divider, LinearLayout.LayoutParams(dp(1), dp(56)).apply {
             marginStart = dp(7)
             marginEnd = dp(15)
         })
@@ -734,14 +758,16 @@ class MainActivity : AppCompatActivity() {
         totals.addView(valueColumn, LinearLayout.LayoutParams(0, -2, 1f))
         summary.addView(totals)
         contentContainer.addView(summary)
-        contentContainer.addView(verticalGap(12))
-        renderHomeCalendar(upcomingPayments)
-        contentContainer.addView(verticalGap(12))
-        renderHomePayments(upcomingPayments.sortedBy { it.dueAt })
-        contentContainer.addView(verticalGap(10))
+        contentContainer.addView(verticalGap(9))
+        // Place the primary action before the tall calendar, so it is always
+        // discoverable without scrolling on ordinary screens.
         contentContainer.addView(primaryButton("Управлять платежами") {
             selectTab(2)
-        })
+        }, LinearLayout.LayoutParams(-1, dp(48)))
+        contentContainer.addView(verticalGap(10))
+        renderHomeCalendar(upcomingPayments)
+        contentContainer.addView(verticalGap(10))
+        renderHomePayments(upcomingPayments.sortedBy { it.dueAt })
     }
 
     private fun renderHomeCalendar(upcoming: List<PaymentReminder>) {
@@ -749,10 +775,8 @@ class MainActivity : AppCompatActivity() {
         val month = homeCalendarMonth.get(Calendar.MONTH)
         val offset = PaymentCalendarMath.mondayOffset(year, month)
         val monthDays = PaymentCalendarMath.daysInMonth(year, month)
-        val sizing = HomeDashboardSizing.forHeight(
-            resources.configuration.screenHeightDp,
-            resources.configuration.fontScale
-        )
+        val rows = (offset + monthDays + 6) / 7
+        val sizing = dashboardSizing(rows)
         val today = Calendar.getInstance()
         val isCurrentMonth = today.get(Calendar.YEAR) == year &&
             today.get(Calendar.MONTH) == month
@@ -763,7 +787,7 @@ class MainActivity : AppCompatActivity() {
                 byDay.getOrPut(day) { mutableListOf() }.add(payment)
             }
         }
-        val calendar = card().apply { setPadding(dp(13), dp(11), dp(13), dp(12)) }
+        val calendar = card().apply { setPadding(dp(11), dp(9), dp(11), dp(10)) }
         val controls = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -786,16 +810,15 @@ class MainActivity : AppCompatActivity() {
         }.apply { contentDescription = "Следующий месяц" },
             LinearLayout.LayoutParams(dp(40), dp(sizing.monthControlHeightDp)))
         calendar.addView(controls)
-        calendar.addView(verticalGap(6))
+        calendar.addView(verticalGap(4))
 
         val weekdays = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         for (name in listOf("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")) {
             weekdays.addView(textLine(name, 11f, muted, true).apply {
                 gravity = Gravity.CENTER
-            }, LinearLayout.LayoutParams(0, dp(22), 1f))
+            }, LinearLayout.LayoutParams(0, dp(20), 1f))
         }
         calendar.addView(weekdays)
-        val rows = (offset + monthDays + 6) / 7
         for (rowIndex in 0 until rows) {
             val daysRow = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -812,10 +835,20 @@ class MainActivity : AppCompatActivity() {
                 val isToday = isCurrentMonth &&
                     today.get(Calendar.DAY_OF_MONTH) == day
                 val chosen = homeSelectedDay == day
-                val cell = LinearLayout(this).apply {
+                // The touch target spans the cell; the painted tile is inset.
+                // This keeps adjacent marked dates visually separated even
+                // when several payments fall on consecutive days or weeks.
+                val cell = android.widget.FrameLayout(this).apply {
+                    setPadding(dp(2), dp(2), dp(2), dp(2))
+                    isClickable = true
+                    isFocusable = true
+                    contentDescription = day.toString() + " " + title +
+                        (if (marked) ", платежей: " + paymentCount else "") +
+                        (if (isToday) ", сегодня" else "")
+                }
+                val tile = LinearLayout(this).apply {
                     orientation = LinearLayout.VERTICAL
                     gravity = Gravity.CENTER
-                    setPadding(dp(1), dp(2), dp(1), dp(2))
                     background = GradientDrawable().apply {
                         setColor(when {
                             chosen -> Color.rgb(32, 133, 128)
@@ -823,43 +856,45 @@ class MainActivity : AppCompatActivity() {
                                 else Color.rgb(207, 239, 230)
                             else -> Color.TRANSPARENT
                         })
-                        cornerRadius = dp(11).toFloat()
+                        cornerRadius = dp(10).toFloat()
                         if (isToday) setStroke(dp(2), Color.rgb(45, 221, 212))
                         else if (chosen) setStroke(dp(2), Color.rgb(166, 236, 211))
                     }
-                    isClickable = true
-                    isFocusable = true
-                    contentDescription = day.toString() + " " + title +
-                        (if (marked) ", платежей: " + paymentCount else "") +
-                        (if (isToday) ", сегодня" else "")
+                    addView(textLine(day.toString(), 13f,
+                        if (chosen || (marked && isNight)) Color.WHITE else ink,
+                        chosen || marked || isToday).apply {
+                        gravity = Gravity.CENTER
+                        includeFontPadding = false
+                    })
+                    addView(textLine(
+                        if (paymentCount > 1) paymentCount.toString()
+                        else if (marked) "•" else " ",
+                        9f,
+                        if (chosen || (marked && isNight)) Color.WHITE else accent,
+                        marked
+                    ).apply {
+                        gravity = Gravity.CENTER
+                        includeFontPadding = false
+                    })
                 }
-                cell.addView(textLine(day.toString(), 13f,
-                    if (chosen || (marked && isNight)) Color.WHITE else ink,
-                    chosen || marked || isToday).apply {
-                    gravity = Gravity.CENTER
-                })
-                cell.addView(textLine(
-                    if (paymentCount > 1) paymentCount.toString()
-                    else if (marked) "•" else " ",
-                    10f,
-                    if (chosen || (marked && isNight)) Color.WHITE else accent,
-                    marked
-                ).apply { gravity = Gravity.CENTER })
+                cell.addView(tile, android.widget.FrameLayout.LayoutParams(
+                    -1, -1))
                 cell.setOnClickListener {
                     homeSelectedDay = if (chosen) null else day
                     renderTab()
                 }
-                daysRow.addView(cell, LinearLayout.LayoutParams(0, dp(sizing.dayCellHeightDp), 1f)
-                    .apply { marginStart = dp(1); marginEnd = dp(1) })
+                daysRow.addView(cell,
+                    LinearLayout.LayoutParams(0, dp(sizing.dayCellHeightDp), 1f)
+                        .apply { marginStart = dp(1); marginEnd = dp(1) })
             }
             calendar.addView(daysRow)
         }
-        calendar.addView(verticalGap(8))
+        calendar.addView(verticalGap(6))
         calendar.addView(View(this).apply {
             setBackgroundColor(if (isNight) Color.rgb(68, 104, 104)
                 else Color.rgb(196, 222, 218))
         }, LinearLayout.LayoutParams(-1, dp(1)))
-        calendar.addView(verticalGap(8))
+        calendar.addView(verticalGap(6))
 
         // Always show the nearest current payment, not the nearest in the
         // month currently browsed in the calendar.
@@ -1750,14 +1785,77 @@ class MainActivity : AppCompatActivity() {
         help.addView(textLine("Помощь", 18f, ink, true))
         help.addView(verticalGap(6))
         help.addView(textLine(
-            "Пошаговая настройка абонентской платы, даты и напоминаний",
+            "Руководства по настройке напоминаний и банковских Push",
             13f, muted
         ))
         help.addView(verticalGap(10))
+        help.addView(secondaryButton("Настройка Push Сбербанка · Termux / ADB") {
+            showBankPushHelp()
+        })
+        help.addView(verticalGap(8))
         help.addView(secondaryButton("Пройти обучение повторно") {
             restartTutorial()
         })
         contentContainer.addView(help)
+    }
+
+    /**
+     * Local, opt-in guide: display ADB commands for copying only. The app never
+     * grants protected AppOps itself or changes system optimization.
+     */
+    private fun showBankPushHelp() {
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(10), dp(18), dp(12))
+            addView(textLine("Получение Push Сбербанка", 19f, ink, true))
+            addView(verticalGap(7))
+            addView(textLine(
+                "Пошаговая настройка для собственного телефона через Termux и ADB. " +
+                    "Подходит не для всех прошивок Android. Выполняйте действия " +
+                    "осознанно: расширенный доступ уменьшает защиту чувствительных " +
+                    "уведомлений.",
+                13f, muted
+            ))
+        }
+        for (step in BankPushHelp.steps(packageName)) {
+            content.addView(verticalGap(15))
+            content.addView(textLine(step.heading, 15f, ink, true))
+            content.addView(verticalGap(5))
+            content.addView(textLine(step.detail, 13f, muted))
+            val command = step.command
+            if (command != null) {
+                content.addView(verticalGap(8))
+                content.addView(LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    background = rounded(softAccent, 12)
+                    setPadding(dp(10), dp(10), dp(10), dp(10))
+                    addView(textLine(command, 12f, ink).apply {
+                        setTextIsSelectable(true)
+                        typeface = Typeface.MONOSPACE
+                    })
+                    addView(verticalGap(6))
+                    addView(secondaryButton("Копировать команду") {
+                        val manager = getSystemService(Context.CLIPBOARD_SERVICE)
+                            as android.content.ClipboardManager
+                        manager.setPrimaryClip(android.content.ClipData.newPlainText(
+                            "Команда ADB", command))
+                        Toast.makeText(this@MainActivity, "Команда скопирована",
+                            Toast.LENGTH_SHORT).show()
+                    }, LinearLayout.LayoutParams(-1, dp(43)))
+                })
+            }
+        }
+        val dialog = themedDialogBuilder().setView(
+            android.widget.ScrollView(this).apply {
+                isFillViewport = false
+                addView(content)
+            })
+            .setPositiveButton("Закрыть", null).create()
+        dialog.setOnShowListener {
+            dialog.window?.setBackgroundDrawable(dialogGradient())
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(accent)
+        }
+        dialog.show()
     }
 
     private fun openSberListenerSettings() {

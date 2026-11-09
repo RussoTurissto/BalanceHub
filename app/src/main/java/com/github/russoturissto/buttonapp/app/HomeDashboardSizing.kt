@@ -15,6 +15,23 @@ internal data class HomeDashboardSize(
 )
 
 internal object HomeDashboardSizing {
+    /**
+     * Compact based on the measured ScrollView height, after Android window
+     * insets, persistent header and bottom navigation have been laid out.
+     * Six-row months use the tighter layout sooner; scrolling remains enabled.
+     */
+    fun forViewport(availableHeightDp: Int, fontScale: Float = 1f,
+        calendarWeeks: Int = 5): HomeDashboardSize {
+        val adjusted = availableHeightDp -
+            ((fontScale - 1f).coerceAtLeast(0f) * 90f).toInt()
+        return when {
+            adjusted <= 560 || (calendarWeeks >= 6 && adjusted <= 650) ->
+                HomeDashboardSize(4, 34, 35)
+            adjusted <= 700 -> HomeDashboardSize(4, 36, 37)
+            else -> HomeDashboardSize(6, 38, 39)
+        }
+    }
+
     fun forHeight(screenHeightDp: Int, fontScale: Float = 1f): HomeDashboardSize {
         val adjusted = screenHeightDp -
             ((fontScale - 1f).coerceAtLeast(0f) * 130f).toInt()

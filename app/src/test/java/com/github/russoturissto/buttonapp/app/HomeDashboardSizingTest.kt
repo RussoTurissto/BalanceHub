@@ -36,4 +36,24 @@ class HomeDashboardSizingTest {
         val compact = 6 * HomeDashboardSizing.forHeight(790).dayCellHeightDp
         assertEquals(24, normal - compact)
     }
+
+
+    @Test fun measuredViewportIsSmallerThanPhysicalScreen() {
+        val compact = HomeDashboardSizing.forViewport(550)
+        assertEquals(34, compact.dayCellHeightDp)
+        assertEquals(35, compact.monthControlHeightDp)
+        assertEquals(4, compact.topPaddingDp)
+    }
+
+    @Test fun sixWeekMonthUsesTighterLayoutAtSameViewport() {
+        val five = HomeDashboardSizing.forViewport(620, 1f, 5)
+        val six = HomeDashboardSizing.forViewport(620, 1f, 6)
+        assertEquals(36, five.dayCellHeightDp)
+        assertEquals(34, six.dayCellHeightDp)
+    }
+
+    @Test fun biggerViewportAllowsMoreCalendarSpace() {
+        val large = HomeDashboardSizing.forViewport(800, 1f, 5)
+        assertEquals(38, large.dayCellHeightDp)
+    }
 }

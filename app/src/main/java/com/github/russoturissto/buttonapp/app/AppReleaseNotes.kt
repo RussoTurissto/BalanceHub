@@ -2,16 +2,19 @@ package com.github.russoturissto.buttonapp.app
 
 internal data class ReleaseNote(val iconId: String, val title: String, val description: String)
 
-/** Keep this list exclusive to changes actually introduced by this version. */
+/** Only changes shipped in this particular version belong in the welcome. */
 internal object AppReleaseNotes {
     val current: List<ReleaseNote> = listOf(
-        ReleaseNote("settings", "Новая нижняя панель",
-            "Все разделы теперь объединены в одну аккуратную панель. Настройки открываются через увеличенную шестерёнку справа."),
-        ReleaseNote("sparkles", "Плавное переключение",
-            "Бирюзовое выделение мягко перемещается между вкладками. Переходы одинаково работают при нажатиях и свайпах."),
-        ReleaseNote("smartphone", "Комфорт на вашем экране",
-            "Анимация следует настройкам Android и частоте обновления дисплея, не изменяя параметры телефона."),
-        ReleaseNote("shield-check", "Больше стабильности",
-            "Исправлены переходы во вложенные настройки Сбербанка и мобильной связи; нижняя панель больше не должна смещаться при переключении.")
+        ReleaseNote("home", "Главная стала удобнее",
+            "Кнопка управления платежами теперь доступна над календарём. " +
+            "Размеры блоков подстраиваются под фактическую высоту экрана."),
+        ReleaseNote("calendar-days", "Даты больше не сливаются",
+            "В календаре появились промежутки между выделенными датами, " +
+            "а сегодняшнее число и выбранный день остаются заметными."),
+        ReleaseNote("settings", "Более компактная навигация",
+            "Нижняя панель стала немного уже. Плавное переключение разделов сохранено."),
+        ReleaseNote("book-open", "Подробная помощь по банковским Push",
+            "В настройках появилась инструкция по работе с Termux и ADB: " +
+            "проверка доступа, подключение уведомлений и восстановление защиты.")
     )
 }
