@@ -81,15 +81,15 @@ class BalanceSoundProvider : ContentProvider() {
         }
         val columns = projection?.toList() ?: listOf(
             OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE)
-        return MatrixCursor(columns.toTypedArray()).apply {
-            addRow(columns.map { column ->
-                when (column) {
-                    OpenableColumns.DISPLAY_NAME -> file.name
-                    OpenableColumns.SIZE -> file.length()
-                    else -> null
-                }
-            }.toTypedArray())
+        val values = arrayOfNulls<Any>(columns.size)
+        for ((index, column) in columns.withIndex()) {
+            values[index] = when (column) {
+                OpenableColumns.DISPLAY_NAME -> file.name
+                OpenableColumns.SIZE -> file.length()
+                else -> null
+            }
         }
+        return MatrixCursor(columns.toTypedArray()).apply { addRow(values) }
     }
     override fun insert(uri: Uri, values: ContentValues?): Uri? = null
     override fun update(uri: Uri, values: ContentValues?,
