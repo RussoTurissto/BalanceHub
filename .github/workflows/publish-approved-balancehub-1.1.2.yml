@@ -1,0 +1,84 @@
+name: Publish approved BalanceHub 1.1.2
+
+# One-time release promotion, explicitly authorized after signing verification.
+on:
+  push:
+    branches:
+      - feature/balancehub-foundation
+    paths:
+      - ".github/workflows/publish-approved-balancehub-1.1.2.yml"
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    if: ${{ github.repository == 'RussoTurissto/BalanceHub' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: v1.1.2
+      SOURCE_RUN: "42690465822"
+      SOURCE_SHA: "4115d76619ef6d584a30688c61e0819a9f1ea7f3"
+      SOURCE_VERSION_CODE: "516"
+    steps:
+      - name: Validate source build and fetch signed APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          state="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN" --jq '.conclusion')"
+          sha="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN" --jq '.head_sha')"
+          if [[ "$state" != "success" || "$sha" != "$SOURCE_SHA" ]]; then
+            echo "::error::Approved build is not successful or commit differs"
+            exit 1
+          fi
+          mkdir -p dist
+          gh run download "$SOURCE_RUN" --repo "$GITHUB_REPOSITORY" --name BalanceHub --dir dist
+          test -s dist/BalanceHub.apk
+          echo "Approved binary SHA-256:"
+          sha256sum dist/BalanceHub.apk
+
+      - name: Verify APK signature, Android package and version
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          "$tools/apksigner" verify --verbose --print-certs dist/BalanceHub.apk | tee "$RUNNER_TEMP/signature.txt"
+          grep -q 'Verified using v2 scheme (APK Signature Scheme v2): true' "$RUNNER_TEMP/signature.txt"
+          "$tools/aapt" dump badging dist/BalanceHub.apk | tee "$RUNNER_TEMP/package.txt"
+          grep -q "^package: name='com.github.russoturissto.buttonapp.app'" "$RUNNER_TEMP/package.txt"
+          grep -q "versionName='1.1.2'" "$RUNNER_TEMP/package.txt"
+          grep -q "versionCode='$SOURCE_VERSION_CODE'" "$RUNNER_TEMP/package.txt"
+
+      - name: Publish GitHub Release with direct APK download
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::Release $TAG already exists. Refusing to replace an existing release."
+            exit 1
+          fi
+          cat > "$RUNNER_TEMP/release-notes.md" <<'EOF'
+          ## Что нового
+
+          - Переработано меню «Настройки»: компактная общая панель, аккуратные разделители, короткие подписи и небольшие промежутки между группами.
+          - Сохранены фирменные цвета и оформление BalanceHub в светлой и тёмной темах.
+          - Параметры мобильной связи, банковских Push, оформления, уведомлений и обновлений организованы по подразделам.
+          - Добавлены прямой тест вибромотора, диагностика каналов Android и отдельные настройки звука и вибрации для платежей, событий и обновлений.
+          - Сохранена совместимость с предыдущими установками: подписанный APK, тот же идентификатор пакета, Android versionCode 516.
+
+          **Установка:** скачайте `BalanceHub.apk` ниже и установите поверх предыдущей версии. Не удаляйте приложение перед обновлением.
+
+          **Примечание:** фактическое срабатывание вибромотора и уведомлений необходимо проверить на телефоне — автоматическая сборка не проверяет физическое устройство.
+
+          <!-- BalanceHub-VersionCode: 516 -->
+          EOF
+          gh release create "$TAG" "dist/BalanceHub.apk#BalanceHub.apk" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$SOURCE_SHA" \
+            --title "BalanceHub 1.1.2" \
+            --notes-file "$RUNNER_TEMP/release-notes.md" \
+            --latest
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json url,assets,tagName,isDraft,isPrerelease
