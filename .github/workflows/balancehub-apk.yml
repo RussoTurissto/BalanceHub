@@ -20,12 +20,15 @@ permissions:
 # Intermediate pushes in a large approved feature update should not use
 # runner time or produce noisy notifications from obsolete APK attempts.
 concurrency:
-  group: balancehub-apk-${{ github.ref }}
+  # Keep a hung old commit from blocking a new test build. Repeated
+  # attempts of the same revision still supersede one another.
+  group: balancehub-apk-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
