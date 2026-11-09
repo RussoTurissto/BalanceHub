@@ -65,7 +65,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var listContainer: LinearLayout
     private lateinit var contentContainer: LinearLayout
     private lateinit var dashboardScroll: android.widget.ScrollView
-    private var tabViews: List<TextView> = emptyList()
+    private var tabViews: List<View> = emptyList()
+    private var bottomNavigation: BalanceBottomNavigation? = null
     private var currentTab = 0
     private var mobileSettingsOpen = false
     private var bankSettingsOpen = false
@@ -113,8 +114,8 @@ class MainActivity : AppCompatActivity() {
         AppCompatDelegate.setDefaultNightMode(mode)
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        currentTab = savedInstanceState?.getInt("current_tab")
-            ?: intent.getIntExtra("open_tab", 0).coerceIn(0, 4)
+        currentTab = (savedInstanceState?.getInt("current_tab")
+            ?: intent.getIntExtra("open_tab", 0)).coerceIn(0, 4)
         mobileSettingsOpen = savedInstanceState?.getBoolean("mobile_settings_open") ?: false
         bankSettingsOpen = savedInstanceState?.getBoolean("bank_settings_open") ?: false
         operatorDetailsOpen = savedInstanceState?.getBoolean("operator_details_open") ?: false
@@ -360,19 +361,9 @@ class MainActivity : AppCompatActivity() {
         dialog.show()
     }
 
-    private fun swipeToTab(nextTab: Int, direction: Int) {
-        if (nextTab !in 0..4 || nextTab == currentTab) return
-        contentContainer.animate().cancel()
+    private fun swipeToTab(nextTab: Int) {
+        // Gestures and button clicks use one transition path.
         selectTab(nextTab)
-        // Small slide and decelerating fade produce a gentler tab transition.
-        contentContainer.translationX = (if (direction > 0) dp(26) else -dp(26)).toFloat()
-        contentContainer.alpha = 0.86f
-        contentContainer.animate()
-            .translationX(0f)
-            .alpha(1f)
-            .setDuration(210L)
-            .setInterpolator(android.view.animation.DecelerateInterpolator(1.5f))
-            .start()
     }
 
     private fun showDashboard() {
@@ -425,7 +416,7 @@ class MainActivity : AppCompatActivity() {
                                 cancellation.action = MotionEvent.ACTION_CANCEL
                                 super.dispatchTouchEvent(cancellation)
                                 cancellation.recycle()
-                                post { swipeToTab(destination, direction) }
+                                post { swipeToTab(destination) }
                                 return true
                             }
                         }
@@ -448,47 +439,26 @@ class MainActivity : AppCompatActivity() {
         screen.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
 
         val tabs = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(dp(6), dp(8), dp(6), dp(8))
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(9), dp(8), dp(9), dp(8))
             background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
                 if (isNight) intArrayOf(Color.rgb(19, 39, 44), Color.rgb(17, 35, 40))
                 else intArrayOf(Color.rgb(234, 247, 244), Color.rgb(224, 243, 239))
             )
         }
-        val names = listOf("Главная", "Балансы", "Платежи", "События", "")
-        val buttons = mutableListOf<TextView>()
-        names.forEachIndexed { index, name ->
-            val tab = TextView(this).apply {
-                text = name
-                textSize = if (index == 4) 12f else 11.5f
-                gravity = Gravity.CENTER
-                minHeight = dp(46)
-                setPadding(dp(2), dp(11), dp(2), dp(11))
-                val selected = index == currentTab
-                setTextColor(if (selected) Color.WHITE else ink)
-                if (selected) setTypeface(null, Typeface.BOLD)
-                background = tabBackground(selected)
-                if (index == 4) {
-                    contentDescription = "Настройки"
-                    val gear = AppIconDrawable("settings",
-                        if (selected) Color.WHITE else ink)
-                    gear.setBounds(0, 0, dp(22), dp(22))
-                    setCompoundDrawables(null, gear, null, null)
-                }
-                setOnClickListener { selectTab(index) }
-            }
-            buttons.add(tab)
-            tabs.addView(tab, LinearLayout.LayoutParams(0, -2, 1f).apply {
-                marginStart = dp(3)
-                marginEnd = dp(3)
-            })
+        val navigation = BalanceBottomNavigation(this, isNight, currentTab) {
+            selectTab(it)
         }
-        tabViews = buttons
-        // The system owns the navigation bar. Apply its real inset once to
-        // the persistent tab strip instead of estimating it before setContentView.
+        bottomNavigation = navigation
+        tabViews = (0 until NavigationMotionPolicy.TAB_COUNT).mapNotNull {
+            navigation.section(it)
+        }
+        tabs.addView(navigation, LinearLayout.LayoutParams(-1, dp(72)))
+        // System navigation bars/gesture handles own the bottom inset.
+        // Only this outer strip receives the inset; the pill never shifts.
         ViewCompat.setOnApplyWindowInsetsListener(tabs) { view, insets ->
             val bottom = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
-            view.setPadding(dp(6), dp(8), dp(6), bottom + dp(8))
+            view.setPadding(dp(9), dp(8), dp(9), bottom + dp(8))
             insets
         }
         screen.addView(tabs)
@@ -503,14 +473,23 @@ class MainActivity : AppCompatActivity() {
     }
 
 
-    // Preserve the screen and its inset listener across tab switches.
-
-    // Recreating the entire root view caused the bottom navigation to jump.
+    // One transition for taps, swipes, card shortcuts and notification deep links.
+    // Keep the persistent navigation view; only its indicator and content animate.
     private fun selectTab(index: Int) {
-        if (index == currentTab) return
+        if (!NavigationMotionPolicy.isChange(currentTab, index)) return
+        val direction = NavigationMotionPolicy.direction(currentTab, index)
+        // Cancel from the current frame before applying the new state. Rapid
+        // repeated selections cannot leave the content translated or translucent.
+        contentContainer.animate().cancel()
+        contentContainer.alpha = 1f
+        contentContainer.translationX = 0f
+        if (tutorialStep == 0 && index == 1) {
+            tabViews.getOrNull(1)?.apply { background = null; elevation = 0f }
+            tutorialStep = 1
+        }
         currentTab = index
-        if (tutorialStep == 0 && index == 1) tutorialStep = 1
-        if (index != 3) {
+        // Settings is index 4, not index 3 (Events).
+        if (index != NavigationMotionPolicy.SETTINGS_INDEX) {
             mobileSettingsOpen = false
             bankSettingsOpen = false
         }
@@ -520,17 +499,19 @@ class MainActivity : AppCompatActivity() {
             expandedPaymentId = null
         }
         if (index != 3) expandedEventId = null
-        tabViews.forEachIndexed { position, tab ->
-            val selected = position == index
-            tab.setTextColor(if (selected) Color.WHITE else ink)
-            tab.setTypeface(null, if (selected) Typeface.BOLD else Typeface.NORMAL)
-            tab.background = tabBackground(selected)
-            tab.compoundDrawables[1]?.setTint(if (selected) Color.WHITE else ink)
-        }
+        bottomNavigation?.select(index, animate = true)
         renderTab()
-        // Every tab starts at its own top, rather than inheriting another
-        // screen's scroll offset and hiding the dashboard summary.
         if (::dashboardScroll.isInitialized) dashboardScroll.scrollTo(0, 0)
+        if (NavigationMotionPolicy.canAnimate(this)) {
+            contentContainer.translationX = dp(10).toFloat() * direction
+            contentContainer.alpha = 0.9f
+            contentContainer.animate()
+                .translationX(0f)
+                .alpha(1f)
+                .setDuration(NavigationMotionPolicy.CONTENT_DURATION_MS)
+                .setInterpolator(android.view.animation.PathInterpolator(.2f, 0f, 0f, 1f))
+                .start()
+        }
     }
 
     private fun renderTab() {
@@ -1318,17 +1299,14 @@ class MainActivity : AppCompatActivity() {
             bankCard.addView(textLine(state, 12f, muted))
         }
         bankCard.setOnClickListener {
-            currentTab = 4
             bankSettingsOpen = true
-            tabViews.forEachIndexed { index, tab ->
-                val selected = index == currentTab
-                tab.setTextColor(if (selected) Color.WHITE else ink)
-                tab.setTypeface(null, if (selected) Typeface.BOLD else Typeface.NORMAL)
-                tab.background = tabBackground(selected)
-            tab.compoundDrawables[1]?.setTint(if (selected) Color.WHITE else ink)
+            mobileSettingsOpen = false
+            if (currentTab == NavigationMotionPolicy.SETTINGS_INDEX) {
+                renderTab()
+                dashboardScroll.scrollTo(0, 0)
+            } else {
+                selectTab(NavigationMotionPolicy.SETTINGS_INDEX)
             }
-            renderTab()
-            dashboardScroll.scrollTo(0, 0)
         }
         contentContainer.addView(bankCard)
         contentContainer.addView(verticalGap(12))
@@ -3494,8 +3472,7 @@ class MainActivity : AppCompatActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         if (intent.getIntExtra("open_tab", -1) == 3) {
-            currentTab = 3
-            renderTab()
+            if (currentTab == 3) renderTab() else selectTab(3)
         }
     }
 
