@@ -47,6 +47,7 @@ internal object BalanceNotificationSounds {
         val default = when (category) {
             PAYMENT -> "balancehub"
             EVENT -> "crystal"
+            UPDATE -> "spark"
             else -> "system"
         }
         val value = preferences(context).getString(category, default) ?: default
@@ -66,10 +67,31 @@ internal object BalanceNotificationSounds {
         preferences(context).edit().putString(category, key).apply()
     }
 
-    private fun soundUri(context: Context, key: String): Uri? {
+    /** Device notification volume and Do Not Disturb always remain in control. */
+    fun separateVolume(context: Context): Boolean =
+        preferences(context).getBoolean("volume_separate", false)
+
+    fun setSeparateVolume(context: Context, enabled: Boolean) {
+        preferences(context).edit().putBoolean("volume_separate", enabled).apply()
+    }
+
+    fun volume(context: Context, category: String? = null): Int {
+        val prefs = preferences(context)
+        val name = if (category != null && separateVolume(context))
+            "volume_" + category else "volume_all"
+        return prefs.getInt(name, 100).coerceIn(0, 100)
+    }
+
+    fun setVolume(context: Context, category: String?, percent: Int) {
+        val name = if (category != null) "volume_" + category else "volume_all"
+        preferences(context).edit().putInt(name, percent.coerceIn(0, 100)).apply()
+    }
+
+    private fun soundUri(context: Context, key: String, volume: Int): Uri? {
         if (key == "silent") return null
         if (key == "system") return RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-        return Uri.parse("content://" + context.packageName + ".sounds/" + key)
+        return Uri.parse("content://" + context.packageName + ".sounds/" + key +
+            "/v3/" + volume.coerceIn(0, 100))
     }
 
     fun legacyChannel(category: String): String = when (category) {
@@ -80,7 +102,8 @@ internal object BalanceNotificationSounds {
 
     fun channelId(context: Context, category: String): String {
         val key = selected(context, category)
-        return if (key == "system") category else category + "_tone_" + key + "_v2"
+        return if (key == "system") category else category + "_tone_" + key +
+            "_v3_" + volume(context, category)
     }
 
     fun ensureChannel(context: Context, category: String): String {
@@ -92,8 +115,10 @@ internal object BalanceNotificationSounds {
                 val channel = NotificationChannel(id, legacyChannel(category),
                     if (category == UPDATE) NotificationManager.IMPORTANCE_DEFAULT
                     else NotificationManager.IMPORTANCE_HIGH)
-                if (key != "system") {
-                    channel.setSound(soundUri(context, key),
+                if (key == "silent" || (key != "system" && volume(context, category) == 0)) {
+                    channel.setSound(null, null)
+                } else if (key != "system") {
+                    channel.setSound(soundUri(context, key, volume(context, category)),
                         AudioAttributes.Builder()
                             .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                             .setUsage(AudioAttributes.USAGE_NOTIFICATION)
@@ -109,7 +134,9 @@ internal object BalanceNotificationSounds {
     fun configureLegacySound(context: Context, category: String,
         builder: androidx.core.app.NotificationCompat.Builder) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) return
-        builder.setSound(soundUri(context, selected(context, category)))
+        val key = selected(context, category)
+        builder.setSound(if (key == "silent" || (key != "system" && volume(context, category) == 0))
+            null else soundUri(context, key, volume(context, category)))
     }
 
     private var previewPlayer: MediaPlayer? = null
@@ -119,7 +146,7 @@ internal object BalanceNotificationSounds {
         previewPlayer = null
     }
 
-    fun preview(context: Context, key: String) {
+    fun preview(context: Context, key: String, category: String) {
         stopPreview()
         val tone = tones.firstOrNull { it.key == key } ?: return
         try {
@@ -132,6 +159,8 @@ internal object BalanceNotificationSounds {
                 player.setDataSource(fd.fileDescriptor, fd.startOffset, fd.length)
             } ?: return
             player.prepare()
+            val gain = volume(context, category) / 100f
+            player.setVolume(gain, gain)
             previewPlayer = player
             player.setOnCompletionListener {
                 it.release()
