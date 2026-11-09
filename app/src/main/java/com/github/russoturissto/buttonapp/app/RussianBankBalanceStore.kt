@@ -2,6 +2,7 @@ package com.github.russoturissto.buttonapp.app
 
 import android.content.Context
 import android.util.AtomicFile
+import androidx.core.content.edit
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -38,7 +39,7 @@ internal object RussianBankBalanceStore {
 
     private fun write(context: Context, snapshots: Map<String, List<Snapshot>>) {
         val json = JSONObject()
-        snapshots.forEach { (id, values) ->
+        for ((id, values) in snapshots) {
             val array = JSONArray()
             values.take(12).forEach {
                 array.put(JSONObject().put("value", it.kopecks).put("at", it.observedAt)
@@ -83,8 +84,10 @@ internal object RussianBankDiagnostics {
         context.getSharedPreferences("balancehub_ru_bank_diagnostics_v1", Context.MODE_PRIVATE)
     fun record(context: Context, bank: RussianBank, status: String) {
         // Metadata only: no notification text, amount, account or sender.
-        prefs(context).edit().putString("status_" + bank.id, status)
-            .putLong("time_" + bank.id, System.currentTimeMillis()).apply()
+        prefs(context).edit {
+            putString("status_" + bank.id, status)
+            putLong("time_" + bank.id, System.currentTimeMillis())
+        }
     }
     fun last(context: Context, bank: RussianBank): String? =
         prefs(context).getString("status_" + bank.id, null)

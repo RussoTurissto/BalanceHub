@@ -13,17 +13,18 @@ internal object ExactReminderAlarms {
             manager.canScheduleExactAlarms()
     }
 
-    fun schedule(context: Context, triggerAt: Long, pending: PendingIntent) {
-        if (triggerAt <= System.currentTimeMillis()) return
+    fun schedule(context: Context, triggerAt: Long, pending: PendingIntent): String {
+        if (triggerAt <= System.currentTimeMillis()) return "expired"
         val manager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         if (allowed(context)) {
             try {
                 manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pending)
-                return
+                return "exact_idle"
             } catch (_: SecurityException) {
                 // Permission was revoked while an alarm was being prepared.
             }
         }
         manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pending)
+        return "inexact_idle"
     }
 }

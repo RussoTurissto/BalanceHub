@@ -11,6 +11,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
+import android.os.PowerManager
 
 /** Independent end-to-end tests: no fake payment or event records are created. */
 class DiagnosticReminderReceiver : BroadcastReceiver() {
@@ -26,11 +27,17 @@ class DiagnosticReminderReceiver : BroadcastReceiver() {
             val pending = PendingIntent.getBroadcast(context,
                 ("diagnostic_" + key).hashCode(), intent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            val mode = ExactReminderAlarms.schedule(context, scheduled, pending)
+            val power = context.getSystemService(Context.POWER_SERVICE) as PowerManager
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit {
                 putLong("${key}_planned", scheduled)
+                putString("${key}_mode", mode)
+                putBoolean("${key}_exact_allowed", ExactReminderAlarms.allowed(context))
+                putBoolean("${key}_battery_unrestricted",
+                    power.isIgnoringBatteryOptimizations(context.packageName))
                 remove("${key}_delivered")
+                remove("${key}_posted")
             }
-            ExactReminderAlarms.schedule(context, scheduled, pending)
         }
     }
 
@@ -61,6 +68,7 @@ class DiagnosticReminderReceiver : BroadcastReceiver() {
         try {
             NotificationManagerCompat.from(context)
                 .notify(("diagnostic_" + key).hashCode(), notification)
+            prefs.edit { putLong("${key}_posted", System.currentTimeMillis()) }
         } catch (_: SecurityException) { /* Android notification permission was denied. */ }
     }
 }

@@ -67,6 +67,27 @@ internal object BalanceNotificationSounds {
         preferences(context).edit().putString(category, key).apply()
     }
 
+    private fun vibrationPrefs(context: Context) = preferences(context)
+    fun vibrationEnabled(context: Context): Boolean =
+        vibrationPrefs(context).getBoolean("vibration_all", true)
+    fun setVibrationEnabled(context: Context, enabled: Boolean) {
+        vibrationPrefs(context).edit().putBoolean("vibration_all", enabled).apply()
+    }
+    fun vibrationFor(context: Context, category: String): Boolean {
+        val default = category != UPDATE
+        return vibrationEnabled(context) &&
+            vibrationPrefs(context).getBoolean("vibration_" + category, default)
+    }
+    fun setVibrationFor(context: Context, category: String, enabled: Boolean) {
+        vibrationPrefs(context).edit()
+            .putBoolean("vibration_" + category, enabled).apply()
+    }
+    fun vibrationPattern(category: String): LongArray = when (category) {
+        PAYMENT -> longArrayOf(0L, 155L, 95L, 225L)
+        EVENT -> longArrayOf(0L, 105L, 95L, 115L)
+        else -> longArrayOf(0L, 90L)
+    }
+
     /** Device notification volume and Do Not Disturb always remain in control. */
     fun separateVolume(context: Context): Boolean =
         preferences(context).getBoolean("volume_separate", false)
@@ -102,8 +123,8 @@ internal object BalanceNotificationSounds {
 
     fun channelId(context: Context, category: String): String {
         val key = selected(context, category)
-        return if (key == "system") category else category + "_tone_" + key +
-            "_v3_" + volume(context, category)
+        return category + "_tone_" + key + "_v4_" + volume(context, category) +
+            "_vib_" + (if (vibrationFor(context, category)) "on" else "off")
     }
 
     fun ensureChannel(context: Context, category: String): String {
@@ -124,6 +145,10 @@ internal object BalanceNotificationSounds {
                             .setUsage(AudioAttributes.USAGE_NOTIFICATION)
                             .build())
                 }
+                if (vibrationFor(context, category)) {
+                    channel.enableVibration(true)
+                    channel.vibrationPattern = vibrationPattern(category)
+                } else channel.enableVibration(false)
                 manager.createNotificationChannel(channel)
             }
         }
@@ -137,6 +162,8 @@ internal object BalanceNotificationSounds {
         val key = selected(context, category)
         builder.setSound(if (key == "silent" || (key != "system" && volume(context, category) == 0))
             null else soundUri(context, key, volume(context, category)))
+        builder.setVibrate(if (vibrationFor(context, category))
+            vibrationPattern(category) else longArrayOf(0L))
     }
 
     private var previewPlayer: MediaPlayer? = null
