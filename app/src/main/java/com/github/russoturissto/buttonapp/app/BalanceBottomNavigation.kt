@@ -1,5 +1,6 @@
 package com.github.russoturissto.buttonapp.app
 
+import android.annotation.SuppressLint
 import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Canvas
@@ -48,6 +49,8 @@ internal object NavigationMotionPolicy {
  * Only the highlight moves; tab geometry stays fixed during transitions.
  * ValueAnimator takes its frames from the Android animation clock (VSync).
  */
+// Constructed only in code; it is never inflated from XML.
+@SuppressLint("ViewConstructor")
 internal class BalanceBottomNavigation(
     context: Context,
     private val night: Boolean,
