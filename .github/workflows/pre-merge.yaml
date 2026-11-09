@@ -2,7 +2,8 @@ name: Build APK
 
 on:
   push:
-    branches: ["**"]
+    branches-ignore:
+      - feature/balancehub-foundation
   workflow_dispatch:
 
 permissions:
