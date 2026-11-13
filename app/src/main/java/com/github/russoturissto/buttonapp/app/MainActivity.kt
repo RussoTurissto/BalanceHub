@@ -2468,8 +2468,8 @@ class MainActivity : AppCompatActivity() {
                 settingsSwitch("settings", "Вибрация",
                     "Для настоящих уведомлений Android",
                     BalanceNotificationSounds.effectiveVibration(this, category)) { enabled ->
-                    val error = BalanceNotificationSounds.applyUserChoice(this,
-                        category, BalanceNotificationSounds.selected(this, category), enabled)
+                    val error = BalanceNotificationSounds.applyVibrationChoice(this,
+                        category, enabled)
                     if (error != null) Toast.makeText(this, error, Toast.LENGTH_LONG).show()
                     refreshSettingsWithoutJump()
                 },
