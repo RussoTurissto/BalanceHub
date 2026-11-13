@@ -1,118 +1,75 @@
 package com.github.russoturissto.buttonapp.app
 
-import android.app.AlarmManager
-import android.app.PendingIntent
-import java.util.Calendar
-import org.json.JSONArray
-import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.Build
-import androidx.core.content.edit
+import android.content.pm.PackageManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import org.json.JSONArray
 
+/** One system alert per local calendar day during an active payment cycle. */
 class PaymentReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val id = intent.getStringExtra("id") ?: return
-        if (id != "balancehub-test-notification") {
-            val due = intent.getLongExtra("dueAt", -1L)
-            val prefs = context.getSharedPreferences("balancehub_data", Context.MODE_PRIVATE)
-            val active = try {
-                JSONArray(prefs.getString("payment_reminders", "[]") ?: "[]")
-            } catch (_: Exception) { return }
-            val matches = (0 until active.length()).any { index ->
-                val item = active.optJSONObject(index)
-                item?.optString("id") == id && item.optLong("dueAt", -1L) == due
-            }
-            val delayed = PaymentArchiveStore.archived(context).any {
-                it.id == id && it.dueAt == due &&
-                    it.reason == PaymentArchiveStore.COMPLETED &&
-                    System.currentTimeMillis() - due in 0..86_400_000L
-            }
-            if (!matches && !delayed) return
+        val due = intent.getLongExtra("dueAt", -1L)
+        val test = id == "balancehub-test-notification"
+        val now = System.currentTimeMillis()
+        val prefs = context.getSharedPreferences("balancehub_data", Context.MODE_PRIVATE)
+        val item = if (!test) try {
+            val items = JSONArray(prefs.getString("payment_reminders", "[]") ?: "[]")
+            (0 until items.length()).mapNotNull { items.optJSONObject(it) }
+                .firstOrNull { it.optString("id") == id &&
+                    it.optLong("dueAt", -1L) == due }
+        } catch (_: Exception) { null } else null
+        if (!test && item == null) return
+        val leadDays = if (test) 0 else item!!.optInt("leadDays", 0)
+        val first = if (test) now else DailyReminderPolicy.firstPayment(due, leadDays)
+        if (!test && !DailyReminderPolicy.eligible(first, due, now)) return
+        if (!test) DailyReminderPolicy.following(first, due, now)?.let {
+            PaymentAlarmScheduler.scheduleFollowingDay(context, intent, it)
         }
+        if (Build.VERSION.SDK_INT >= 33 &&
+            context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+                PackageManager.PERMISSION_GRANTED) return
+        val notifications = NotificationManagerCompat.from(context)
+        if (!notifications.areNotificationsEnabled()) return
         val channelId = BalanceNotificationSounds.ensureChannel(
             context, BalanceNotificationSounds.PAYMENT)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val manager = context.getSystemService(Context.NOTIFICATION_SERVICE)
+                as NotificationManager
+            if (manager.getNotificationChannel(channelId)?.importance ==
+                NotificationManager.IMPORTANCE_NONE) return
+        }
         val title = intent.getStringExtra("title") ?: "Предстоящий платёж"
         val amount = intent.getStringExtra("amount").orEmpty()
         val currency = intent.getStringExtra("currency").orEmpty()
-        val displayAmount = PaymentCurrencyFormatter.amountWithCurrency(amount, currency)
+        val text = PaymentCurrencyFormatter.amountWithCurrency(amount, currency)
+        val noticeId = ReminderNoticeIds.payment(id, due,
+            DailyReminderPolicy.dayKey(now))
+        val reservation = if (!test) DailyReminderLedger.reserve(context,
+            "payment", id, due, now, noticeId) ?: return else null
         val builder = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(context.applicationInfo.icon)
             .setContentTitle("Скоро платёж: $title")
-            .setContentText(displayAmount)
-            .setStyle(NotificationCompat.BigTextStyle().bigText("Не забудьте оплатить: $title — $displayAmount"))
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle()
+                .bigText("Не забудьте оплатить: $title — $text"))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
         BalanceNotificationSounds.configureLegacySound(
             context, BalanceNotificationSounds.PAYMENT, builder)
-        val notification = builder.build()
         try {
-            NotificationManagerCompat.from(context).notify(
-                ReminderNoticeIds.payment(id, intent.getLongExtra("dueAt", -1L)),
-                notification
-            )
+            notifications.notify(noticeId, builder.build())
+            reservation?.previousNotificationId?.takeIf { it != noticeId }?.let {
+                notifications.cancel(it)
+            }
         } catch (_: SecurityException) {
-            // Notifications are disabled or permission has not been granted.
-        }
-        scheduleNextOccurrence(context, intent)
-    }
-    private fun scheduleNextOccurrence(context: Context, intent: Intent) {
-        val recurrence = intent.getStringExtra("recurrence") ?: "once"
-        if (recurrence != "weekly" && recurrence != "monthly") return
-        val id = intent.getStringExtra("id") ?: return
-        val preferences = context.getSharedPreferences("balancehub_data", Context.MODE_PRIVATE)
-        val records = JSONArray(preferences.getString("payment_reminders", "[]") ?: "[]")
-        val now = System.currentTimeMillis()
-        for (index in 0 until records.length()) {
-            val record = records.getJSONObject(index)
-            if (record.optString("id") != id || record.optString("recurrence", "once") != recurrence) continue
-            val originalDue = record.getLong("dueAt")
-            val remindedDue = intent.getLongExtra("dueAt", -1L)
-            val isT2 = id.startsWith("t2_subscription_") ||
-                id.startsWith("mobile_subscription_")
-            // Auto-generated T2 payments keep the current debit visible until
-            // it passes, even after the reminder is delivered the day before.
-            if ((isT2 && remindedDue < originalDue) ||
-                (!isT2 && originalDue != remindedDue)) return
-            val leadDays = record.getInt("leadDays")
-            val date = Calendar.getInstance().apply { timeInMillis = remindedDue }
-            var nextTrigger: Long
-            do {
-                if (recurrence == "weekly") date.add(Calendar.DAY_OF_YEAR, 7)
-                else date.add(Calendar.MONTH, 1)
-                nextTrigger = date.timeInMillis - leadDays * 86400000L
-            } while (nextTrigger <= now)
-            if (isT2) {
-                if (originalDue <= now) {
-                    val upcoming = Calendar.getInstance().apply {
-                        timeInMillis = originalDue
-                    }
-                    while (upcoming.timeInMillis <= now) upcoming.add(Calendar.MONTH, 1)
-                    record.put("dueAt", upcoming.timeInMillis)
-                    preferences.edit { putString("payment_reminders", records.toString()) }
-                }
-            } else {
-                record.put("dueAt", date.timeInMillis)
-                preferences.edit { putString("payment_reminders", records.toString()) }
-            }
-            val nextIntent = Intent(context, PaymentReminderReceiver::class.java).apply {
-                putExtra("id", id)
-                putExtra("title", record.getString("title"))
-                putExtra("amount", record.getString("amount"))
-                putExtra("currency", record.getString("currency"))
-                putExtra("leadDays", leadDays)
-                putExtra("dueAt", date.timeInMillis)
-                putExtra("recurrence", recurrence)
-            }
-            val pending = PendingIntent.getBroadcast(context, id.hashCode(), nextIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-            (context.getSystemService(Context.ALARM_SERVICE) as AlarmManager)
-                .let { ExactReminderAlarms.schedule(context, nextTrigger, pending) }
-            return
+            if (reservation != null) DailyReminderLedger.rollback(
+                context, "payment", id, reservation)
         }
     }
 }

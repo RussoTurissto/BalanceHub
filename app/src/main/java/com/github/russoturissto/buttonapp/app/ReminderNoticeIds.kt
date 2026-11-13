@@ -6,11 +6,11 @@ import java.util.concurrent.atomic.AtomicInteger
 internal object ReminderNoticeIds {
     private val nextTest = AtomicInteger((System.nanoTime() and 0x7fffffff).toInt())
 
-    fun payment(id: String, dueAt: Long): Int =
-        ("payment|" + id + "|" + dueAt).hashCode()
+    fun payment(id: String, dueAt: Long, day: Int = 0): Int =
+        ("payment|" + id + "|" + dueAt + "|" + day).hashCode()
 
-    fun event(id: String, dueAt: Long): Int =
-        ("event|" + id + "|" + dueAt).hashCode()
+    fun event(id: String, dueAt: Long, day: Int = 0): Int =
+        ("event|" + id + "|" + dueAt + "|" + day).hashCode()
 
     fun diagnostic(kind: String, expected: Long): Int =
         ("diagnostic|" + kind + "|" + expected).hashCode()
