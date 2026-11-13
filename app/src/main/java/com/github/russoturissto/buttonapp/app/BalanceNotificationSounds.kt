@@ -122,53 +122,40 @@ internal object BalanceNotificationSounds {
         else -> "Обновления BalanceHub"
     }
 
-    fun channelId(context: Context, category: String): String {
-        val key = selected(context, category)
-        return category + "_tone_" + key + "_v5_" + volume(context, category) +
-            "_vib_" + (if (vibrationFor(context, category)) "on" else "off")
-    }
+    /**
+     * Exactly one immutable Android channel for each notification category.
+     * Changing sound/vibration on Android 8+ happens in Android's channel UI.
+     */
+    fun channelId(context: Context, category: String): String = category
 
     fun ensureChannel(context: Context, category: String): String {
-        val key = selected(context, category)
         val id = channelId(context, category)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val manager = context.getSystemService(Context.NOTIFICATION_SERVICE)
+                as NotificationManager
             if (manager.getNotificationChannel(id) == null) {
                 val channel = NotificationChannel(id, legacyChannel(category),
                     if (category == UPDATE) NotificationManager.IMPORTANCE_DEFAULT
                     else NotificationManager.IMPORTANCE_HIGH)
+                val key = selected(context, category)
                 val gain = volume(context, category)
                 if (key == "silent" || gain == 0) {
                     channel.setSound(null, null)
                 } else {
                     val uri = soundUri(context, key, gain)
-                    // Before persisting an immutable channel, verify that the actual
-                    // Android file-descriptor path can read the custom ringtone.
                     val resolved = if (key == "system") uri else try {
                         uri?.takeIf { tone ->
                             context.contentResolver.openFileDescriptor(tone, "r")?.use {
                                 it.statSize >= 44L
                             } == true
                         }
-                    } catch (_: Exception) {
-                        null
-                    }
-                    val fallback = if (resolved == null) {
-                        RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-                    } else resolved
-                    channel.setSound(fallback, AudioAttributes.Builder()
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                        .setUsage(AudioAttributes.USAGE_NOTIFICATION)
-                        .build())
-                    if (resolved == null && key != "system") {
-                        preferences(context).edit().putString(
-                            "sound_fallback_" + category,
-                            "Фирменный WAV был недоступен при создании канала"
-                        ).apply()
-                    } else {
-                        preferences(context).edit().remove(
-                            "sound_fallback_" + category).apply()
-                    }
+                    } catch (_: Exception) { null }
+                    channel.setSound(
+                        resolved ?: RingtoneManager.getDefaultUri(
+                            RingtoneManager.TYPE_NOTIFICATION),
+                        AudioAttributes.Builder()
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                            .setUsage(AudioAttributes.USAGE_NOTIFICATION).build())
                 }
                 if (vibrationFor(context, category)) {
                     channel.enableVibration(true)
@@ -183,9 +170,18 @@ internal object BalanceNotificationSounds {
         return id
     }
 
-    /** Register default-on channels once, preserving any user changes in Android. */
+    /** Migration removes only this app's previous dynamically generated variants. */
     fun ensureDefaultChannels(context: Context) {
         for (category in listOf(PAYMENT, EVENT, UPDATE)) ensureChannel(context, category)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val manager = context.getSystemService(Context.NOTIFICATION_SERVICE)
+                as NotificationManager
+            val current = setOf(PAYMENT, EVENT, UPDATE)
+            val prefixes = current.map { it + "_tone_" }
+            manager.notificationChannels.map { it.id }.filter { id ->
+                id !in current && prefixes.any { id.startsWith(it) }
+            }.forEach { manager.deleteNotificationChannel(it) }
+        }
     }
 
     /**
@@ -203,16 +199,16 @@ internal object BalanceNotificationSounds {
             return "Канал отключён в Android"
         if (channel.importance < NotificationManager.IMPORTANCE_DEFAULT)
             return "Беззвучный канал Android"
-        val actual = channel.sound
+        val actual = channel.sound ?: return "Без звука в Android"
         val key = selected(context, category)
         val expected = if (key == "silent" || volume(context, category) == 0) null
             else soundUri(context, key, volume(context, category))
-        if (actual == expected) return if (expected == null) "Без звука" else
-            title(context, category)
-        if (actual == null) return "Без звука в Android"
-        if (expected == null) return "Звук включён в Android"
-        if (fallbackReason(context, category) != null) return "Системный звук (резерв)"
-        return "Мелодия изменена в Android"
+        return when {
+            actual == expected -> title(context, category)
+            actual == RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION) ->
+                "Системный звук Android"
+            else -> "Мелодия Android"
+        }
     }
 
     fun effectiveSummary(context: Context, category: String): String {
@@ -224,9 +220,8 @@ internal object BalanceNotificationSounds {
             if (channel?.shouldVibrate() == true &&
                 channel.importance >= NotificationManager.IMPORTANCE_DEFAULT)
                 "вибрация включена" else "без вибрации"
-        } else if (vibrationFor(context, category)) {
-            "вибрация включена"
-        } else "без вибрации"
+        } else if (vibrationFor(context, category)) "вибрация включена"
+        else "без вибрации"
         return sound + " · " + vibration
     }
 
