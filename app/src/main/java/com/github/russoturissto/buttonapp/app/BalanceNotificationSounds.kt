@@ -117,9 +117,9 @@ internal object BalanceNotificationSounds {
     }
 
     fun legacyChannel(category: String): String = when (category) {
-        PAYMENT -> "Напоминания о платежах"
-        EVENT -> "Напоминания о событиях"
-        else -> "Обновления BalanceHub"
+        PAYMENT -> "Платежи"
+        EVENT -> "События"
+        else -> "Обновления"
     }
 
     /**
