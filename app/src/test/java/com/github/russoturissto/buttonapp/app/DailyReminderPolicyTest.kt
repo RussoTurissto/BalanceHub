@@ -25,7 +25,7 @@ class DailyReminderPolicyTest {
             DailyReminderPolicy.following(first, due, at(2026, 11, 17, 12)))
         assertEquals(due,
             DailyReminderPolicy.following(first, due, at(2026, 11, 19, 9)))
-        assertFalse(DailyReminderPolicy.eligible(first, due, due + 2_000L))
+        assertTrue(DailyReminderPolicy.eligible(first, due, due + 2_000L))
     }
 
     @Test fun dueTimeAlertHasGraceButNoRepeatedDays() {
