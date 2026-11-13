@@ -16,6 +16,28 @@ class StableNotificationChannelsTest {
             StableNotificationChannels.id(BalanceNotificationSounds.UPDATE))
     }
 
+    @Test fun explicitReconfigurationKeepsExactlyThreeActiveCategoryIdentities() {
+        val categories = listOf(
+            BalanceNotificationSounds.PAYMENT,
+            BalanceNotificationSounds.EVENT,
+            BalanceNotificationSounds.UPDATE)
+        for (category in categories) {
+            val initial = StableNotificationChannels.id(category)
+            val first = StableNotificationChannels.id(category, 1)
+            val second = StableNotificationChannels.id(category, 2)
+            assertFalse(initial == first)
+            assertFalse(first == second)
+            assertTrue(StableNotificationChannels.isManaged(initial))
+            assertTrue(StableNotificationChannels.isManaged(first))
+            assertTrue(StableNotificationChannels.isManaged(second))
+            assertFalse(StableNotificationChannels.isRetired(first))
+            assertFalse(StableNotificationChannels.isRetired(second))
+        }
+        assertEquals(3, categories.map { StableNotificationChannels.id(it, 3) }.toSet().size)
+        assertFalse(StableNotificationChannels.isManaged("third_party_channel"))
+        assertFalse(StableNotificationChannels.isManaged("balancehub.channel.event.configured.bad"))
+    }
+
     @Test fun legacyVariantsAreIdentifiedWithoutMatchingNewChannels() {
         for (category in listOf(BalanceNotificationSounds.PAYMENT,
             BalanceNotificationSounds.EVENT, BalanceNotificationSounds.UPDATE)) {
