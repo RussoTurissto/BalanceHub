@@ -2366,32 +2366,39 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderNotificationsMenu() {
-        settingsHeader("Уведомления", "Мелодии и вибрация")
+        settingsHeader("Уведомления", "Три постоянных системных канала")
         settingsGroup(settingsPanel(
+            settingsRow("download", "Обновления",
+                BalanceNotificationSounds.effectiveSummary(this,
+                    BalanceNotificationSounds.UPDATE)) { openSettingsPage("update_sound") },
             settingsRow("credit-card", "Платежи",
                 BalanceNotificationSounds.effectiveSummary(this,
                     BalanceNotificationSounds.PAYMENT)) { openSettingsPage("payment") },
             settingsRow("calendar-days", "События",
                 BalanceNotificationSounds.effectiveSummary(this,
-                    BalanceNotificationSounds.EVENT)) { openSettingsPage("event") },
-            settingsRow("download", "Обновления",
-                BalanceNotificationSounds.effectiveSummary(this,
-                    BalanceNotificationSounds.UPDATE)) { openSettingsPage("update_sound") }
+                    BalanceNotificationSounds.EVENT)) { openSettingsPage("event") }
         ))
-        settingsGroup(settingsPanel(
-            settingsSwitch("music", "Раздельная громкость",
-                "Настраивать каждый тип отдельно",
-                BalanceNotificationSounds.separateVolume(this)) {
-                BalanceNotificationSounds.setSeparateVolume(this, it)
-                refreshSettingsWithoutJump()
-            },
-            settingsSwitch("settings", "Вибрация уведомлений",
-                "Общий переключатель",
-                BalanceNotificationSounds.vibrationEnabled(this)) {
-                BalanceNotificationSounds.setVibrationEnabled(this, it)
-                refreshSettingsWithoutJump()
-            }
-        ))
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            settingsGroup(settingsPanel(
+                settingsSwitch("music", "Раздельная громкость",
+                    "Настраивать каждый тип отдельно",
+                    BalanceNotificationSounds.separateVolume(this)) {
+                    BalanceNotificationSounds.setSeparateVolume(this, it)
+                    refreshSettingsWithoutJump()
+                },
+                settingsSwitch("settings", "Вибрация уведомлений",
+                    "Общий переключатель",
+                    BalanceNotificationSounds.vibrationEnabled(this)) {
+                    BalanceNotificationSounds.setVibrationEnabled(this, it)
+                    refreshSettingsWithoutJump()
+                }
+            ))
+        } else {
+            contentContainer.addView(textLine(
+                "Звук и вибрация каждого канала настраиваются в Android. " +
+                    "Так категории не дублируются и системный выбор сохраняется.",
+                12f, muted))
+        }
     }
 
     private fun notificationCategory() = when (settingsScreen()) {
@@ -2408,6 +2415,28 @@ class MainActivity : AppCompatActivity() {
         val category = notificationCategory()
         val title = notificationTitle(category)
         settingsHeader(title, "Настройка оповещений")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            settingsGroup(settingsPanel(
+                settingsRow("music", "Мелодия",
+                    BalanceNotificationSounds.effectiveSoundTitle(this, category)) {
+                    openAndroidNotificationSettings(category)
+                },
+                settingsRow("settings", "Вибрация",
+                    BalanceNotificationSounds.effectiveSummary(this, category)
+                        .substringAfter(" · ", "Параметры Android")) {
+                    openAndroidNotificationSettings(category)
+                },
+                settingsRow("settings", "Настроить канал Android",
+                    "Выбрать звук, вибрацию и способ показа") {
+                    openAndroidNotificationSettings(category)
+                }
+            ))
+            contentContainer.addView(textLine(
+                "Android сохраняет параметры каждого канала после создания. " +
+                    "Для изменения мелодии и вибрации используйте системный экран.",
+                12f, muted))
+            return
+        }
         val volumeKey = if (BalanceNotificationSounds.separateVolume(this)) category else null
         val current = BalanceNotificationSounds.volume(this, category)
         val level = textLine("$current%", 13f, accent, true)
@@ -2838,8 +2867,8 @@ class MainActivity : AppCompatActivity() {
                 )),
             HelpSection("Звуки и громкость", "Настройки уведомлений BalanceHub",
                 "music", listOf(
-                    "Откройте Настройки → Уведомления. Выберите мелодии " +
-                        "для платежей, событий и обновлений.",
+                    "Откройте Настройки → Уведомления. На Android 8 и новее " +
+                        "мелодия и вибрация каждого канала меняются в настройках Android.",
                     "Общая или раздельная громкость BalanceHub уменьшает уровень " +
                         "фирменных сигналов относительно системного. Приложение " +
                         "не меняет громкость телефона.",
