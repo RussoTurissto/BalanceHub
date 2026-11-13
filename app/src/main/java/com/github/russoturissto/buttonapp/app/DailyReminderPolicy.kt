@@ -1,5 +1,6 @@
 package com.github.russoturissto.buttonapp.app
 
+import android.annotation.SuppressLint
 import android.content.Context
 import java.util.Calendar
 
@@ -49,6 +50,8 @@ internal object DailyReminderPolicy {
 }
 
 /** Synchronous, persisted dedup across app restarts and re-delivered alarms. */
+/** Synchronous commit is intentional: a failed durable reservation is not an alert. */
+@SuppressLint("ApplySharedPref", "UseKtx")
 internal object DailyReminderLedger {
     private const val NAME = "balancehub_daily_reminder_ledger_v1"
     data class Reservation(val previous: String?,

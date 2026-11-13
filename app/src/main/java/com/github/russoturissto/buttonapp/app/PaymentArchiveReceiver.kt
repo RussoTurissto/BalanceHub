@@ -1,5 +1,6 @@
 package com.github.russoturissto.buttonapp.app
 
+import android.annotation.SuppressLint
 import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
@@ -28,6 +29,8 @@ internal object PaymentArchiveScheduler {
     }
 }
 
+/** The new recurring due time must be committed before its alarm is armed. */
+@SuppressLint("UseKtx")
 class PaymentArchiveReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val id = intent.getStringExtra("id") ?: return
