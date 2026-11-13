@@ -146,11 +146,8 @@ internal object BalanceNotificationSounds {
      * ParcelFileDescriptor.statSize, which can be -1 for a readable stream.
      * Return only a concise diagnostic code; never swallow a failure silently.
      */
-    private fun toneProbe(context: Context, uri: Uri): String? {
-        return try {
-            val source = context.contentResolver.openInputStream(uri)
-                ?: return "пустой поток"
-        source.use { stream ->
+    private fun toneProbe(context: Context, uri: Uri): String? = try {
+        context.contentResolver.openInputStream(uri)?.use { stream ->
             val header = ByteArray(12)
             var count = 0
             while (count < header.size) {
@@ -162,11 +159,10 @@ internal object BalanceNotificationSounds {
                 !header.copyOfRange(0, 4).contentEquals("RIFF".toByteArray()) ||
                 !header.copyOfRange(8, 12).contentEquals("WAVE".toByteArray()))
                 "неверный WAV" else null
-        }
+        } ?: "пустой поток"
     } catch (error: Exception) {
         android.util.Log.w("BalanceHubSound", "Cannot read WAV " + uri.scheme, error)
         error.javaClass.simpleName
-        }
     }
 
     /** Read-only diagnostics shared by the settings and channel audit screen. */
@@ -195,6 +191,7 @@ internal object BalanceNotificationSounds {
             "ресурс=$fallbackError")
     }
 
+    @android.annotation.TargetApi(Build.VERSION_CODES.O)
     private fun newChannel(context: Context, category: String, id: String,
         sound: Uri?, vibrate: Boolean, importance: Int,
         attributes: AudioAttributes? = notificationAttributes): NotificationChannel {
