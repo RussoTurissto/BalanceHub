@@ -129,37 +129,71 @@ internal object BalanceNotificationSounds {
         StableNotificationChannels.id(category,
             preferences(context).getInt("channel_revision_" + category, 0).coerceAtLeast(0))
 
-    private fun toneReadable(context: Context, uri: Uri?): Boolean = try {
-        uri != null && context.contentResolver.openFileDescriptor(uri, "r")?.use {
-            it.statSize >= 44L
-        } == true
-    } catch (_: Exception) { false }
+    private val notificationAttributes: AudioAttributes
+        get() = AudioAttributes.Builder()
+            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+            .setUsage(AudioAttributes.USAGE_NOTIFICATION).build()
 
-    private fun createConfiguredChannel(context: Context, category: String,
-        id: String, key: String, vibrate: Boolean, strict: Boolean): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return true
-        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE)
-            as NotificationManager
-        if (manager.getNotificationChannel(id) != null) return true
-        val channel = NotificationChannel(id, legacyChannel(category),
-            if (category == UPDATE) NotificationManager.IMPORTANCE_DEFAULT
-            else NotificationManager.IMPORTANCE_HIGH)
-        val gain = volume(context, category)
-        if (key == "silent" || gain == 0) {
-            channel.setSound(null, null)
-        } else {
-            val uri = soundUri(context, key, gain)
-            val resolved = if (key == "system") uri else uri?.takeIf {
-                toneReadable(context, it)
+    /** The public content URI survives APK upgrades and supports stored volume. */
+    private fun resourceUri(context: Context, key: String): Uri? {
+        val tone = tones.firstOrNull { it.key == key } ?: return null
+        val name = context.resources.getResourceEntryName(tone.resource)
+        return Uri.parse("android.resource://" + context.packageName + "/raw/" + name)
+    }
+
+    /**
+     * Probe the first bytes of the actual file instead of relying on
+     * ParcelFileDescriptor.statSize, which can be -1 for a readable stream.
+     * Return only a concise diagnostic code; never swallow a failure silently.
+     */
+    private fun toneProbe(context: Context, uri: Uri): String? = try {
+        val source = context.contentResolver.openInputStream(uri)
+            ?: return "пустой поток"
+        source.use { stream ->
+            val header = ByteArray(12)
+            var count = 0
+            while (count < header.size) {
+                val read = stream.read(header, count, header.size - count)
+                if (read <= 0) break
+                count += read
             }
-            // Do not claim that a custom tone was applied if Android cannot read its WAV.
-            if (strict && resolved == null) return false
-            channel.setSound(
-                resolved ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),
-                AudioAttributes.Builder()
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                    .setUsage(AudioAttributes.USAGE_NOTIFICATION).build())
+            if (count != 12 ||
+                !header.copyOfRange(0, 4).contentEquals("RIFF".toByteArray()) ||
+                !header.copyOfRange(8, 12).contentEquals("WAVE".toByteArray()))
+                "неверный WAV" else null
         }
+    } catch (error: Exception) {
+        android.util.Log.w("BalanceHubSound", "Cannot read WAV " + uri.scheme, error)
+        error.javaClass.simpleName
+    }
+
+    private data class SoundSelection(val uri: Uri?, val error: String? = null)
+
+    private fun resolveSound(context: Context, key: String, gain: Int): SoundSelection {
+        if (key == "silent" || gain == 0) return SoundSelection(null)
+        if (key == "system") {
+            val system = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+            return SoundSelection(system, if (system == null) "В Android не выбран системный звук"
+                else null)
+        }
+        val primary = soundUri(context, key, gain)
+            ?: return SoundSelection(null, "Не найдена встроенная мелодия")
+        val primaryError = toneProbe(context, primary)
+        if (primaryError == null) return SoundSelection(primary)
+        // Some OEMs cannot open a custom provider from the sound picker.
+        // A named android.resource URI is a second independent, stable lookup.
+        val fallback = resourceUri(context, key)
+        val fallbackError = fallback?.let { toneProbe(context, it) }
+            ?: "ресурс отсутствует"
+        if (fallbackError == null && fallback != null) return SoundSelection(fallback)
+        return SoundSelection(null, "Не удалось прочитать WAV: provider=$primaryError, " +
+            "ресурс=$fallbackError")
+    }
+
+    private fun newChannel(context: Context, category: String, id: String,
+        sound: Uri?, vibrate: Boolean, importance: Int): NotificationChannel {
+        val channel = NotificationChannel(id, legacyChannel(category), importance)
+        channel.setSound(sound, if (sound == null) null else notificationAttributes)
         channel.enableVibration(vibrate)
         if (vibrate) {
             if (Build.VERSION.SDK_INT >= 35) {
@@ -167,8 +201,25 @@ internal object BalanceNotificationSounds {
                     vibrationPattern(category), -1))
             } else channel.vibrationPattern = vibrationPattern(category)
         }
-        manager.createNotificationChannel(channel)
-        return manager.getNotificationChannel(id) != null
+        return channel
+    }
+
+    private fun createConfiguredChannel(context: Context, category: String,
+        id: String, key: String, vibrate: Boolean, strict: Boolean): String? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return null
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE)
+            as NotificationManager
+        if (manager.getNotificationChannel(id) != null) return null
+        val selection = resolveSound(context, key, volume(context, category))
+        if (strict && selection.error != null) return selection.error
+        val sound = if (selection.error == null) selection.uri
+            else RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+        val importance = if (category == UPDATE) NotificationManager.IMPORTANCE_DEFAULT
+            else NotificationManager.IMPORTANCE_HIGH
+        manager.createNotificationChannel(newChannel(context, category,
+            id, sound, vibrate, importance))
+        return if (manager.getNotificationChannel(id) != null) null
+            else "Android не создал канал уведомлений"
     }
 
     fun ensureChannel(context: Context, category: String): String {
@@ -180,9 +231,15 @@ internal object BalanceNotificationSounds {
         return id
     }
 
-    /** Only the user can request a new sound/vibration configuration.
-     * Generates a never-reused ID and removes the old channel from active categories.
-     * Returns a readable error or null on success.
+    private fun nextRevision(context: Context, category: String): Int? {
+        val previous = preferences(context)
+            .getInt("channel_revision_" + category, 0).coerceAtLeast(0)
+        return if (previous < Int.MAX_VALUE - 1) previous + 1 else null
+    }
+
+    /**
+     * User-initiated tone change. The actual Android channel is queried back
+     * before the new revision is persisted and the old channel is retired.
      */
     @Synchronized
     fun applyUserChoice(context: Context, category: String,
@@ -197,22 +254,19 @@ internal object BalanceNotificationSounds {
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE)
             as NotificationManager
         val oldId = ensureChannel(context, category)
-        val prefs = preferences(context)
-        val previous = prefs.getInt("channel_revision_" + category, 0).coerceAtLeast(0)
-        if (previous >= Int.MAX_VALUE - 1) return "Превышено число изменений канала"
-        val next = previous + 1
+        val next = nextRevision(context, category) ?: return "Превышено число изменений канала"
         val nextId = StableNotificationChannels.id(category, next)
-        try {
-            if (!createConfiguredChannel(context, category, nextId, key,
-                    vibrate, strict = true)) return "Мелодия недоступна Android"
+        val prefs = preferences(context)
+        return try {
+            val error = createConfiguredChannel(context, category,
+                nextId, key, vibrate, strict = true)
+            if (error != null) return error
             val actual = manager.getNotificationChannel(nextId)
-            val gain = volume(context, category)
-            val expectedSound = if (key == "silent" || gain == 0) null
-                else soundUri(context, key, gain)
-            if (actual == null || actual.sound != expectedSound ||
+            val expected = resolveSound(context, key, volume(context, category)).uri
+            if (actual == null || actual.sound != expected ||
                 actual.shouldVibrate() != vibrate) {
                 manager.deleteNotificationChannel(nextId)
-                return "Android не применил звук или вибрацию"
+                return "Android не применил выбранный звук или вибрацию"
             }
             if (!prefs.edit().putString(category, key)
                     .putBoolean("vibration_" + category, vibrate)
@@ -222,15 +276,76 @@ internal object BalanceNotificationSounds {
             }
             manager.deleteNotificationChannel(oldId)
             deleteUnusedChannels(context)
-            return null
-        } catch (_: Exception) {
-            // Preserve the previous working channel and saved selection.
+            null
+        } catch (error: Exception) {
+            android.util.Log.e("BalanceHubSound", "Tone channel update failed", error)
             if (nextId != channelId(context, category)) {
                 try { manager.deleteNotificationChannel(nextId) }
                 catch (_: Exception) { }
             }
-            return "Не удалось обновить системный канал"
+            "Не удалось установить мелодию: " + error.javaClass.simpleName
         }
+    }
+
+    /**
+     * Vibration does NOT require a bundled WAV to be readable. Keep the
+     * effective sound URI from Android unchanged while changing vibration.
+     */
+    @Synchronized
+    fun applyVibrationChoice(context: Context, category: String,
+        vibrate: Boolean): String? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            setVibrationFor(context, category, vibrate)
+            return null
+        }
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE)
+            as NotificationManager
+        val oldId = ensureChannel(context, category)
+        val previous = manager.getNotificationChannel(oldId)
+            ?: return "Канал уведомлений Android не найден"
+        if (previous.shouldVibrate() == vibrate) {
+            setVibrationFor(context, category, vibrate)
+            return null
+        }
+        val next = nextRevision(context, category) ?: return "Превышено число изменений канала"
+        val nextId = StableNotificationChannels.id(category, next)
+        val prefs = preferences(context)
+        return try {
+            val importance = if (vibrate)
+                previous.importance.coerceAtLeast(NotificationManager.IMPORTANCE_DEFAULT)
+            else previous.importance
+            val channel = newChannel(context, category, nextId,
+                previous.sound, vibrate, importance)
+            manager.createNotificationChannel(channel)
+            val actual = manager.getNotificationChannel(nextId)
+            if (actual?.shouldVibrate() != vibrate || actual.sound != previous.sound) {
+                manager.deleteNotificationChannel(nextId)
+                return "Android не применил вибрацию"
+            }
+            if (!prefs.edit().putBoolean("vibration_" + category, vibrate)
+                    .putInt("channel_revision_" + category, next).commit()) {
+                manager.deleteNotificationChannel(nextId)
+                return "Не удалось сохранить вибрацию"
+            }
+            manager.deleteNotificationChannel(oldId)
+            deleteUnusedChannels(context)
+            null
+        } catch (error: Exception) {
+            android.util.Log.e("BalanceHubSound", "Vibration channel update failed", error)
+            if (nextId != channelId(context, category)) {
+                try { manager.deleteNotificationChannel(nextId) }
+                catch (_: Exception) { }
+            }
+            "Не удалось установить вибрацию: " + error.javaClass.simpleName
+        }
+    }
+
+    private fun matchesConfiguredSound(context: Context, key: String, gain: Int,
+        actual: Uri?): Boolean {
+        if (key == "silent" || gain == 0) return actual == null
+        if (key == "system")
+            return actual == RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+        return actual == soundUri(context, key, gain) || actual == resourceUri(context, key)
     }
 
     /** An explicit repair action is offered rather than silently resetting Android settings. */
@@ -241,10 +356,9 @@ internal object BalanceNotificationSounds {
             as NotificationManager).getNotificationChannel(id) ?: return true
         val gain = volume(context, category)
         val key = selected(context, category)
-        val wanted = if (key == "silent" || gain == 0) null
-            else soundUri(context, key, gain)
         return channel.importance < NotificationManager.IMPORTANCE_DEFAULT ||
-            channel.sound != wanted || channel.shouldVibrate() != vibrationFor(context, category)
+            !matchesConfiguredSound(context, key, gain, channel.sound) ||
+            channel.shouldVibrate() != vibrationFor(context, category)
     }
 
     /** Always keep precisely the three current categories in the active channel list. */
@@ -270,10 +384,9 @@ internal object BalanceNotificationSounds {
             return "Беззвучный канал Android"
         val actual = channel.sound ?: return "Без звука в Android"
         val key = selected(context, category)
-        val expected = if (key == "silent" || volume(context, category) == 0) null
-            else soundUri(context, key, volume(context, category))
         return when {
-            actual == expected -> title(context, category)
+            matchesConfiguredSound(context, key, volume(context, category), actual) ->
+                title(context, category)
             actual == RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION) ->
                 "Системный звук Android"
             else -> "Мелодия Android"
