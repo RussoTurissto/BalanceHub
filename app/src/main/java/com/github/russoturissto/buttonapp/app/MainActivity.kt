@@ -4582,7 +4582,7 @@ class MainActivity : AppCompatActivity() {
         }
         }
         contentContainer.addView(list)
-        contentContainer.addView(verticalGap(18))
+        contentContainer.addView(verticalGap(14))
         val archivedCount = EventStore.archived(this).size
         val folder = settingsPanel(settingsRow("archive", "Архив событий",
             "$archivedCount записей · завершённые и удалённые") {
