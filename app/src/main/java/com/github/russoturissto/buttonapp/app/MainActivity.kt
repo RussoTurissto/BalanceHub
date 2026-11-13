@@ -92,6 +92,7 @@ class MainActivity : AppCompatActivity() {
     private var engineeringTapStartedAt = 0L
     private var operatorDetailsOpen = false
     private var archiveOpen = false
+    private var expandedArchivePaymentId: String? = null
     private var eventArchiveExpanded = false
     private var eventListExpanded = false
     private var soundSettingsExpanded = false
@@ -190,6 +191,7 @@ class MainActivity : AppCompatActivity() {
         engineeringChannelsOpen = false
         operatorDetailsOpen = savedInstanceState?.getBoolean("operator_details_open") ?: false
         archiveOpen = savedInstanceState?.getBoolean("archive_open") ?: false
+        expandedArchivePaymentId = savedInstanceState?.getString("expanded_archive_payment_id")
         eventArchiveExpanded = savedInstanceState?.getBoolean("event_archive_open") ?: false
         eventListExpanded = savedInstanceState?.getBoolean("event_list_expanded")
             ?: preferences.getBoolean("event_list_expanded", false)
@@ -227,6 +229,7 @@ class MainActivity : AppCompatActivity() {
                 when {
                     archiveOpen && currentTab == 2 -> {
                         archiveOpen = false
+                        expandedArchivePaymentId = null
                         renderTab()
                     }
                     operatorDetailsOpen -> {
@@ -325,6 +328,7 @@ class MainActivity : AppCompatActivity() {
         outState.putBoolean("bank_settings_open", false)
         outState.putBoolean("operator_details_open", operatorDetailsOpen)
         outState.putBoolean("archive_open", archiveOpen)
+        outState.putString("expanded_archive_payment_id", expandedArchivePaymentId)
         outState.putBoolean("event_archive_open", eventArchiveExpanded)
         outState.putBoolean("event_list_expanded", eventListExpanded)
         outState.putBoolean("sound_settings_expanded", soundSettingsExpanded)
@@ -3805,57 +3809,38 @@ class MainActivity : AppCompatActivity() {
         }
         listContainer.addView(section)
         val archivedCount = PaymentArchiveStore.archived(this).size
-        val folder = card()
-        folder.contentDescription = "Папка Архив платежей, записей: $archivedCount"
-        folder.isClickable = true
-        folder.isFocusable = true
-        val folderRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        folderRow.addView(iconTile("archive", 40),
-            LinearLayout.LayoutParams(dp(40), dp(40)))
-        folderRow.addView(View(this), LinearLayout.LayoutParams(dp(12), 1))
-        val folderLabels = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            addView(textLine("Архив платежей", 17f, ink, true))
-            addView(verticalGap(3))
-            addView(textLine(
-                "$archivedCount записей · завершённые и удалённые",
-                12f, muted
-            ))
-        }
-        folderRow.addView(folderLabels, LinearLayout.LayoutParams(0, -2, 1f))
-        folderRow.addView(textLine("›", 25f, accent, true))
-        folder.addView(folderRow)
-        folder.setOnClickListener {
+        val folder = settingsPanel(settingsRow("archive", "Архив платежей",
+            "$archivedCount записей · завершённые и удалённые") {
             archiveOpen = true
+            expandedArchivePaymentId = null
             renderTab()
-        }
-        listContainer.addView(verticalGap(18))
+        })
+        listContainer.addView(verticalGap(14))
         listContainer.addView(folder)
         listContainer.addView(verticalGap(22))
     }
 
-    /** History is a separate folder inside the Payments tab. */
+    /** One compact gradient panel with the same dividers as current payments. */
     private fun renderArchiveScreen() {
         contentContainer.addView(secondaryButton("‹  К платежам") {
             archiveOpen = false
+            expandedArchivePaymentId = null
             renderTab()
         })
-        contentContainer.addView(verticalGap(13))
+        contentContainer.addView(verticalGap(12))
         contentContainer.addView(LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            addView(iconTile("archive", 36), LinearLayout.LayoutParams(dp(36), dp(36)))
+            addView(iconTile("archive", 36),
+                LinearLayout.LayoutParams(dp(36), dp(36)))
             addView(View(this@MainActivity), LinearLayout.LayoutParams(dp(10), 1))
-            addView(textLine("Архив платежей", 23f, ink, true))
+            addView(textLine("Архив платежей", 23f, ink, true).apply {
+                maxLines = 2
+            }, LinearLayout.LayoutParams(0, -2, 1f))
         })
         contentContainer.addView(verticalGap(5))
         contentContainer.addView(textLine(
-            "Завершённые и удалённые напоминания сохраняются здесь.",
-            13f, muted
-        ))
+            "Завершённые и удалённые напоминания сохраняются здесь.", 13f, muted))
         contentContainer.addView(verticalGap(14))
         val entries = PaymentArchiveStore.archived(this)
         if (entries.isEmpty()) {
@@ -3864,57 +3849,64 @@ class MainActivity : AppCompatActivity() {
             empty.addView(verticalGap(6))
             empty.addView(textLine(
                 "Записи появятся после завершения одноразового платежа или удаления.",
-                13f, muted
-            ))
+                13f, muted))
             contentContainer.addView(empty)
             return
         }
+        val rows = mutableListOf<View>()
         for (entry in entries) {
-            val item = card()
-            item.setPadding(dp(15), dp(13), dp(15), dp(13))
+            val expanded = expandedArchivePaymentId == entry.id
+            val amount = PaymentCurrencyFormatter.amountWithCurrency(
+                entry.amount, entry.currency)
+            val dueLabel = DateFormat.getDateInstance(DateFormat.MEDIUM)
+                .format(Date(entry.dueAt))
             val status = if (entry.reason == PaymentArchiveStore.COMPLETED)
                 "Срок истёк" else "Удалено вручную"
-            item.addView(LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                addView(iconTile(entry.iconId ?: IconRegistry.select(
-                    entry.title, "credit-card"), 36),
-                    LinearLayout.LayoutParams(dp(36), dp(36)))
-                addView(View(this@MainActivity), LinearLayout.LayoutParams(dp(10), 1))
-                addView(textLine(entry.title, 16f, ink, true))
+            val glyph = entry.iconId ?: IconRegistry.select(entry.title, "credit-card")
+            rows.add(settingsRow(glyph, entry.title,
+                "$amount · $dueLabel · $status") {
+                val scroll = dashboardScroll.scrollY
+                expandedArchivePaymentId = if (expanded) null else entry.id
+                renderTab()
+                dashboardScroll.post {
+                    if (currentTab == 2 && archiveOpen) dashboardScroll.scrollTo(0, scroll)
+                }
             })
-            item.addView(verticalGap(4))
-            item.addView(textLine(
-                PaymentCurrencyFormatter.amountWithCurrency(entry.amount, entry.currency) +
-                    " · " + DateFormat.getDateInstance(DateFormat.MEDIUM)
-                        .format(Date(entry.dueAt)), 13f, muted
-            ))
-            item.addView(verticalGap(4))
-            item.addView(textLine(
-                "$status · ${recurrenceLabel(entry.recurrence)}",
-                12f, accent, true
-            ))
-            item.addView(verticalGap(3))
-            item.addView(textLine(
-                "Напоминание за ${entry.leadDays} дн. · в архиве с " +
-                    DateFormat.getDateInstance(DateFormat.SHORT)
-                        .format(Date(entry.archivedAt)), 12f, muted
-            ))
-            item.addView(verticalGap(10))
-            val row = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
+            if (expanded) {
+                val details = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(dp(14), dp(8), dp(14), dp(14))
+                    addView(textLine(status + " · " + recurrenceLabel(entry.recurrence),
+                        12f, accent, true))
+                    addView(verticalGap(5))
+                    addView(textLine(
+                        "Напоминание за " + entry.leadDays + " дн. · в архиве с " +
+                        DateFormat.getDateInstance(DateFormat.SHORT)
+                            .format(Date(entry.archivedAt)), 12f, muted))
+                    addView(verticalGap(12))
+                    val stack = resources.configuration.screenWidthDp < 365
+                    val actions = LinearLayout(this@MainActivity).apply {
+                        orientation = if (stack) LinearLayout.VERTICAL
+                            else LinearLayout.HORIZONTAL
+                    }
+                    actions.addView(secondaryButton("Восстановить") {
+                        restoreArchivedPayment(entry)
+                    }, if (stack) LinearLayout.LayoutParams(-1, dp(46))
+                        else LinearLayout.LayoutParams(0, dp(46), 1f))
+                    actions.addView(View(this@MainActivity),
+                        LinearLayout.LayoutParams(if (stack) 1 else dp(8),
+                            if (stack) dp(8) else 1))
+                    actions.addView(secondaryButton("Удалить навсегда") {
+                        deleteArchivedPayment(entry)
+                    }, if (stack) LinearLayout.LayoutParams(-1, dp(46))
+                        else LinearLayout.LayoutParams(0, dp(46), 1f))
+                    addView(actions)
+                }
+                rows.add(details)
             }
-            row.addView(secondaryButton("Восстановить") {
-                restoreArchivedPayment(entry)
-            }, LinearLayout.LayoutParams(0, dp(46), 1f))
-            row.addView(View(this), LinearLayout.LayoutParams(dp(8), 1))
-            row.addView(secondaryButton("Удалить навсегда") {
-                deleteArchivedPayment(entry)
-            }, LinearLayout.LayoutParams(0, dp(46), 1f))
-            item.addView(row)
-            contentContainer.addView(item)
-            contentContainer.addView(verticalGap(9))
         }
+        contentContainer.addView(settingsPanel(*rows.toTypedArray()))
+        contentContainer.addView(verticalGap(18))
     }
 
     private fun restoreArchivedPayment(entry: ArchivedPayment) {
