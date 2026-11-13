@@ -15,6 +15,7 @@ class PaymentBootReceiver : BroadcastReceiver() {
                 Intent.ACTION_MY_PACKAGE_REPLACED, Intent.ACTION_TIME_CHANGED,
                 Intent.ACTION_TIMEZONE_CHANGED,
                 "android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED")) return
+        BalanceNotificationSounds.ensureDefaultChannels(context)
         PaymentArchiveStore.archiveDue(context)
         EventScheduler.restoreAfterBoot(context)
         val prefs = context.getSharedPreferences("balancehub_data", Context.MODE_PRIVATE)
