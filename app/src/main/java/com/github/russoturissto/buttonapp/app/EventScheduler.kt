@@ -65,6 +65,17 @@ internal object EventScheduler {
     fun restoreAfterBoot(context: Context) {
         EventStore.reconcileElapsed(context)
         for (event in EventStore.active(context)) schedule(context, event)
+        // An inexact alarm can be lost by a reboot or superseded by the
+        // due-time archiver. Recover only recently completed occurrences.
+        val now = System.currentTimeMillis()
+        for (archived in EventStore.archived(context)) {
+            val event = archived.event
+            if (EventDeliveryPolicy.archivedOccurrenceEligible(
+                    archived.reason, event.dueAt, archived.archivedAt, now)) {
+                context.sendBroadcast(Intent(context, EventReminderReceiver::class.java)
+                    .putExtra("id", event.id).putExtra("dueAt", event.dueAt))
+            }
+        }
     }
 }
 
@@ -73,12 +84,19 @@ class EventReminderReceiver : BroadcastReceiver() {
         val id = intent.getStringExtra("id") ?: return
         val due = intent.getLongExtra("dueAt", -1L)
         val now = System.currentTimeMillis()
-        val event = EventStore.active(context).firstOrNull {
+        val activeEvent = EventStore.active(context).firstOrNull {
             it.id == id && it.dueAt == due
-        } ?: return
+        }
+        // The due-time receiver or onResume may have already archived it.
+        // Completed events are eligible for a bounded catch-up window.
+        val archived = if (activeEvent == null) EventStore.archived(context)
+            .firstOrNull { it.event.id == id && it.event.dueAt == due &&
+                EventDeliveryPolicy.archivedOccurrenceEligible(
+                    it.reason, due, it.archivedAt, now) } else null
+        val event = activeEvent ?: archived?.event ?: return
         val first = DailyReminderPolicy.firstEvent(due, event.leadMinutes)
-        if (!DailyReminderPolicy.eligible(first, due, now)) return
-        EventScheduler.scheduleFollowingDay(context, event, now)
+        if (!EventDeliveryPolicy.canNotify(first, due, now)) return
+        if (activeEvent != null) EventScheduler.scheduleFollowingDay(context, event, now)
         if (Build.VERSION.SDK_INT >= 33 &&
             context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
                 android.content.pm.PackageManager.PERMISSION_GRANTED) return
@@ -131,6 +149,15 @@ class EventDueReceiver : BroadcastReceiver() {
         val event = EventStore.active(context).firstOrNull {
             it.id == id && it.dueAt == due
         } ?: return
+        // Deliver a missed due-day reminder before an occurrence is archived,
+        // even when Android delivered its alarm later than planned.
+        if (EventDeliveryPolicy.canNotify(
+                DailyReminderPolicy.firstEvent(due, event.leadMinutes),
+                due, System.currentTimeMillis())) {
+            EventReminderReceiver().onReceive(context,
+                Intent(context, EventReminderReceiver::class.java)
+                    .putExtra("id", id).putExtra("dueAt", due))
+        }
         if (event.recurrence == "once") {
             EventStore.reconcileElapsed(context)
             if (EventStore.active(context).none { it.id == id }) {
