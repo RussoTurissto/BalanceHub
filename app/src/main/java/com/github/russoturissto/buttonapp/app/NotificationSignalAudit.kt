@@ -56,16 +56,13 @@ internal object NotificationSignalAudit {
                 lines.add("Звук канала: " + if (sound == null) "без звука" else
                     if (sound.authority == context.packageName + ".sounds")
                         "фирменная мелодия BalanceHub" else "системная мелодия/выбор Android")
-                if (sound?.authority == context.packageName + ".sounds") {
-                    val readable = try {
-                        context.contentResolver.openFileDescriptor(sound, "r")?.use {
-                            it.statSize >= 44L
-                        } == true
-                    } catch (_: Exception) {
-                        false
-                    }
+                if (sound != null && (sound.authority == context.packageName + ".sounds" ||
+                        sound.scheme == "android.resource")) {
+                    val failure = BalanceNotificationSounds.audioProbe(context, sound)
                     lines.add("Доступ к WAV через Android: " +
-                        if (readable) "подтверждён" else "ОШИБКА чтения")
+                        if (failure == null) "подтверждён"
+                        else "ОШИБКА: " + failure)
+                    lines.add("Источник WAV: " + sound.scheme)
                 }
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     if (channel.hasUserSetImportance()) {
