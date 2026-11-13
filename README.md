@@ -1,77 +1,44 @@
 # BalanceHub
 
-Android app for tracking mobile and bank account balances and upcoming payments.
+BalanceHub is an Android app for mobile balances, banking Push balance cards, payment reminders and calendar events. The Android package ID and signing certificate stay unchanged between APK updates.
 
-## Current MVP
+## Features
 
-- The Android application and Gradle root project are named **BalanceHub**.
-- Add payment reminders manually: title, amount, ISO currency code, due date and reminder lead time (0–30 days).
-- Reminders are stored locally on the device and can be deleted from the upcoming-payments list.
-- Android schedules a local notification for the selected reminder date. Android 13+ asks for notification permission.
-- Initial mobile-account targets: MTS and Tele2; multiple bank accounts are in the product scope.
-- No income/expense ledger.
+- Local payment reminders and recurring calendar events with reminders and archives.
+- At most one reminder per item and local calendar day.
+- Mobile phone balance information where supported, and read-only banking Push balance cards.
+- Light, dark and system theme; engineer-only diagnostics.
 
-Provider integrations are not active yet. Automatic balance refresh will be implemented only through official, permitted APIs; manual entry remains available otherwise.
+## Android notifications
 
-## Technology
+On Android 8 and newer, BalanceHub maintains exactly three permanent system channels:
 
-- Kotlin, Android, Gradle Kotlin DSL, Java 17.
-- Existing application ID and package are preserved.
-- Local reminder storage currently uses Android SharedPreferences; the data layer can be migrated to Room as the MVP expands.
-- Payment notifications use Android AlarmManager and NotificationCompat.
+| Category | System channel ID |
+| --- | --- |
+| Payments | balancehub.channel.payment |
+| Events | balancehub.channel.event |
+| Updates | balancehub.channel.update |
 
-## Repository status
+Changing melody, vibration or importance for an existing Android channel must happen in its Android settings. BalanceHub displays the actual setting and opens that screen. It does not override a user-muted channel, Do Not Disturb or system sound modes. The first upgrade migrates from previously generated tone/volume channel variants, deleting only old BalanceHub variants. Saved events and payments are not modified by channel migration.
 
-The feature/balancehub-foundation branch contains the initial BalanceHub implementation.
+Reminder scheduling uses AlarmManager. Exact-alarm permission improves timing; without it, Android may delay a reminder. Recently completed events can still deliver their previously scheduled notifications within a bounded three-hour catch-up window. Completed or deleted events cannot generate notifications indefinitely.
 
-- [Architecture and integration plan](docs/BALANCEHUB_ARCHITECTURE.md)
-- [Provider capability matrix](docs/BALANCEHUB_PROVIDER_MATRIX.md)
-- [Domain models](app/src/main/java/com/github/russoturissto/buttonapp/balancehub/domain/Models.kt)
+## Build and release process
 
-## Build
+- Kotlin, Android SDK, Gradle Kotlin DSL, Java 17.
+- Main project: app. Build locally with ./gradlew :app:assembleDebug.
+- Canonical CI workflow: .github/workflows/balancehub-apk.yml.
+- CI checks compilation, lint, JVM unit tests, signed release APK, package name, Android version and signer certificate.
+- The four BALANCEHUB_* signing secrets remain private in GitHub Actions. Never commit a keystore or password.
+- Approved publishing workflow: .github/workflows/publish-approved-apk.yml.
+- Only after the owner authorizes a version and its successful CI run, update release/approved.json and release/notes.md. The publisher verifies the specific run, APK signature and version, then creates a GitHub prerelease without replacing the stable latest release.
 
-Open the repository in Android Studio and run the app configuration. The repository's existing Gradle wrapper and CI setup are retained.
+## Installing on Android
 
-## Security
+Download BalanceHub.apk directly from an approved GitHub prerelease/release page. Open it and update the app without uninstalling. A newer monotonically increasing versionCode and the existing signing certificate preserve update compatibility.
 
-- Do not store bank passwords, SMS one-time codes or card CVV values.
-- Prefer read-only official bank integrations.
-- Keep personal data on-device by default.
-- Display the timestamp and source of every balance.
-- Never present stale or manually entered data as a live provider result.
+## Repository maintenance
 
-## Roadmap
+The active Android application is the root app module. Obsolete ButtonApp-only and inactive Maven publishing workflows were removed from the GitHub Actions configuration. Historical Git commits, releases and tags are retained for safe rollback.
 
-1. Foundation and domain model.
-2. Manual payment reminders with local persistence and Android notifications.
-3. Balance dashboard and manual mobile/bank account management.
-4. Official provider integrations, where available.
-5. Tests, privacy review and release build.
-
-
-## Installing updates without reinstalling
-
-BalanceHub release APKs must always use the same private signing keystore. The application ID is intentionally kept stable. The signed APK workflow increments `versionCode` for every run and uploads an installable APK artifact.
-
-Before the first signed release, create a private upload keystore on a trusted computer and keep a secure backup:
-
-```bash
-keytool -genkeypair -v -keystore balancehub-upload.jks -keyalg RSA -keysize 2048 -validity 10000 -alias balancehub
-```
-
-Add these GitHub Actions repository secrets in **Settings → Secrets and variables → Actions**:
-
-- `BALANCEHUB_KEYSTORE_BASE64` — base64-encoded contents of `balancehub-upload.jks`
-- `BALANCEHUB_KEYSTORE_PASSWORD` — keystore password
-- `BALANCEHUB_KEY_ALIAS` — `balancehub` (or the alias chosen during key generation)
-- `BALANCEHUB_KEY_PASSWORD` — private-key password
-
-To create the base64 value:
-- macOS/Linux: `base64 -w 0 balancehub-upload.jks` (on macOS, use `base64 balancehub-upload.jks | tr -d '\\n'`)
-- PowerShell: `[Convert]::ToBase64String([IO.File]::ReadAllBytes("balancehub-upload.jks"))`
-
-Never commit the keystore, passwords, or base64 value to Git. Losing the keystore means Android will not accept future APKs as updates to installations signed with that key.
-
-After adding the secrets, run **Actions → Build BalanceHub update APK → Run workflow**. Download the `BalanceHub-...-signed-apk` artifact and install the APK. Later builds from this workflow use the same signing key and a higher version code.
-
-If an earlier APK on the phone was signed with a different key (for example, a debug key), Android may require a one-time uninstall before installing the first APK signed with this release key. Back up any important app data first. After the first signed release is installed, subsequent APKs from this workflow install as updates and preserve app data.
+See docs/BALANCEHUB_ARCHITECTURE.md for architectural background.
