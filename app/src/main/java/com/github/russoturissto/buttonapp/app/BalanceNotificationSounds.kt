@@ -280,6 +280,17 @@ internal object BalanceNotificationSounds {
         }
     }
 
+    /** Read back the system's actual state, not just our saved preference. */
+    fun effectiveVibration(context: Context, category: String): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O)
+            return vibrationFor(context, category)
+        val id = ensureChannel(context, category)
+        val channel = (context.getSystemService(Context.NOTIFICATION_SERVICE)
+            as NotificationManager).getNotificationChannel(id)
+        return channel?.shouldVibrate() == true &&
+            channel.importance >= NotificationManager.IMPORTANCE_DEFAULT
+    }
+
     fun effectiveSummary(context: Context, category: String): String {
         val sound = effectiveSoundTitle(context, category)
         val vibration = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
