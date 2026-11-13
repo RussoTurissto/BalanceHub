@@ -94,6 +94,7 @@ class MainActivity : AppCompatActivity() {
     private var archiveOpen = false
     private var expandedArchivePaymentId: String? = null
     private var eventArchiveExpanded = false
+    private var expandedArchiveEventId: String? = null
     private var eventListExpanded = false
     private var soundSettingsExpanded = false
     private val settingsStack = mutableListOf<String>()
@@ -193,6 +194,7 @@ class MainActivity : AppCompatActivity() {
         archiveOpen = savedInstanceState?.getBoolean("archive_open") ?: false
         expandedArchivePaymentId = savedInstanceState?.getString("expanded_archive_payment_id")
         eventArchiveExpanded = savedInstanceState?.getBoolean("event_archive_open") ?: false
+        expandedArchiveEventId = savedInstanceState?.getString("expanded_archive_event_id")
         eventListExpanded = savedInstanceState?.getBoolean("event_list_expanded")
             ?: preferences.getBoolean("event_list_expanded", false)
         soundSettingsExpanded = savedInstanceState?.getBoolean("sound_settings_expanded")
@@ -230,6 +232,11 @@ class MainActivity : AppCompatActivity() {
                     archiveOpen && currentTab == 2 -> {
                         archiveOpen = false
                         expandedArchivePaymentId = null
+                        renderTab()
+                    }
+                    eventArchiveExpanded && currentTab == 3 -> {
+                        eventArchiveExpanded = false
+                        expandedArchiveEventId = null
                         renderTab()
                     }
                     operatorDetailsOpen -> {
@@ -330,6 +337,7 @@ class MainActivity : AppCompatActivity() {
         outState.putBoolean("archive_open", archiveOpen)
         outState.putString("expanded_archive_payment_id", expandedArchivePaymentId)
         outState.putBoolean("event_archive_open", eventArchiveExpanded)
+        outState.putString("expanded_archive_event_id", expandedArchiveEventId)
         outState.putBoolean("event_list_expanded", eventListExpanded)
         outState.putBoolean("sound_settings_expanded", soundSettingsExpanded)
         outState.putStringArrayList("settings_stack", ArrayList(settingsStack))
@@ -680,7 +688,7 @@ class MainActivity : AppCompatActivity() {
             0 -> renderHome()
             1 -> renderBalances()
             2 -> if (archiveOpen) renderArchiveScreen() else renderPaymentScreen()
-            3 -> renderEvents()
+            3 -> if (eventArchiveExpanded) renderEventArchiveScreen() else renderEvents()
             else -> renderSettings()
         }
         if (tutorialStep == 0 && tabViews.size > 1) {
@@ -2394,9 +2402,45 @@ class MainActivity : AppCompatActivity() {
                 }
             ))
         } else {
+            val categories = listOf(BalanceNotificationSounds.UPDATE,
+                BalanceNotificationSounds.PAYMENT, BalanceNotificationSounds.EVENT)
+            if (categories.any { BalanceNotificationSounds.needsRepair(this, it) }) {
+                settingsGroup(settingsPanel(settingsRow("settings",
+                    "Включить звук и вибрацию",
+                    "Восстановить выбранные мелодии для трёх категорий") {
+                    themedDialogBuilder()
+                        .setTitle("Восстановить уведомления?")
+                        .setMessage("Android сохранил прежние параметры каналов. " +
+                            "С вашего согласия BalanceHub заменит их выбранными " +
+                            "мелодиями и включит вибрацию. Изменения системных " +
+                            "параметров этих трёх каналов будут сброшены.")
+                        .setNegativeButton("Отмена", null)
+                        .setPositiveButton("Восстановить") { _, _ ->
+                            val errors = categories.mapNotNull { category ->
+                                val selected = BalanceNotificationSounds.selected(this, category)
+                                val wanted = if (selected == "silent")
+                                    when (category) {
+                                        BalanceNotificationSounds.UPDATE -> "spark"
+                                        BalanceNotificationSounds.EVENT -> "crystal"
+                                        else -> "balancehub"
+                                    } else selected
+                                BalanceNotificationSounds.applyUserChoice(
+                                    this, category, wanted, true)?.let {
+                                    notificationTitle(category) + ": " + it
+                                }
+                            }
+                            Toast.makeText(this,
+                                if (errors.isEmpty()) "Звуки и вибрация применены"
+                                else errors.joinToString("; "),
+                                Toast.LENGTH_LONG).show()
+                            refreshSettingsWithoutJump()
+                        }.show()
+                }))
+            }
             contentContainer.addView(textLine(
-                "Звук и вибрация каждого канала настраиваются в Android. " +
-                    "Так категории не дублируются и системный выбор сохраняется.",
+                "Выберите одну из 15 мелодий в каждой категории и проверьте " +
+                    "настоящим тестовым уведомлением. Android может ограничивать " +
+                    "звучание в режиме «Не беспокоить» или без звука.",
                 12f, muted))
         }
     }
@@ -2419,22 +2463,32 @@ class MainActivity : AppCompatActivity() {
             settingsGroup(settingsPanel(
                 settingsRow("music", "Мелодия",
                     BalanceNotificationSounds.effectiveSoundTitle(this, category)) {
+                    showSoundChooser(category, title)
+                },
+                settingsSwitch("settings", "Вибрация",
+                    "Для настоящих уведомлений Android",
+                    BalanceNotificationSounds.effectiveVibration(this, category)) { enabled ->
+                    val error = BalanceNotificationSounds.applyUserChoice(this,
+                        category, BalanceNotificationSounds.selected(this, category), enabled)
+                    if (error != null) Toast.makeText(this, error, Toast.LENGTH_LONG).show()
+                    refreshSettingsWithoutJump()
+                },
+                settingsRow("settings", "Настройки Android",
+                    "Проверить системные разрешения и канал") {
                     openAndroidNotificationSettings(category)
                 },
-                settingsRow("settings", "Вибрация",
-                    BalanceNotificationSounds.effectiveSummary(this, category)
-                        .substringAfter(" · ", "Параметры Android")) {
-                    openAndroidNotificationSettings(category)
-                },
-                settingsRow("settings", "Настроить канал Android",
-                    "Выбрать звук, вибрацию и способ показа") {
-                    openAndroidNotificationSettings(category)
+                settingsRow("check", "Проверить уведомление",
+                    "Отправить настоящее уведомление со звуком и вибрацией") {
+                    sendNotificationTest(category)
                 }
             ))
-            contentContainer.addView(textLine(
-                "Android сохраняет параметры каждого канала после создания. " +
-                    "Для изменения мелодии и вибрации используйте системный экран.",
-                12f, muted))
+            if (BalanceNotificationSounds.needsRepair(this, category)) {
+                contentContainer.addView(textLine(
+                    "Параметры Android отличаются от выбранных в BalanceHub. " +
+                        "Выберите мелодию снова, чтобы применить её к уведомлениям, " +
+                        "или откройте системные настройки.",
+                    12f, muted))
+            }
             return
         }
         val volumeKey = if (BalanceNotificationSounds.separateVolume(this)) category else null
@@ -2776,10 +2830,18 @@ class MainActivity : AppCompatActivity() {
             row.isClickable = true
             row.isFocusable = true
             row.setOnClickListener {
-                BalanceNotificationSounds.choose(this, category, key)
-                BalanceNotificationSounds.stopPreview()
-                dialog.dismiss()
-                renderTab()
+                val error = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                    BalanceNotificationSounds.applyUserChoice(this, category, key,
+                        BalanceNotificationSounds.effectiveVibration(this, category))
+                else {
+                    BalanceNotificationSounds.choose(this, category, key)
+                    null
+                }
+                if (error == null) {
+                    BalanceNotificationSounds.stopPreview()
+                    dialog.dismiss()
+                    renderTab()
+                } else Toast.makeText(this, error, Toast.LENGTH_LONG).show()
             }
             if (BalanceNotificationSounds.tones.any { it.key == key }) {
                 row.addView(secondaryButton("▶") {
@@ -4521,92 +4583,154 @@ class MainActivity : AppCompatActivity() {
         }
         contentContainer.addView(list)
         contentContainer.addView(verticalGap(18))
-        val history = EventStore.archived(this)
-        val archived = card()
-        val archiveHeader = LinearLayout(this).apply {
+        val archivedCount = EventStore.archived(this).size
+        val folder = settingsPanel(settingsRow("archive", "Архив событий",
+            "$archivedCount записей · завершённые и удалённые") {
+            eventArchiveExpanded = true
+            expandedArchiveEventId = null
+            renderTab()
+        })
+        contentContainer.addView(folder)
+        contentContainer.addView(verticalGap(22))
+    }
+
+    /** Mirror the payment archive: separate screen, compact rows, one expanded item. */
+    private fun renderEventArchiveScreen() {
+        contentContainer.addView(secondaryButton("‹  К событиям") {
+            eventArchiveExpanded = false
+            expandedArchiveEventId = null
+            renderTab()
+        })
+        contentContainer.addView(verticalGap(12))
+        contentContainer.addView(LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            isClickable = true
-            isFocusable = true
-            contentDescription = if (eventArchiveExpanded) "Свернуть архив событий"
-                else "Раскрыть архив событий"
-            addView(iconTile("archive", 40),
-                LinearLayout.LayoutParams(dp(40), dp(40)))
-            addView(View(this@MainActivity), LinearLayout.LayoutParams(dp(12), 1))
-            addView(LinearLayout(this@MainActivity).apply {
-                orientation = LinearLayout.VERTICAL
-                addView(textLine("Архив событий", 17f, ink, true))
-                addView(verticalGap(3))
-                addView(textLine("Записей: " + history.size, 12f, muted))
+            addView(iconTile("archive", 36),
+                LinearLayout.LayoutParams(dp(36), dp(36)))
+            addView(View(this@MainActivity), LinearLayout.LayoutParams(dp(10), 1))
+            addView(textLine("Архив событий", 23f, ink, true).apply {
+                maxLines = 2
             }, LinearLayout.LayoutParams(0, -2, 1f))
-            addView(textLine(if (eventArchiveExpanded) "⌃" else "›",
-                25f, accent, true))
-            setOnClickListener {
-                eventArchiveExpanded = !eventArchiveExpanded
+        })
+        contentContainer.addView(verticalGap(5))
+        contentContainer.addView(textLine(
+            "Завершённые и удалённые события сохраняются здесь.", 13f, muted))
+        contentContainer.addView(verticalGap(14))
+        val entries = EventStore.archived(this)
+        if (entries.isEmpty()) {
+            val empty = card()
+            empty.addView(textLine("Архив пока пуст", 16f, ink, true))
+            empty.addView(verticalGap(6))
+            empty.addView(textLine(
+                "Записи появятся после завершения или удаления события.",
+                13f, muted))
+            contentContainer.addView(empty)
+            return
+        }
+        val rows = mutableListOf<View>()
+        for (entry in entries) {
+            val event = entry.event
+            val expanded = expandedArchiveEventId == entry.archiveId
+            val status = if (entry.reason == "completed")
+                "Событие завершено" else "Удалено вручную"
+            val glyph = event.iconId ?: IconRegistry.select(event.title)
+            rows.add(settingsRow(glyph, event.title,
+                eventDateLabel(event.dueAt) + " · " + status) {
+                val scroll = dashboardScroll.scrollY
+                expandedArchiveEventId = if (expanded) null else entry.archiveId
                 renderTab()
+                dashboardScroll.post {
+                    if (currentTab == 3 && eventArchiveExpanded)
+                        dashboardScroll.scrollTo(0, scroll)
+                }
+            })
+            if (expanded) {
+                val details = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(dp(14), dp(8), dp(14), dp(14))
+                    addView(textLine(status + " · " +
+                        eventRepeatLabel(event.recurrence), 12f, accent, true))
+                    addView(verticalGap(5))
+                    val lead = when (event.leadMinutes) {
+                        0 -> "В момент события"
+                        10 -> "За 10 минут"
+                        60 -> "За 1 час"
+                        1_440 -> "За 1 день"
+                        4_320 -> "За 3 дня"
+                        else -> "За " + event.leadMinutes + " минут"
+                    }
+                    addView(textLine(lead + " · в архиве с " +
+                        DateFormat.getDateInstance(DateFormat.SHORT)
+                            .format(Date(entry.archivedAt)), 12f, muted))
+                    if (event.details.isNotBlank()) {
+                        addView(verticalGap(7))
+                        addView(textLine(event.details, 13f, muted))
+                    }
+                    addView(verticalGap(12))
+                    val stack = resources.configuration.screenWidthDp < 365
+                    val actions = LinearLayout(this@MainActivity).apply {
+                        orientation = if (stack) LinearLayout.VERTICAL
+                            else LinearLayout.HORIZONTAL
+                    }
+                    actions.addView(secondaryButton("Восстановить") {
+                        restoreArchivedEvent(entry)
+                    }, if (stack) LinearLayout.LayoutParams(-1, dp(46))
+                        else LinearLayout.LayoutParams(0, dp(46), 1f))
+                    actions.addView(View(this@MainActivity),
+                        LinearLayout.LayoutParams(if (stack) 1 else dp(8),
+                            if (stack) dp(8) else 1))
+                    actions.addView(secondaryButton("Удалить навсегда") {
+                        deleteArchivedEvent(entry)
+                    }, if (stack) LinearLayout.LayoutParams(-1, dp(46))
+                        else LinearLayout.LayoutParams(0, dp(46), 1f))
+                    addView(actions)
+                }
+                rows.add(details)
             }
         }
-        archived.addView(archiveHeader)
-        if (eventArchiveExpanded) {
-            archived.addView(verticalGap(12))
-            if (history.isEmpty()) {
-                archived.addView(textLine(
-                    "Архив пока пуст. Здесь будут завершённые и удалённые события.",
-                    13f, muted))
-            }
-            for (item in history) {
-                val icon = item.event.iconId ?: IconRegistry.select(item.event.title)
-                val row = LinearLayout(this).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = Gravity.CENTER_VERTICAL
-                    addView(iconTile(icon, 36),
-                        LinearLayout.LayoutParams(dp(36), dp(36)))
-                    addView(View(this@MainActivity), LinearLayout.LayoutParams(dp(9), 1))
-                    addView(LinearLayout(this@MainActivity).apply {
-                        orientation = LinearLayout.VERTICAL
-                        addView(textLine(item.event.title, 14f, ink, true))
-                        addView(textLine(eventDateLabel(item.event.dueAt),
-                            12f, muted))
-                    }, LinearLayout.LayoutParams(0, -2, 1f))
-                }
-                archived.addView(row)
-                archived.addView(verticalGap(7))
-                val buttons = LinearLayout(this).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    addView(secondaryButton("Восстановить") {
-                        val day = Calendar.getInstance().apply {
-                            add(Calendar.DAY_OF_YEAR, 1)
-                            set(Calendar.HOUR_OF_DAY, 9)
-                            set(Calendar.MINUTE, 0)
-                        }
-                        showThemedCalendar(day) {
-                            val restored = EventStore.restore(
-                                this@MainActivity, item.archiveId, day.timeInMillis)
-                            if (restored != null) {
-                                EventScheduler.schedule(this@MainActivity, restored)
-                                renderTab()
-                            } else Toast.makeText(this@MainActivity,
-                                "Выберите будущую дату", Toast.LENGTH_LONG).show()
-                        }
-                    }, LinearLayout.LayoutParams(0, dp(43), 1f))
-                    addView(View(this@MainActivity),
-                        LinearLayout.LayoutParams(dp(8), 1))
-                    addView(secondaryButton("Удалить навсегда") {
-                        themedDialogBuilder().setTitle("Удалить событие?")
-                            .setMessage("Эта запись будет удалена из архива без возможности восстановления.")
-                            .setNegativeButton("Отмена", null)
-                            .setPositiveButton("Удалить") { _, _ ->
-                                if (EventStore.deleteArchived(this@MainActivity,
-                                        item.archiveId)) renderTab()
-                            }.show()
-                    }, LinearLayout.LayoutParams(0, dp(43), 1f))
-                }
-                archived.addView(buttons)
-                archived.addView(verticalGap(13))
-            }
+        contentContainer.addView(settingsPanel(*rows.toTypedArray()))
+        contentContainer.addView(verticalGap(18))
+    }
+
+    private fun restoreArchivedEvent(entry: ArchivedEvent) {
+        val day = Calendar.getInstance().apply {
+            add(Calendar.DAY_OF_YEAR, 1)
+            set(Calendar.HOUR_OF_DAY, 9)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
         }
-        contentContainer.addView(archived)
-        contentContainer.addView(verticalGap(12))
+        themedDialogBuilder()
+            .setTitle("Восстановить событие")
+            .setMessage("Выберите новую дату события, чтобы снова получать напоминания.")
+            .setNegativeButton("Отмена", null)
+            .setPositiveButton("Выбрать дату") { _, _ ->
+                showThemedCalendar(day) {
+                    val restored = EventStore.restore(
+                        this, entry.archiveId, day.timeInMillis)
+                    if (restored != null) {
+                        EventScheduler.schedule(this, restored)
+                        requestNotificationPermissionIfNeeded()
+                        Toast.makeText(this, "Событие восстановлено",
+                            Toast.LENGTH_SHORT).show()
+                        renderTab()
+                    } else Toast.makeText(this, "Выберите будущую дату",
+                        Toast.LENGTH_LONG).show()
+                }
+            }.show()
+    }
+
+    private fun deleteArchivedEvent(entry: ArchivedEvent) {
+        themedDialogBuilder()
+            .setTitle("Удалить навсегда?")
+            .setMessage("«" + entry.event.title +
+                "» будет удалено из архива без возможности восстановления.")
+            .setNegativeButton("Отмена", null)
+            .setPositiveButton("Удалить навсегда") { _, _ ->
+                if (EventStore.deleteArchived(this, entry.archiveId)) renderTab()
+                else Toast.makeText(this, "Не удалось удалить запись",
+                    Toast.LENGTH_LONG).show()
+            }.show()
     }
 
     private fun completeEvent(event: PlannedEvent) {
