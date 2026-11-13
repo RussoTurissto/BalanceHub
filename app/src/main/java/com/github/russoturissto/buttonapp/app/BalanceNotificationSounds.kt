@@ -147,13 +147,11 @@ internal object BalanceNotificationSounds {
      * Return only a concise diagnostic code; never swallow a failure silently.
      */
     private fun toneProbe(context: Context, uri: Uri): String? = try {
-        context.contentResolver.openInputStream(uri).use { stream ->
-            // A nullable return from a successful probe means "no error".
-            // Never use ?.use { ... } ?: "empty stream" here: that also
-            // turns the successful null result into a false failure.
-            if (stream == null) {
-                "пустой поток"
-            } else {
+        val stream = context.contentResolver.openInputStream(uri)
+        if (stream == null) {
+            "пустой поток"
+        } else {
+            try {
                 val header = ByteArray(12)
                 var count = 0
                 while (count < header.size) {
@@ -161,10 +159,16 @@ internal object BalanceNotificationSounds {
                     if (read <= 0) break
                     count += read
                 }
+                // Successful WAV probe returns null (no error). Do not coalesce
+                // this nullable success into the "пустой поток" error.
                 if (count != 12 ||
                     !header.copyOfRange(0, 4).contentEquals("RIFF".toByteArray()) ||
                     !header.copyOfRange(8, 12).contentEquals("WAVE".toByteArray()))
                     "неверный WAV" else null
+            } finally {
+                // Explicit finally is needed because Android Lint does not
+                // recognize nullable InputStream.use() for this API.
+                stream.close()
             }
         }
     } catch (error: Exception) {
