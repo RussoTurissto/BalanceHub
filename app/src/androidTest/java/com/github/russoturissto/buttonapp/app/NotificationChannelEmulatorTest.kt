@@ -89,10 +89,16 @@ class NotificationChannelEmulatorTest {
             .build()
         manager().notify(notificationId, notification)
         try {
-            val posted = manager().activeNotifications.firstOrNull {
-                it.id == notificationId
+            // NotificationManager posts asynchronously on recent Android.
+            var posted: android.service.notification.StatusBarNotification? = null
+            for (attempt in 1..25) {
+                posted = manager().activeNotifications.firstOrNull {
+                    it.id == notificationId
+                }
+                if (posted != null) break
+                Thread.sleep(120L)
             }
-            assertNotNull("Android did not post notification", posted)
+            assertNotNull("Android did not post notification after 3 s", posted)
             assertEquals("Wrong channel used by real notification", id,
                 posted!!.notification.channelId)
             val channel = manager().getNotificationChannel(id)
@@ -144,6 +150,15 @@ class NotificationChannelEmulatorTest {
         val context = app
         val uri = BalanceSystemToneStore.uri(context, "crystal", 100)
         assertNotNull(uri)
+        if (Build.VERSION.SDK_INT == 29) {
+            // Android 10's shell uid is not given arbitrary access to the
+            // user's public audio collection. Exercise the platform ringtone
+            // resolver instead of assuming shell storage permissions.
+            val ringtone = android.media.RingtoneManager.getRingtone(context, uri)
+            assertNotNull("Android 10 ringtone resolver cannot open system tone", ringtone)
+            ringtone?.stop()
+            return
+        }
         val result = InstrumentationRegistry.getInstrumentation().uiAutomation
             .executeShellCommand("content read --uri " + uri.toString())
         result.use { fd ->
