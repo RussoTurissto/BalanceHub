@@ -2832,7 +2832,7 @@ class MainActivity : AppCompatActivity() {
             row.setOnClickListener {
                 val error = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
                     BalanceNotificationSounds.applyUserChoice(this, category, key,
-                        BalanceNotificationSounds.effectiveVibration(this, category))
+                        BalanceNotificationSounds.vibrationFor(this, category))
                 else {
                     BalanceNotificationSounds.choose(this, category, key)
                     null
