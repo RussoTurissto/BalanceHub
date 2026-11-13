@@ -1,0 +1,87 @@
+name: Publish downloadable BalanceHub 1.1.3-rc2 prerelease
+
+# A one-time, explicitly requested distribution of an already verified build.
+on:
+  push:
+    branches:
+      - feature/balancehub-foundation
+    paths:
+      - ".github/workflows/publish-balancehub-1.1.3-rc2.yml"
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    if: ${{ github.repository == 'RussoTurissto/BalanceHub' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_RUN: "43443814989"
+      SOURCE_SHA: "7aae314545eee119c8213be9993749490d27eb78"
+      TAG: "v1.1.3-rc2"
+      PACKAGE: "com.github.russoturissto.buttonapp.app"
+    steps:
+      - name: Download only the previously tested signed APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          result="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN" --jq .conclusion)"
+          source_sha="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN" --jq .head_sha)"
+          if [[ "$result" != "success" || "$source_sha" != "$SOURCE_SHA" ]]; then
+            echo "::error::Source build is not the approved successful commit"
+            exit 1
+          fi
+          mkdir -p release
+          gh run download "$SOURCE_RUN" --repo "$GITHUB_REPOSITORY" --name BalanceHub --dir release
+          test -s release/BalanceHub.apk
+
+      - name: Verify package, version and APK signature
+        shell: bash
+        run: |
+          set -euo pipefail
+          build_tools="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          "$build_tools/apksigner" verify --verbose --print-certs release/BalanceHub.apk |
+            tee "$RUNNER_TEMP/balancehub-signature.txt"
+          grep -q "Verified using v2 scheme (APK Signature Scheme v2): true" "$RUNNER_TEMP/balancehub-signature.txt"
+          "$build_tools/aapt" dump badging release/BalanceHub.apk |
+            tee "$RUNNER_TEMP/balancehub-package.txt"
+          grep -q "^package: name='$PACKAGE'" "$RUNNER_TEMP/balancehub-package.txt"
+          grep -q "versionCode='535'" "$RUNNER_TEMP/balancehub-package.txt"
+          grep -q "versionName='1.1.3-rc2'" "$RUNNER_TEMP/balancehub-package.txt"
+          sha256sum release/BalanceHub.apk
+
+      - name: Publish GitHub prerelease (do not replace stable latest)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::Prerelease already exists; will not overwrite it"
+            exit 1
+          fi
+          cat > "$RUNNER_TEMP/notes.md" <<'EOF'
+          ## Что нового в тестовой версии BalanceHub 1.1.3-rc2
+
+          - Ежедневные напоминания о платежах и событиях с защитой от повторной отправки в течение одних суток.
+          - Напоминания прекращаются после окончания срока действия; для повторяющихся платежей и событий учитывается новый цикл.
+          - Упрощены настройки уведомлений для платежей, событий и обновлений.
+          - В настройках отображаются параметры фактически используемого звука и вибрации Android.
+          - Диагностика и управление системными каналами перенесены в инженерное меню.
+          - Архив платежей оформлен в едином стиле BalanceHub, с раскрывающимися подробностями записей.
+          - Уточнена работа фирменных WAV-мелодий через Android и проверка их доступности.
+          
+          **Это предрелиз для тестирования на телефоне, не стабильный выпуск.**
+          Установите файл BalanceHub.apk поверх имеющейся версии; не удаляйте приложение.
+          Подпись APK проверена в GitHub Actions. Фактическое звучание и вибрацию
+          необходимо дополнительно проверить на устройстве.
+          EOF
+          gh release create "$TAG" "release/BalanceHub.apk#BalanceHub.apk" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$SOURCE_SHA" \
+            --title "BalanceHub 1.1.3-rc2 — предрелиз" \
+            --notes-file "$RUNNER_TEMP/notes.md" \
+            --prerelease \
+            --latest=false
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json tagName,url,isDraft,isPrerelease,assets
