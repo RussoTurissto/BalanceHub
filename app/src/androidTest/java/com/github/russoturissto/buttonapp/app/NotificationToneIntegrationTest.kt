@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -22,6 +23,8 @@ class NotificationToneIntegrationTest {
         BalanceNotificationSounds.tones.forEach { tone ->
             val uri = Uri.parse("content://" + context.packageName + ".sounds/" +
                 tone.key + "/v3/100")
+            assertNull("WAV probe must report no error for " + tone.key,
+                BalanceNotificationSounds.audioProbe(context, uri))
             val stream = context.contentResolver.openInputStream(uri)
             assertNotNull("Provider did not open " + tone.key, stream)
             stream!!.use {
@@ -47,6 +50,8 @@ class NotificationToneIntegrationTest {
             val entry = context.resources.getResourceEntryName(tone.resource)
             val uri = Uri.parse("android.resource://" + context.packageName +
                 "/raw/" + entry)
+            assertNull("Fallback WAV probe must report no error for " + tone.key,
+                BalanceNotificationSounds.audioProbe(context, uri))
             context.contentResolver.openInputStream(uri).use {
                 assertNotNull("Resource URI unavailable for " + tone.key, it)
             }
