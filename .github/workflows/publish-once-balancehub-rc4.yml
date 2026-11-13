@@ -54,8 +54,8 @@ jobs:
           mkdir -p previous
           gh release download v1.1.3-rc3-build554 --repo "$GITHUB_REPOSITORY" --pattern BalanceHub.apk --dir previous
           "$tools/apksigner" verify --verbose --print-certs previous/BalanceHub.apk > "$RUNNER_TEMP/previous-signature.txt"
-          current="$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "$RUNNER_TEMP/current-signature.txt" | tr -d '[:space:]:')"
-          previous="$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "$RUNNER_TEMP/previous-signature.txt" | tr -d '[:space:]:')"
+          current="$(sed -n -E 's/^.*certificate SHA-256 digest: ([0-9a-fA-F]+)$/\1/p' "$RUNNER_TEMP/current-signature.txt" | head -n 1)"
+          previous="$(sed -n -E 's/^.*certificate SHA-256 digest: ([0-9a-fA-F]+)$/\1/p' "$RUNNER_TEMP/previous-signature.txt" | head -n 1)"
           if [[ -z "$current" || "$current" != "$previous" ]]; then
             echo "::error::APK signer differs from previously published BalanceHub update key"
             exit 1
