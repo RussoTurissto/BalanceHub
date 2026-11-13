@@ -82,6 +82,16 @@ jobs:
           grep -q "versionCode='$CODE'" "$RUNNER_TEMP/package.txt"
           sha256sum dist/BalanceHub.apk
 
+      - name: Create release tag before the release API request
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "$SOURCE_SHA"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "$TAG" "$SOURCE_SHA"
+          git push origin "refs/tags/$TAG"
+
       - name: Publish a direct-APK GitHub prerelease
         shell: bash
         run: |
