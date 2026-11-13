@@ -23,7 +23,8 @@ class DailyReminderPolicyTest {
             DailyReminderPolicy.following(first, due, at(2026, 11, 16, 10)))
         assertEquals(at(2026, 11, 18, 10),
             DailyReminderPolicy.following(first, due, at(2026, 11, 17, 12)))
-        assertNull(DailyReminderPolicy.following(first, due, at(2026, 11, 19, 9)))
+        assertEquals(due,
+            DailyReminderPolicy.following(first, due, at(2026, 11, 19, 9)))
         assertFalse(DailyReminderPolicy.eligible(first, due, due + 2_000L))
     }
 
@@ -31,6 +32,14 @@ class DailyReminderPolicyTest {
         val due = at(2026, 11, 19, 10)
         assertTrue(DailyReminderPolicy.eligible(due, due, due + 1_000L))
         assertFalse(DailyReminderPolicy.eligible(due, due, due + 60_000L))
+    }
+
+    @Test fun finalReminderUsesDueClockTimeIfDailySlotWouldBeLate() {
+        val due = at(2026, 11, 20, 10)
+        val first = at(2026, 11, 17, 14)
+        assertEquals(due,
+            DailyReminderPolicy.following(first, due, at(2026, 11, 19, 15)))
+        assertTrue(DailyReminderPolicy.eligible(first, due, due + 1_000L))
     }
 
     @Test fun eventLeadMoreThanOneDayCreatesFollowingDays() {

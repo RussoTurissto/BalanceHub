@@ -32,20 +32,21 @@ internal object DailyReminderPolicy {
 
     fun eligible(firstAt: Long, dueAt: Long, now: Long): Boolean =
         dueAt > 0L && firstAt > 0L && now >= firstAt &&
-            (now < dueAt || (firstAt == dueAt && now < dueAt + DUE_GRACE_MS))
+            now < dueAt + DUE_GRACE_MS
 
-    /** Next scheduled local-day slot, never after the due moment. */
+    /** Next local-day slot, including the final due-day reminder if needed. */
     fun following(firstAt: Long, dueAt: Long, now: Long): Long? {
-        if (firstAt <= 0L || dueAt <= firstAt) return null
+        if (firstAt <= 0L || dueAt <= firstAt || now >= dueAt) return null
         val candidate = Calendar.getInstance().apply { timeInMillis = firstAt }
         var attempts = 0
-        do {
-            if (candidate.timeInMillis > now)
-                return candidate.timeInMillis.takeIf { it < dueAt }
+        while (candidate.timeInMillis <= now && attempts < 40) {
             candidate.add(Calendar.DAY_OF_YEAR, 1)
             attempts++
-        } while (attempts <= 40 && candidate.timeInMillis < dueAt)
-        return null
+        }
+        if (candidate.timeInMillis > now && candidate.timeInMillis <= dueAt)
+            return candidate.timeInMillis
+        // The final day's usual slot can fall *after* the due clock time.
+        return dueAt.takeIf { dayKey(now) != dayKey(dueAt) }
     }
 }
 
