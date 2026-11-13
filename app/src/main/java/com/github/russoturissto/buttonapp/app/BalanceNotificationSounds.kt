@@ -12,9 +12,10 @@ import android.os.Build
 import android.os.VibrationEffect
 
 /**
- * 15 bundled sounds. Android 8+ owns channel sound/vibration settings.
- * The current notification channels have stable IDs; users change an
- * already-created channel via Android Settings, not by making variants.
+ * Fifteen bundled sounds. Android 8+ owns a channel after it is created.
+ * An explicit in-app selection replaces one category's channel generation
+ * (and deletes the previous active one); ordinary app upgrades never reset
+ * user-selected Android channel settings.
  */
 @SuppressLint("UseKtx")
 internal object BalanceNotificationSounds {
@@ -76,7 +77,8 @@ internal object BalanceNotificationSounds {
     }
     fun vibrationFor(context: Context, category: String): Boolean {
         val default = true
-        return vibrationEnabled(context) &&
+        return (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O ||
+            vibrationEnabled(context)) &&
             vibrationPrefs(context).getBoolean("vibration_" + category, default)
     }
     fun setVibrationFor(context: Context, category: String, enabled: Boolean) {
@@ -122,65 +124,133 @@ internal object BalanceNotificationSounds {
         else -> "Обновления"
     }
 
-    /**
-     * Exactly one immutable Android channel for each notification category.
-     * Changing sound/vibration on Android 8+ happens in Android's channel UI.
-     */
+    /** Existing Android channels remain untouched until the user explicitly applies changes. */
     fun channelId(context: Context, category: String): String =
-        StableNotificationChannels.id(category)
+        StableNotificationChannels.id(category,
+            preferences(context).getInt("channel_revision_" + category, 0).coerceAtLeast(0))
+
+    private fun toneReadable(context: Context, uri: Uri?): Boolean = try {
+        uri != null && context.contentResolver.openFileDescriptor(uri, "r")?.use {
+            it.statSize >= 44L
+        } == true
+    } catch (_: Exception) { false }
+
+    private fun createConfiguredChannel(context: Context, category: String,
+        id: String, key: String, vibrate: Boolean, strict: Boolean): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return true
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE)
+            as NotificationManager
+        if (manager.getNotificationChannel(id) != null) return true
+        val channel = NotificationChannel(id, legacyChannel(category),
+            if (category == UPDATE) NotificationManager.IMPORTANCE_DEFAULT
+            else NotificationManager.IMPORTANCE_HIGH)
+        val gain = volume(context, category)
+        if (key == "silent" || gain == 0) {
+            channel.setSound(null, null)
+        } else {
+            val uri = soundUri(context, key, gain)
+            val resolved = if (key == "system") uri else uri?.takeIf {
+                toneReadable(context, it)
+            }
+            // Do not claim that a custom tone was applied if Android cannot read its WAV.
+            if (strict && resolved == null) return false
+            channel.setSound(
+                resolved ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),
+                AudioAttributes.Builder()
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .setUsage(AudioAttributes.USAGE_NOTIFICATION).build())
+        }
+        channel.enableVibration(vibrate)
+        if (vibrate) {
+            if (Build.VERSION.SDK_INT >= 35) {
+                channel.setVibrationEffect(VibrationEffect.createWaveform(
+                    vibrationPattern(category), -1))
+            } else channel.vibrationPattern = vibrationPattern(category)
+        }
+        manager.createNotificationChannel(channel)
+        return manager.getNotificationChannel(id) != null
+    }
 
     fun ensureChannel(context: Context, category: String): String {
         val id = channelId(context, category)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val manager = context.getSystemService(Context.NOTIFICATION_SERVICE)
-                as NotificationManager
-            if (manager.getNotificationChannel(id) == null) {
-                val channel = NotificationChannel(id, legacyChannel(category),
-                    if (category == UPDATE) NotificationManager.IMPORTANCE_DEFAULT
-                    else NotificationManager.IMPORTANCE_HIGH)
-                val key = selected(context, category)
-                val gain = volume(context, category)
-                if (key == "silent" || gain == 0) {
-                    channel.setSound(null, null)
-                } else {
-                    val uri = soundUri(context, key, gain)
-                    val resolved = if (key == "system") uri else try {
-                        uri?.takeIf { tone ->
-                            context.contentResolver.openFileDescriptor(tone, "r")?.use {
-                                it.statSize >= 44L
-                            } == true
-                        }
-                    } catch (_: Exception) { null }
-                    channel.setSound(
-                        resolved ?: RingtoneManager.getDefaultUri(
-                            RingtoneManager.TYPE_NOTIFICATION),
-                        AudioAttributes.Builder()
-                            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                            .setUsage(AudioAttributes.USAGE_NOTIFICATION).build())
-                }
-                if (vibrationFor(context, category)) {
-                    channel.enableVibration(true)
-                    if (Build.VERSION.SDK_INT >= 35) {
-                        channel.setVibrationEffect(VibrationEffect.createWaveform(
-                            vibrationPattern(category), -1))
-                    } else channel.vibrationPattern = vibrationPattern(category)
-                } else channel.enableVibration(false)
-                manager.createNotificationChannel(channel)
-            }
+            createConfiguredChannel(context, category, id, selected(context, category),
+                vibrationFor(context, category), strict = false)
         }
         return id
     }
 
-    /** Migration removes only this app's previous dynamically generated variants. */
+    /** Only the user can request a new sound/vibration configuration.
+     * Generates a never-reused ID and removes the old channel from active categories.
+     * Returns a readable error or null on success.
+     */
+    @Synchronized
+    fun applyUserChoice(context: Context, category: String,
+        key: String, vibrate: Boolean): String? {
+        if (key != "system" && key != "silent" && tones.none { it.key == key })
+            return "Неизвестная мелодия"
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            choose(context, category, key)
+            setVibrationFor(context, category, vibrate)
+            return null
+        }
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE)
+            as NotificationManager
+        val oldId = ensureChannel(context, category)
+        val prefs = preferences(context)
+        val previous = prefs.getInt("channel_revision_" + category, 0).coerceAtLeast(0)
+        if (previous >= Int.MAX_VALUE - 1) return "Превышено число изменений канала"
+        val next = previous + 1
+        val nextId = StableNotificationChannels.id(category, next)
+        try {
+            if (!createConfiguredChannel(context, category, nextId, key,
+                    vibrate, strict = true)) return "Мелодия недоступна Android"
+            val actual = manager.getNotificationChannel(nextId)
+            val gain = volume(context, category)
+            val expectedSound = if (key == "silent" || gain == 0) null
+                else soundUri(context, key, gain)
+            if (actual == null || actual.sound != expectedSound ||
+                actual.shouldVibrate() != vibrate) {
+                manager.deleteNotificationChannel(nextId)
+                return "Android не применил звук или вибрацию"
+            }
+            if (!prefs.edit().putString(category, key)
+                    .putBoolean("vibration_" + category, vibrate)
+                    .putInt("channel_revision_" + category, next).commit()) {
+                manager.deleteNotificationChannel(nextId)
+                return "Не удалось сохранить параметры уведомления"
+            }
+            manager.deleteNotificationChannel(oldId)
+            deleteUnusedChannels(context)
+            return null
+        } catch (_: Exception) {
+            // Preserve the previous working channel and saved selection.
+            if (nextId != channelId(context, category)) {
+                try { manager.deleteNotificationChannel(nextId) }
+                catch (_: Exception) { }
+            }
+            return "Не удалось обновить системный канал"
+        }
+    }
+
+    /** An explicit repair action is offered rather than silently resetting Android settings. */
+    fun needsRepair(context: Context, category: String): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
+        val id = ensureChannel(context, category)
+        val channel = (context.getSystemService(Context.NOTIFICATION_SERVICE)
+            as NotificationManager).getNotificationChannel(id) ?: return true
+        val gain = volume(context, category)
+        val key = selected(context, category)
+        val wanted = if (key == "silent" || gain == 0) null
+            else soundUri(context, key, gain)
+        return channel.importance < NotificationManager.IMPORTANCE_DEFAULT ||
+            channel.sound != wanted || channel.shouldVibrate() != vibrationFor(context, category)
+    }
+
+    /** Always keep precisely the three current categories in the active channel list. */
     fun ensureDefaultChannels(context: Context) {
         for (category in listOf(PAYMENT, EVENT, UPDATE)) ensureChannel(context, category)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val manager = context.getSystemService(Context.NOTIFICATION_SERVICE)
-                as NotificationManager
-            manager.notificationChannels.map { it.id }
-                .filter(StableNotificationChannels::isRetired)
-                .forEach(manager::deleteNotificationChannel)
-        }
+        deleteUnusedChannels(context)
     }
 
     /**
@@ -229,8 +299,11 @@ internal object BalanceNotificationSounds {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return emptyList()
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE)
             as NotificationManager
+        val current = listOf(PAYMENT, EVENT, UPDATE).map { channelId(context, it) }.toSet()
         return manager.notificationChannels.map { it.id }
-            .filter(StableNotificationChannels::isRetired)
+            .filter { it !in current &&
+                (StableNotificationChannels.isRetired(it) ||
+                    StableNotificationChannels.isManaged(it)) }
     }
 
     /** Explicit user-initiated cleanup; never silently discards Android choices. */
