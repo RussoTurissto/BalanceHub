@@ -6,6 +6,7 @@ on:
       - feature/balancehub-foundation
     paths:
       - ".github/workflows/notification-emulator-validation.yml"
+      - "app/src/main/**"
       - "app/src/androidTest/**"
   workflow_dispatch:
 
@@ -20,7 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        api: [29, 35]
+        api: [29, 35, 36]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
