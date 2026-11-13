@@ -12,9 +12,9 @@ import android.os.Build
 import android.os.VibrationEffect
 
 /**
- * 15 original, bundled sounds. All preferences are local to the device.
- * Android 8+ owns channel sounds after creation, so every selected built-in
- * tone has a stable, distinct channel ID instead of editing an existing one.
+ * 15 bundled sounds. Android 8+ owns channel sound/vibration settings.
+ * The current notification channels have stable IDs; users change an
+ * already-created channel via Android Settings, not by making variants.
  */
 @SuppressLint("UseKtx")
 internal object BalanceNotificationSounds {
@@ -75,7 +75,7 @@ internal object BalanceNotificationSounds {
         vibrationPrefs(context).edit().putBoolean("vibration_all", enabled).apply()
     }
     fun vibrationFor(context: Context, category: String): Boolean {
-        val default = category != UPDATE
+        val default = true
         return vibrationEnabled(context) &&
             vibrationPrefs(context).getBoolean("vibration_" + category, default)
     }
@@ -126,7 +126,8 @@ internal object BalanceNotificationSounds {
      * Exactly one immutable Android channel for each notification category.
      * Changing sound/vibration on Android 8+ happens in Android's channel UI.
      */
-    fun channelId(context: Context, category: String): String = category
+    fun channelId(context: Context, category: String): String =
+        StableNotificationChannels.id(category)
 
     fun ensureChannel(context: Context, category: String): String {
         val id = channelId(context, category)
@@ -176,11 +177,9 @@ internal object BalanceNotificationSounds {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val manager = context.getSystemService(Context.NOTIFICATION_SERVICE)
                 as NotificationManager
-            val current = setOf(PAYMENT, EVENT, UPDATE)
-            val prefixes = current.map { it + "_tone_" }
-            manager.notificationChannels.map { it.id }.filter { id ->
-                id !in current && prefixes.any { id.startsWith(it) }
-            }.forEach { manager.deleteNotificationChannel(it) }
+            manager.notificationChannels.map { it.id }
+                .filter(StableNotificationChannels::isRetired)
+                .forEach(manager::deleteNotificationChannel)
         }
     }
 
@@ -228,15 +227,10 @@ internal object BalanceNotificationSounds {
     /** Only retired BalanceHub tone variants. Active channels never appear here. */
     fun unusedChannelIds(context: Context): List<String> {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return emptyList()
-        val active = listOf(PAYMENT, EVENT, UPDATE).map {
-            channelId(context, it)
-        }.toSet()
-        val prefixes = listOf(PAYMENT, EVENT, UPDATE).map { it + "_tone_" }
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE)
             as NotificationManager
-        return manager.notificationChannels.map { it.id }.filter { id ->
-            id !in active && prefixes.any { id.startsWith(it) }
-        }
+        return manager.notificationChannels.map { it.id }
+            .filter(StableNotificationChannels::isRetired)
     }
 
     /** Explicit user-initiated cleanup; never silently discards Android choices. */
