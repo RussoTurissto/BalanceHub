@@ -45,9 +45,15 @@ class BalanceSoundProvider : ContentProvider() {
             }
             val file = File(folder, sound.key + "_" + gain + ".wav")
             if (!file.isFile || file.length() < 44L) {
-                val source = app.resources.openRawResourceFd(sound.resource)?.use { descriptor ->
-                    descriptor.createInputStream().use { it.readBytes() }
-                } ?: throw FileNotFoundException("Bundled notification sound is missing")
+                // A stream works even when an OEM rebuild compresses raw WAV resources.
+                // openRawResourceFd() requires an uncompressed APK entry and can fail
+                // despite the sound itself being perfectly playable.
+                val source = try {
+                    app.resources.openRawResource(sound.resource).use { it.readBytes() }
+                } catch (error: Exception) {
+                    throw FileNotFoundException("Cannot read bundled WAV: " +
+                        error.javaClass.simpleName).apply { initCause(error) }
+                }
                 if (source.size < 44 ||
                     !source.copyOfRange(0, 4).contentEquals("RIFF".toByteArray()) ||
                     !source.copyOfRange(8, 12).contentEquals("WAVE".toByteArray())) {
@@ -55,10 +61,16 @@ class BalanceSoundProvider : ContentProvider() {
                 }
                 val adjusted = WavSoundGain.attenuate(source, gain)
                 val temp = File(folder, sound.key + "_" + gain + ".tmp")
-                temp.writeBytes(adjusted)
-                if (!temp.renameTo(file)) {
-                    temp.delete()
-                    throw FileNotFoundException("Cannot make notification audio available")
+                try {
+                    temp.outputStream().use { output ->
+                        output.write(adjusted)
+                        output.fd.sync()
+                    }
+                    if (!temp.renameTo(file)) {
+                        throw FileNotFoundException("Cannot make notification audio available")
+                    }
+                } finally {
+                    if (temp.isFile) temp.delete()
                 }
             }
             file
