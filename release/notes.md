@@ -12,4 +12,4 @@
 
 Установка: скачайте BalanceHub.apk ниже и установите поверх текущей версии. Не удаляйте установленный BalanceHub.
 
-<!-- BalanceHub-VersionCode: 546 -->
+<!-- BalanceHub-VersionCode: 547 -->
