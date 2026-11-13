@@ -142,6 +142,15 @@ class MainActivity : AppCompatActivity() {
                 ::contentContainer.isInitialized) renderTab()
         }
     }
+    private val paymentChangedReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != PaymentArchiveReceiver.ACTION_PAYMENTS_CHANGED) return
+            payments.clear()
+            loadPayments()
+            if (::contentContainer.isInitialized && (currentTab == 0 || currentTab == 2))
+                renderTab()
+        }
+    }
     private val eventChangedReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == EventScheduler.ACTION_EVENTS_CHANGED &&
@@ -253,6 +262,9 @@ class MainActivity : AppCompatActivity() {
         ContextCompat.registerReceiver(this, eventChangedReceiver,
             IntentFilter(EventScheduler.ACTION_EVENTS_CHANGED),
             ContextCompat.RECEIVER_NOT_EXPORTED)
+        ContextCompat.registerReceiver(this, paymentChangedReceiver,
+            IntentFilter(PaymentArchiveReceiver.ACTION_PAYMENTS_CHANGED),
+            ContextCompat.RECEIVER_NOT_EXPORTED)
         ContextCompat.registerReceiver(this, downloadedApkReceiver,
             IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE),
             ContextCompat.RECEIVER_EXPORTED)
@@ -263,6 +275,7 @@ class MainActivity : AppCompatActivity() {
         BalanceNotificationSounds.stopPreview()
         unregisterReceiver(bankUpdateReceiver)
         unregisterReceiver(eventChangedReceiver)
+        unregisterReceiver(paymentChangedReceiver)
         unregisterReceiver(downloadedApkReceiver)
         super.onStop()
     }
@@ -5004,12 +5017,7 @@ class MainActivity : AppCompatActivity() {
             if (recurrence == "weekly" || recurrence == "monthly") {
                 // T2 stays in "upcoming" until the actual estimated debit date;
                 // receiving a one-day-before alert must not hide that payment.
-                val isT2 = item.getString("id").startsWith("t2_subscription_") ||
-                    item.getString("id").startsWith("mobile_subscription_")
-                while ((if (isT2) date.timeInMillis
-                        else date.timeInMillis - lead * 86400000L
-                    ) <= System.currentTimeMillis()
-                ) {
+                while (date.timeInMillis <= System.currentTimeMillis()) {
                     if (recurrence == "weekly") date.add(Calendar.DAY_OF_YEAR, 7)
                     else date.add(Calendar.MONTH, 1)
                     advanced = true

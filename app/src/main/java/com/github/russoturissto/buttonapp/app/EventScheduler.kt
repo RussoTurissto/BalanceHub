@@ -54,6 +54,14 @@ internal object EventScheduler {
             completeAt, pending(context, event.id, event.dueAt, false))
     }
 
+    fun scheduleFollowingDay(context: Context, event: PlannedEvent, now: Long) {
+        val first = DailyReminderPolicy.firstEvent(event.dueAt, event.leadMinutes)
+        DailyReminderPolicy.following(first, event.dueAt, now)?.let { next ->
+            ExactReminderAlarms.schedule(context, next,
+                pending(context, event.id, event.dueAt, true))
+        }
+    }
+
     fun restoreAfterBoot(context: Context) {
         EventStore.reconcileElapsed(context)
         for (event in EventStore.active(context)) schedule(context, event)
@@ -64,15 +72,30 @@ class EventReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val id = intent.getStringExtra("id") ?: return
         val due = intent.getLongExtra("dueAt", -1L)
+        val now = System.currentTimeMillis()
         val event = EventStore.active(context).firstOrNull {
             it.id == id && it.dueAt == due
-        } ?: EventStore.archived(context).firstOrNull {
-            it.event.id == id && it.event.dueAt == due &&
-                it.reason == "completed" &&
-                System.currentTimeMillis() - due in 0..86_400_000L
-        }?.event ?: return
+        } ?: return
+        val first = DailyReminderPolicy.firstEvent(due, event.leadMinutes)
+        if (!DailyReminderPolicy.eligible(first, due, now)) return
+        EventScheduler.scheduleFollowingDay(context, event, now)
+        if (Build.VERSION.SDK_INT >= 33 &&
+            context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+                android.content.pm.PackageManager.PERMISSION_GRANTED) return
+        val notifications = NotificationManagerCompat.from(context)
+        if (!notifications.areNotificationsEnabled()) return
         val channelId = BalanceNotificationSounds.ensureChannel(
             context, BalanceNotificationSounds.EVENT)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val manager = context.getSystemService(Context.NOTIFICATION_SERVICE)
+                as NotificationManager
+            if (manager.getNotificationChannel(channelId)?.importance ==
+                NotificationManager.IMPORTANCE_NONE) return
+        }
+        val noticeId = ReminderNoticeIds.event(id, due,
+            DailyReminderPolicy.dayKey(now))
+        val reservation = DailyReminderLedger.reserve(context,
+            "event", id, due, now, noticeId) ?: return
         val launch = PendingIntent.getActivity(context, ("event_open_" + id).hashCode(),
             Intent(context, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
@@ -89,11 +112,14 @@ class EventReminderReceiver : BroadcastReceiver() {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
         BalanceNotificationSounds.configureLegacySound(
             context, BalanceNotificationSounds.EVENT, builder)
-        val notification = builder.build()
         try {
-            NotificationManagerCompat.from(context).notify(
-                ReminderNoticeIds.event(id, due), notification)
-        } catch (_: SecurityException) { /* User disabled notifications */ }
+            notifications.notify(noticeId, builder.build())
+            reservation.previousNotificationId?.takeIf { it != noticeId }?.let {
+                notifications.cancel(it)
+            }
+        } catch (_: SecurityException) {
+            DailyReminderLedger.rollback(context, "event", id, reservation)
+        }
     }
 }
 
