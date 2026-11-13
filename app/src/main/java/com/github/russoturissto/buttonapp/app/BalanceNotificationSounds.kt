@@ -191,7 +191,7 @@ internal object BalanceNotificationSounds {
             "ресурс=$fallbackError")
     }
 
-    @android.annotation.TargetApi(Build.VERSION_CODES.O)
+    @androidx.annotation.RequiresApi(Build.VERSION_CODES.O)
     private fun newChannel(context: Context, category: String, id: String,
         sound: Uri?, vibrate: Boolean, importance: Int,
         attributes: AudioAttributes? = notificationAttributes): NotificationChannel {
