@@ -18,11 +18,11 @@ concurrency:
 
 jobs:
   publish:
-    if: \${{ github.repository == 'RussoTurissto/BalanceHub' }}
+    if: ${{ github.repository == 'RussoTurissto/BalanceHub' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      GH_TOKEN: \${{ github.token }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - name: Checkout approval and release notes
         uses: actions/checkout@v4
