@@ -2430,10 +2430,35 @@ class MainActivity : AppCompatActivity() {
                                 }
                             }
                             Toast.makeText(this,
-                                if (errors.isEmpty()) "Звуки и вибрация применены"
+                                if (errors.isEmpty())
+                                    "Настройки переданы Android. Проверяем сохранение…"
                                 else errors.joinToString("; "),
                                 Toast.LENGTH_LONG).show()
                             refreshSettingsWithoutJump()
+                            if (errors.isEmpty()) {
+                                android.os.Handler(android.os.Looper.getMainLooper())
+                                    .postDelayed({
+                                        val rejected = categories.filter {
+                                            BalanceNotificationSounds.needsRepair(this, it)
+                                        }
+                                        if (rejected.isNotEmpty()) {
+                                            Toast.makeText(this,
+                                                "Android не сохранил: " +
+                                                    rejected.joinToString {
+                                                        notificationTitle(it)
+                                                    } + ". Проверьте системные настройки.",
+                                                Toast.LENGTH_LONG).show()
+                                        } else {
+                                            Toast.makeText(this,
+                                                "Звуки и вибрация сохранены в каналах Android. " +
+                                                    "Проверьте тестовое уведомление.",
+                                                Toast.LENGTH_LONG).show()
+                                        }
+                                        if (currentTab == 4 &&
+                                            settingsScreen() == "notifications")
+                                            refreshSettingsWithoutJump()
+                                    }, 2_500L)
+                            }
                         }.show()
                 }))
             }
