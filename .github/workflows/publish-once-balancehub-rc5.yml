@@ -1,0 +1,102 @@
+name: Publish approved BalanceHub 1.1.3-rc5 APK
+
+on:
+  push:
+    branches:
+      - feature/balancehub-foundation
+    paths:
+      - ".github/workflows/publish-once-balancehub-rc5.yml"
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    if: ${{ github.repository == 'RussoTurissto/BalanceHub' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_RUN: "43494765585"
+      SOURCE_SHA: "1d5a07b503f2284069d07ad90917da290e0abedc"
+      TAG: "v1.1.3-rc5"
+      VERSION: "1.1.3-rc5"
+      CODE: "570"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Wait for verified build and download signed APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh run watch "$SOURCE_RUN" --repo "$GITHUB_REPOSITORY" --exit-status
+          state="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN" --jq .conclusion)"
+          sha="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN" --jq .head_sha)"
+          if [[ "$state" != success || "$sha" != "$SOURCE_SHA" ]]; then
+            echo "::error::Approved source build failed or source commit was unexpected"
+            exit 1
+          fi
+          mkdir -p dist
+          gh run download "$SOURCE_RUN" --repo "$GITHUB_REPOSITORY" --name BalanceHub --dir dist
+          test -s dist/BalanceHub.apk
+
+      - name: Check package version, APK signature and update compatibility
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          "$tools/apksigner" verify --verbose --print-certs dist/BalanceHub.apk \
+            | tee "$RUNNER_TEMP/current-signature.txt"
+          grep -q 'Verified using v2 scheme (APK Signature Scheme v2): true' \
+            "$RUNNER_TEMP/current-signature.txt"
+          "$tools/aapt" dump badging dist/BalanceHub.apk | tee "$RUNNER_TEMP/package.txt"
+          grep -q "^package: name='com.github.russoturissto.buttonapp.app'" \
+            "$RUNNER_TEMP/package.txt"
+          grep -q "versionName='$VERSION'" "$RUNNER_TEMP/package.txt"
+          grep -q "versionCode='$CODE'" "$RUNNER_TEMP/package.txt"
+          mkdir -p previous
+          gh release download v1.1.3-rc4 --repo "$GITHUB_REPOSITORY" \
+            --pattern BalanceHub.apk --dir previous
+          "$tools/apksigner" verify --verbose --print-certs previous/BalanceHub.apk \
+            > "$RUNNER_TEMP/previous-signature.txt"
+          current="$(sed -n -E 's/^.*certificate SHA-256 digest: ([0-9a-fA-F]+)$/\1/p' \
+            "$RUNNER_TEMP/current-signature.txt" | head -n 1)"
+          previous="$(sed -n -E 's/^.*certificate SHA-256 digest: ([0-9a-fA-F]+)$/\1/p' \
+            "$RUNNER_TEMP/previous-signature.txt" | head -n 1)"
+          if [[ -z "$current" || "$current" != "$previous" ]]; then
+            echo "::error::Signing certificate does not match installed BalanceHub"
+            exit 1
+          fi
+          echo "Verified same signing certificate as rc4"
+          sha256sum dist/BalanceHub.apk
+
+      - name: Publish GitHub Release direct APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::Release tag already exists, refusing to overwrite"
+            exit 1
+          fi
+          cat > "$RUNNER_TEMP/notes.md" <<'NOTES'
+          ## BalanceHub 1.1.3-rc5 — исправление неверной ошибки «пустой поток»
+
+          - Исправлена проверка WAV: успешное чтение больше не отображается как «пустой поток»
+          - Исправлено применение фирменных мелодий к Android-каналам уведомлений
+          - Сохранена независимая настройка вибрации, без блокировки из-за WAV
+          - Для всех 15 звуков дополнены проверки provider и resource URI
+          - Интервал «Предстоящие события → Архив событий» равен 14 dp, как в платежах
+          - Проверены Kotlin, Lint, модульные тесты, компиляция Android-тестов, подпись и установочная совместимость APK
+
+          Установите BalanceHub.apk **поверх существующего приложения**, не удаляя его, чтобы сохранить данные и настройки.
+          Если старые Android-каналы без звука, откройте «Настройки → Уведомления → Включить звук и вибрацию». Затем протестируйте каждую категорию настоящим уведомлением.
+
+          Фактическое звучание и работу вибромотора необходимо проверить на телефоне; режим «Не беспокоить», громкость и разрешения Android сохраняют приоритет.
+          NOTES
+          gh release create "$TAG" "dist/BalanceHub.apk#BalanceHub.apk" \
+            --repo "$GITHUB_REPOSITORY" --target "$SOURCE_SHA" \
+            --title "BalanceHub 1.1.3-rc5 — исправление звука" \
+            --notes-file "$RUNNER_TEMP/notes.md" --prerelease --latest=false
+          echo "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/BalanceHub.apk" >> "$GITHUB_STEP_SUMMARY"
