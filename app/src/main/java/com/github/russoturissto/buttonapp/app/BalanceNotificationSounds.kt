@@ -169,6 +169,9 @@ internal object BalanceNotificationSounds {
         }
     }
 
+    /** Read-only diagnostics shared by the settings and channel audit screen. */
+    fun audioProbe(context: Context, uri: Uri): String? = toneProbe(context, uri)
+
     private data class SoundSelection(val uri: Uri?, val error: String? = null)
 
     private fun resolveSound(context: Context, key: String, gain: Int): SoundSelection {
