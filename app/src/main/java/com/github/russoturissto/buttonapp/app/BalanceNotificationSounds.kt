@@ -193,8 +193,13 @@ internal object BalanceNotificationSounds {
         // providers that can appear playable in-app but be silent in SystemUI.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val mediaUri = BalanceSystemToneStore.uri(context, key, gain)
-            if (mediaUri != null && toneProbe(context, mediaUri) == null)
-                return SoundSelection(mediaUri)
+                ?: return SoundSelection(null,
+                    "Не удалось зарегистрировать мелодию в медиатеке Android")
+            val readError = toneProbe(context, mediaUri)
+            if (readError != null)
+                return SoundSelection(null,
+                    "Мелодия недоступна системной медиатеке: " + readError)
+            return SoundSelection(mediaUri)
         }
         val primary = soundUri(context, key, gain)
             ?: return SoundSelection(null, "Не найдена встроенная мелодия")
