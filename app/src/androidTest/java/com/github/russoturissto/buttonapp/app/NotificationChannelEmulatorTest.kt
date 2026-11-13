@@ -4,6 +4,8 @@ import android.app.NotificationManager
 import android.content.Context
 import android.os.Build
 import android.net.Uri
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.*
@@ -36,8 +38,69 @@ class NotificationChannelEmulatorTest {
                 assertTrue("Importance silent " + category,
                     channel!!.importance >= NotificationManager.IMPORTANCE_DEFAULT)
                 assertNotNull("Sound missing " + category, channel.sound)
+                if (Build.VERSION.SDK_INT >= 29) {
+                    assertEquals("System audio must use a MediaStore URI", "media",
+                        channel.sound?.authority)
+                    assertNull("MediaStore sound cannot be read",
+                        BalanceNotificationSounds.audioProbe(context, channel.sound!!))
+                }
                 assertTrue("No vibration " + category, channel.shouldVibrate())
             }
+        }
+    }
+
+    @Test fun allFifteenSoundsAreIndexedInAndroidMediaStore() {
+        if (Build.VERSION.SDK_INT < 29) return
+        val context = app
+        assertEquals(15, BalanceNotificationSounds.tones.size)
+        for (tone in BalanceNotificationSounds.tones) {
+            val uri = BalanceSystemToneStore.uri(context, tone.key, 100)
+            assertNotNull("Cannot register " + tone.key + " with Android", uri)
+            assertEquals("Unexpected media provider for " + tone.key, "media",
+                uri!!.authority)
+            assertNull("System media read failed for " + tone.key,
+                BalanceNotificationSounds.audioProbe(context, uri))
+            assertEquals("MediaStore URI changed for " + tone.key, uri,
+                BalanceSystemToneStore.uri(context, tone.key, 100))
+        }
+    }
+
+    @Test fun notificationUsesSelectedChannelAfterRepeatedInitialization() {
+        if (Build.VERSION.SDK_INT < 26) return
+        val context = app
+        val category = BalanceNotificationSounds.PAYMENT
+        val applyError = BalanceNotificationSounds.applyUserChoice(
+            context, category, "balancehub", true)
+        assertNull("Cannot configure payment tone: " + applyError, applyError)
+        BalanceNotificationSounds.ensureDefaultChannels(context)
+        if (Build.VERSION.SDK_INT >= 33) {
+            InstrumentationRegistry.getInstrumentation().uiAutomation
+                .grantRuntimePermission(context.packageName,
+                    android.Manifest.permission.POST_NOTIFICATIONS)
+        }
+        val id = BalanceNotificationSounds.channelId(context, category)
+        val notificationId = 479882
+        val notification = NotificationCompat.Builder(context, id)
+            .setSmallIcon(context.applicationInfo.icon)
+            .setContentTitle("Тест реального уведомления BalanceHub")
+            .setContentText("Звук и вибрация должны следовать параметрам канала")
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .build()
+        manager().notify(notificationId, notification)
+        try {
+            val posted = manager().activeNotifications.firstOrNull {
+                it.id == notificationId
+            }
+            assertNotNull("Android did not post notification", posted)
+            assertEquals("Wrong channel used by real notification", id,
+                posted!!.notification.channelId)
+            val channel = manager().getNotificationChannel(id)
+            assertNotNull(channel)
+            assertNotNull("Posted channel has no sound", channel!!.sound)
+            assertTrue("Posted channel has no vibration", channel.shouldVibrate())
+        } finally {
+            manager().cancel(notificationId)
         }
     }
 
@@ -74,6 +137,29 @@ class NotificationChannelEmulatorTest {
             BalanceNotificationSounds.channelId(context, category))
         assertTrue("Vibration not restored", channel!!.shouldVibrate())
         assertNotNull("Tone not restored", channel.sound)
+    }
+
+    @Test fun mediaStoreSoundIsReadableBySeparateShellProcess() {
+        if (Build.VERSION.SDK_INT < 29) return
+        val context = app
+        val uri = BalanceSystemToneStore.uri(context, "crystal", 100)
+        assertNotNull(uri)
+        val result = InstrumentationRegistry.getInstrumentation().uiAutomation
+            .executeShellCommand("content read --uri " + uri.toString())
+        result.use { fd ->
+            java.io.FileInputStream(fd.fileDescriptor).use { stream ->
+                val header = ByteArray(12)
+                var count = 0
+                while (count < header.size) {
+                    val read = stream.read(header, count, header.size - count)
+                    if (read < 1) break
+                    count += read
+                }
+                assertEquals("External process cannot open MediaStore sound", 12, count)
+                assertEquals("RIFF", String(header, 0, 4))
+                assertEquals("WAVE", String(header, 8, 4))
+            }
+        }
     }
 
     @Test fun customToneIsReadableBySeparateShellProcess() {
