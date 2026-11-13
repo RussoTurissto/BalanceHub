@@ -30,8 +30,8 @@ Reminder scheduling uses AlarmManager. Exact-alarm permission improves timing; w
 - Canonical CI workflow: .github/workflows/balancehub-apk.yml.
 - CI checks compilation, lint, JVM unit tests, signed release APK, package name, Android version and signer certificate.
 - The four BALANCEHUB_* signing secrets remain private in GitHub Actions. Never commit a keystore or password.
-- Approved publishing workflow: .github/workflows/publish-approved-apk.yml.
-- Only after the owner authorizes a version and its successful CI run, update release/approved.json and release/notes.md. The publisher verifies the specific run, APK signature and version, then creates a GitHub prerelease without replacing the stable latest release.
+- Approved prereleases use a temporary, explicitly authorized GitHub Actions publishing workflow added only after the source commit has passed CI; it is removed after publication. This avoids granting broad workflow permissions to the automated release token.
+- After the owner authorizes a successful CI run, prepare release notes in release/notes.md. The one-time publisher must verify the exact CI run, APK signature and version, create a GitHub prerelease without replacing stable latest, and then be removed.
 
 ## Installing on Android
 

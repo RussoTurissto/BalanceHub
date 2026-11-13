@@ -2,7 +2,7 @@ package com.github.russoturissto.buttonapp.app
 
 internal data class ReleaseNote(val iconId: String, val title: String, val description: String)
 
-/** User-facing notes for 1.1.3-rc3. */
+/** User-facing notes for the independently verified 1.1.3-rc3 signed build. */
 internal object AppReleaseNotes {
     val current: List<ReleaseNote> = listOf(
         ReleaseNote("music", "Три системных канала",
