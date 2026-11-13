@@ -53,11 +53,19 @@ internal object NotificationSignalAudit {
                 lines.add("Вибрация канала: " +
                     if (channel.shouldVibrate()) "включена" else "выключена")
                 val sound = channel.sound
-                lines.add("Звук канала: " + if (sound == null) "без звука" else
-                    if (sound.authority == context.packageName + ".sounds")
-                        "фирменная мелодия BalanceHub" else "системная мелодия/выбор Android")
-                if (sound != null && (sound.authority == context.packageName + ".sounds" ||
-                        sound.scheme == "android.resource")) {
+                val mediaTone = sound != null && BalanceNotificationSounds.tones.any {
+                    BalanceSystemToneStore.cachedUri(context, it.key,
+                        BalanceNotificationSounds.volume(context, category)) == sound
+                }
+                val isCustom = sound?.authority == context.packageName + ".sounds" ||
+                    sound?.scheme == "android.resource" || mediaTone
+                lines.add("Звук канала: " + when {
+                    sound == null -> "без звука"
+                    mediaTone -> "фирменная мелодия через медиатеку Android"
+                    isCustom -> "фирменная мелодия BalanceHub"
+                    else -> "системная мелодия/выбор Android"
+                })
+                if (sound != null && isCustom) {
                     val failure = BalanceNotificationSounds.audioProbe(context, sound)
                     lines.add("Доступ к WAV через Android: " +
                         if (failure == null) "подтверждён"
