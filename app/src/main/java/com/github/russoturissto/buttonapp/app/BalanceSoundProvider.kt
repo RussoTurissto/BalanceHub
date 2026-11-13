@@ -84,7 +84,10 @@ class BalanceSoundProvider : ContentProvider() {
         val values = arrayOfNulls<Any>(columns.size)
         for ((index, column) in columns.withIndex()) {
             values[index] = when (column) {
-                OpenableColumns.DISPLAY_NAME -> file.name
+                OpenableColumns.DISPLAY_NAME ->
+                    BalanceNotificationSounds.tones.firstOrNull { tone ->
+                        tone.key == NotificationSoundPath.parse(uri.pathSegments)?.first
+                    }?.let { it.title + ".wav" } ?: file.name
                 OpenableColumns.SIZE -> file.length()
                 else -> null
             }
