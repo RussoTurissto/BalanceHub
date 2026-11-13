@@ -27,7 +27,8 @@ internal object BalanceSystemToneStore {
             ?.let(Uri::parse)
 
     private fun readable(context: Context, uri: Uri): Boolean = try {
-        context.contentResolver.openInputStream(uri)?.use { input ->
+        val input = context.contentResolver.openInputStream(uri)
+        if (input == null) false else try {
             val header = ByteArray(12)
             var offset = 0
             while (offset < 12) {
@@ -38,7 +39,9 @@ internal object BalanceSystemToneStore {
             offset == 12 &&
                 header.copyOfRange(0, 4).contentEquals("RIFF".toByteArray()) &&
                 header.copyOfRange(8, 12).contentEquals("WAVE".toByteArray())
-        } == true
+        } finally {
+            input.close()
+        }
     } catch (error: Exception) {
         Log.w("BalanceHubToneStore", "MediaStore tone unavailable", error)
         false
@@ -86,9 +89,11 @@ internal object BalanceSystemToneStore {
             val target = inserted
             val output = resolver.openOutputStream(target, "w")
                 ?: throw java.io.IOException("MediaStore output not available")
-            output.use { stream ->
-                stream.write(data)
-                stream.flush()
+            try {
+                output.write(data)
+                output.flush()
+            } finally {
+                output.close()
             }
             val published = ContentValues().apply {
                 put(MediaStore.MediaColumns.IS_PENDING, 0)
