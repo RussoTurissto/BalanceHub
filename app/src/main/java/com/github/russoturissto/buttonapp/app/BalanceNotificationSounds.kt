@@ -188,6 +188,14 @@ internal object BalanceNotificationSounds {
             return SoundSelection(system, if (system == null) "В Android не выбран системный звук"
                 else null)
         }
+        // The OS notification player must resolve the URI outside our UID.
+        // Prefer a publicly indexed Android MediaStore record over app-private
+        // providers that can appear playable in-app but be silent in SystemUI.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val mediaUri = BalanceSystemToneStore.uri(context, key, gain)
+            if (mediaUri != null && toneProbe(context, mediaUri) == null)
+                return SoundSelection(mediaUri)
+        }
         val primary = soundUri(context, key, gain)
             ?: return SoundSelection(null, "Не найдена встроенная мелодия")
         val primaryError = toneProbe(context, primary)
@@ -208,13 +216,10 @@ internal object BalanceNotificationSounds {
         attributes: AudioAttributes? = notificationAttributes): NotificationChannel {
         val channel = NotificationChannel(id, legacyChannel(category), importance)
         channel.setSound(sound, if (sound == null) null else attributes)
+        // Use the platform default notification haptic instead of a waveform
+        // some OEMs silently reject or display as "vibration off". Users can
+        // still choose their system-wide vibration intensity in Android.
         channel.enableVibration(vibrate)
-        if (vibrate) {
-            if (Build.VERSION.SDK_INT >= 35) {
-                channel.setVibrationEffect(VibrationEffect.createWaveform(
-                    vibrationPattern(category), -1))
-            } else channel.vibrationPattern = vibrationPattern(category)
-        }
         return channel
     }
 
@@ -360,7 +365,9 @@ internal object BalanceNotificationSounds {
         if (key == "silent" || gain == 0) return actual == null
         if (key == "system")
             return actual == RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-        return actual == soundUri(context, key, gain) || actual == resourceUri(context, key)
+        return actual == soundUri(context, key, gain) ||
+            actual == resourceUri(context, key) ||
+            actual == BalanceSystemToneStore.cachedUri(context, key, gain)
     }
 
     /** An explicit repair action is offered rather than silently resetting Android settings. */
