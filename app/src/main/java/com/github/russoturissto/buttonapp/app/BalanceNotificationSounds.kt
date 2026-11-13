@@ -146,9 +146,10 @@ internal object BalanceNotificationSounds {
      * ParcelFileDescriptor.statSize, which can be -1 for a readable stream.
      * Return only a concise diagnostic code; never swallow a failure silently.
      */
-    private fun toneProbe(context: Context, uri: Uri): String? = try {
-        val source = context.contentResolver.openInputStream(uri)
-            ?: return "пустой поток"
+    private fun toneProbe(context: Context, uri: Uri): String? {
+        return try {
+            val source = context.contentResolver.openInputStream(uri)
+                ?: return "пустой поток"
         source.use { stream ->
             val header = ByteArray(12)
             var count = 0
@@ -165,6 +166,7 @@ internal object BalanceNotificationSounds {
     } catch (error: Exception) {
         android.util.Log.w("BalanceHubSound", "Cannot read WAV " + uri.scheme, error)
         error.javaClass.simpleName
+        }
     }
 
     private data class SoundSelection(val uri: Uri?, val error: String? = null)
@@ -191,9 +193,10 @@ internal object BalanceNotificationSounds {
     }
 
     private fun newChannel(context: Context, category: String, id: String,
-        sound: Uri?, vibrate: Boolean, importance: Int): NotificationChannel {
+        sound: Uri?, vibrate: Boolean, importance: Int,
+        attributes: AudioAttributes? = notificationAttributes): NotificationChannel {
         val channel = NotificationChannel(id, legacyChannel(category), importance)
-        channel.setSound(sound, if (sound == null) null else notificationAttributes)
+        channel.setSound(sound, if (sound == null) null else attributes)
         channel.enableVibration(vibrate)
         if (vibrate) {
             if (Build.VERSION.SDK_INT >= 35) {
@@ -315,7 +318,7 @@ internal object BalanceNotificationSounds {
                 previous.importance.coerceAtLeast(NotificationManager.IMPORTANCE_DEFAULT)
             else previous.importance
             val channel = newChannel(context, category, nextId,
-                previous.sound, vibrate, importance)
+                previous.sound, vibrate, importance, previous.audioAttributes)
             manager.createNotificationChannel(channel)
             val actual = manager.getNotificationChannel(nextId)
             if (actual?.shouldVibrate() != vibrate || actual.sound != previous.sound) {
