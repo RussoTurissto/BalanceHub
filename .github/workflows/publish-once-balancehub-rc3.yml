@@ -1,0 +1,98 @@
+name: Publish approved BalanceHub rc3 APK
+
+on:
+  push:
+    branches:
+      - feature/balancehub-foundation
+    paths:
+      - ".github/workflows/publish-once-balancehub-rc3.yml"
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    if: ${{ github.repository == 'RussoTurissto/BalanceHub' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_RUN: "43472806120"
+      SOURCE_SHA: "6b04cd5a727bdc239011fc67d53945790dab4598"
+      TAG: "v1.1.3-rc3"
+      VERSION: "1.1.3-rc3"
+      CODE: "547"
+    steps:
+      - name: Checkout release notes
+        uses: actions/checkout@v4
+      - name: Wait for source checks and retrieve signed APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh run watch "$SOURCE_RUN" --repo "$GITHUB_REPOSITORY" --exit-status
+          state="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN" --jq .conclusion)"
+          sha="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN" --jq .head_sha)"
+          if [[ "$state" != success || "$sha" != "$SOURCE_SHA" ]]; then
+            echo "::error::Source CI did not pass or source SHA changed"
+            exit 1
+          fi
+          mkdir -p dist
+          gh run download "$SOURCE_RUN" --repo "$GITHUB_REPOSITORY" \
+            --name BalanceHub --dir dist
+          test -s dist/BalanceHub.apk
+      - name: Verify APK signature and version once more
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d \
+            | sort -V | tail -n 1)"
+          "$tools/apksigner" verify --verbose --print-certs dist/BalanceHub.apk \
+            | tee "$RUNNER_TEMP/signature.txt"
+          grep -q 'Verified using v2 scheme (APK Signature Scheme v2): true' \
+            "$RUNNER_TEMP/signature.txt"
+          "$tools/aapt" dump badging dist/BalanceHub.apk \
+            | tee "$RUNNER_TEMP/package.txt"
+          grep -q "^package: name='com.github.russoturissto.buttonapp.app'" \
+            "$RUNNER_TEMP/package.txt"
+          grep -q "versionName='$VERSION'" "$RUNNER_TEMP/package.txt"
+          grep -q "versionCode='$CODE'" "$RUNNER_TEMP/package.txt"
+          sha256sum dist/BalanceHub.apk
+      - name: Publish direct APK (GitHub Release, otherwise separate downloads branch)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::Refusing to overwrite an existing release"
+            exit 1
+          fi
+          test -s release/notes.md
+          if gh release create "$TAG" "dist/BalanceHub.apk#BalanceHub.apk" \
+              --repo "$GITHUB_REPOSITORY" --target "$SOURCE_SHA" \
+              --title "BalanceHub $VERSION — предрелиз" \
+              --notes-file release/notes.md --prerelease --latest=false; then
+            echo "Official prerelease created successfully"
+            echo "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/BalanceHub.apk" \
+              >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::GitHub Release API rejected the integration token. Publishing a direct APK on the isolated downloads branch."
+            cp dist/BalanceHub.apk "$RUNNER_TEMP/BalanceHub.apk"
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            if git ls-remote --exit-code --heads origin apk-downloads >/dev/null 2>&1; then
+              git fetch origin apk-downloads
+              git switch -C apk-downloads FETCH_HEAD
+            else
+              git switch --orphan apk-downloads
+            fi
+            mkdir -p "$TAG"
+            cp "$RUNNER_TEMP/BalanceHub.apk" "$TAG/BalanceHub.apk"
+            git add "$TAG/BalanceHub.apk"
+            git commit -m "Publish verified $VERSION signed APK for direct download"
+            git push origin HEAD:refs/heads/apk-downloads
+            actual="$(gh api "repos/$GITHUB_REPOSITORY/contents/$TAG/BalanceHub.apk?ref=apk-downloads" --jq .size)"
+            test "$actual" -gt 9000000
+            echo "Signed APK available on isolated download branch:"
+            echo "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/apk-downloads/$TAG/BalanceHub.apk" \
+              >> "$GITHUB_STEP_SUMMARY"
+          fi
