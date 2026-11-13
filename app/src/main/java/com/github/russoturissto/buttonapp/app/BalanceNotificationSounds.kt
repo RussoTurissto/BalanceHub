@@ -306,7 +306,8 @@ internal object BalanceNotificationSounds {
         val oldId = ensureChannel(context, category)
         val previous = manager.getNotificationChannel(oldId)
             ?: return "Канал уведомлений Android не найден"
-        if (previous.shouldVibrate() == vibrate) {
+        if (previous.shouldVibrate() == vibrate &&
+            (!vibrate || previous.importance >= NotificationManager.IMPORTANCE_DEFAULT)) {
             setVibrationFor(context, category, vibrate)
             return null
         }
