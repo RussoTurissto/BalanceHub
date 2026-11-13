@@ -76,7 +76,8 @@ internal object BalanceSystemToneStore {
                 put(MediaStore.Audio.Media.DISPLAY_NAME, filename)
                 put(MediaStore.Audio.Media.TITLE, "BalanceHub — " + tone.title)
                 put(MediaStore.Audio.Media.MIME_TYPE, "audio/wav")
-                put(MediaStore.Audio.Media.IS_NOTIFICATION, 1)
+                // IS_NOTIFICATION is derived by MediaProvider from Notifications/
+                // and is read-only on modern Android. Never write this column.
                 put(MediaStore.MediaColumns.RELATIVE_PATH,
                     Environment.DIRECTORY_NOTIFICATIONS + "/BalanceHub/")
                 put(MediaStore.MediaColumns.IS_PENDING, 1)
