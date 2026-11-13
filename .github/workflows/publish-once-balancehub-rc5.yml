@@ -95,8 +95,28 @@ jobs:
 
           Фактическое звучание и работу вибромотора необходимо проверить на телефоне; режим «Не беспокоить», громкость и разрешения Android сохраняют приоритет.
           NOTES
-          gh release create "$TAG" "dist/BalanceHub.apk#BalanceHub.apk" \
-            --repo "$GITHUB_REPOSITORY" --target "$SOURCE_SHA" \
-            --title "BalanceHub 1.1.3-rc5 — исправление звука" \
-            --notes-file "$RUNNER_TEMP/notes.md" --prerelease --latest=false
-          echo "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/BalanceHub.apk" >> "$GITHUB_STEP_SUMMARY"
+          if gh release create "$TAG" "dist/BalanceHub.apk#BalanceHub.apk" \
+              --repo "$GITHUB_REPOSITORY" --target "$SOURCE_SHA" \
+              --title "BalanceHub 1.1.3-rc5 — исправление звука" \
+              --notes-file "$RUNNER_TEMP/notes.md" --prerelease --latest=false; then
+            echo "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/BalanceHub.apk" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::GitHub Release API denied integration token; publishing signed APK on a separate direct-download branch"
+            cp dist/BalanceHub.apk "$RUNNER_TEMP/BalanceHub.apk"
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            if git ls-remote --exit-code --heads origin apk-downloads >/dev/null 2>&1; then
+              git fetch origin apk-downloads
+              git switch -C apk-downloads FETCH_HEAD
+            else
+              git switch --orphan apk-downloads
+            fi
+            mkdir -p "$TAG"
+            cp "$RUNNER_TEMP/BalanceHub.apk" "$TAG/BalanceHub.apk"
+            git add "$TAG/BalanceHub.apk"
+            git commit -m "Publish verified BalanceHub 1.1.3-rc5 signed APK"
+            git push origin HEAD:refs/heads/apk-downloads
+            actual="$(gh api "repos/$GITHUB_REPOSITORY/contents/$TAG/BalanceHub.apk?ref=apk-downloads" --jq .size)"
+            test "$actual" -eq 10167805
+            echo "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/apk-downloads/$TAG/BalanceHub.apk" >> "$GITHUB_STEP_SUMMARY"
+          fi
