@@ -87,6 +87,7 @@ class MainActivity : AppCompatActivity() {
     private var mobileSettingsOpen = false
     private var bankSettingsOpen = false
     private var engineeringMenuOpen = false
+    private var engineeringChannelsOpen = false
     private var engineeringTapCount = 0
     private var engineeringTapStartedAt = 0L
     private var operatorDetailsOpen = false
@@ -186,6 +187,7 @@ class MainActivity : AppCompatActivity() {
         // Engineer access is never restored from saved state, disk, or deep links.
         bankSettingsOpen = false
         engineeringMenuOpen = false
+        engineeringChannelsOpen = false
         operatorDetailsOpen = savedInstanceState?.getBoolean("operator_details_open") ?: false
         archiveOpen = savedInstanceState?.getBoolean("archive_open") ?: false
         eventArchiveExpanded = savedInstanceState?.getBoolean("event_archive_open") ?: false
@@ -208,6 +210,7 @@ class MainActivity : AppCompatActivity() {
         EventScheduler.restoreAfterBoot(this)
         loadPayments()
         for (sim in T2Balance.sims(this)) syncMobilePayment(sim)
+        BalanceNotificationSounds.ensureDefaultChannels(this)
         showDashboard()
         if (currentTab == 4) dashboardScroll.post {
             dashboardScroll.scrollTo(0, settingsScrollPositions[settingsScreen()] ?: 0)
@@ -232,6 +235,10 @@ class MainActivity : AppCompatActivity() {
                     }
                     bankSettingsOpen && engineeringMenuOpen && currentTab == 4 -> {
                         bankSettingsOpen = false
+                        renderTab()
+                    }
+                    engineeringChannelsOpen && engineeringMenuOpen && currentTab == 4 -> {
+                        engineeringChannelsOpen = false
                         renderTab()
                     }
                     engineeringMenuOpen && currentTab == 4 -> {
@@ -2211,7 +2218,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderSettings() {
         if (engineeringMenuOpen) {
-            if (bankSettingsOpen) renderBankSettings() else renderEngineeringMenu()
+            when {
+                bankSettingsOpen -> renderBankSettings()
+                engineeringChannelsOpen -> renderEngineeringChannels()
+                else -> renderEngineeringMenu()
+            }
             return
         }
         bankSettingsOpen = false
@@ -2344,38 +2355,41 @@ class MainActivity : AppCompatActivity() {
             openSberListenerSettings()
         }))
     }
+    private fun refreshSettingsWithoutJump() {
+        val at = dashboardScroll.scrollY
+        renderTab()
+        dashboardScroll.post { if (currentTab == 4) dashboardScroll.scrollTo(0, at) }
+    }
+
     private fun renderNotificationsMenu() {
-        settingsHeader("Уведомления", "Звуки и вибрация")
+        settingsHeader("Уведомления", "Мелодии и вибрация")
         settingsGroup(settingsPanel(
             settingsRow("credit-card", "Платежи",
-                "Мелодия, громкость, двойной сигнал") { openSettingsPage("payment") },
+                BalanceNotificationSounds.effectiveSummary(this,
+                    BalanceNotificationSounds.PAYMENT)) { openSettingsPage("payment") },
             settingsRow("calendar-days", "События",
-                "Мелодия, громкость, два импульса") { openSettingsPage("event") },
+                BalanceNotificationSounds.effectiveSummary(this,
+                    BalanceNotificationSounds.EVENT)) { openSettingsPage("event") },
             settingsRow("download", "Обновления",
-                "Мелодия, громкость, короткий сигнал") {
-                openSettingsPage("update_sound")
-            }
+                BalanceNotificationSounds.effectiveSummary(this,
+                    BalanceNotificationSounds.UPDATE)) { openSettingsPage("update_sound") }
         ))
         settingsGroup(settingsPanel(
             settingsSwitch("music", "Раздельная громкость",
-                "Уровень для каждого типа уведомлений",
+                "Настраивать каждый тип отдельно",
                 BalanceNotificationSounds.separateVolume(this)) {
                 BalanceNotificationSounds.setSeparateVolume(this, it)
+                refreshSettingsWithoutJump()
             },
             settingsSwitch("settings", "Вибрация уведомлений",
                 "Общий переключатель",
                 BalanceNotificationSounds.vibrationEnabled(this)) {
                 BalanceNotificationSounds.setVibrationEnabled(this, it)
-                renderTab()
-            }
-        ))
-        settingsGroup(settingsPanel(
-            settingsRow("settings", "Уведомления Android",
-                "Разрешения и системные каналы") {
-                openAndroidNotificationSettings()
+                refreshSettingsWithoutJump()
             }
         ))
     }
+
     private fun notificationCategory() = when (settingsScreen()) {
         "event" -> BalanceNotificationSounds.EVENT
         "update_sound" -> BalanceNotificationSounds.UPDATE
@@ -2415,13 +2429,14 @@ class MainActivity : AppCompatActivity() {
                     override fun onStopTrackingTouch(bar: SeekBar?) {
                         BalanceNotificationSounds.setVolume(this@MainActivity, volumeKey,
                             (bar?.progress ?: current).coerceIn(0, 100))
+                        refreshSettingsWithoutJump()
                     }
                 })
             })
         }
         settingsGroup(settingsPanel(
             settingsRow("music", "Мелодия",
-                BalanceNotificationSounds.title(this, category)) {
+                BalanceNotificationSounds.effectiveSoundTitle(this, category)) {
                 showSoundChooser(category, title)
             },
             volumeRow,
@@ -2433,12 +2448,7 @@ class MainActivity : AppCompatActivity() {
                 },
                 BalanceNotificationSounds.vibrationFor(this, category)) { enabled ->
                 BalanceNotificationSounds.setVibrationFor(this, category, enabled)
-            }
-        ))
-        settingsGroup(settingsPanel(
-            settingsRow("settings", "Системные параметры",
-                "Канал уведомлений " + title.lowercase()) {
-                openAndroidNotificationSettings(category)
+                refreshSettingsWithoutJump()
             }
         ))
     }
@@ -2471,11 +2481,7 @@ class MainActivity : AppCompatActivity() {
         settingsGroup(settingsPanel(
             settingsRow("settings", "Справка",
                 "Балансы, платежи, банки и обновления") { showHelpCenter() },
-            settingsRow("settings", "Уведомления Android",
-                "Разрешения и системные каналы") {
-                openAndroidNotificationSettings()
-            }
-        ))
+         ))
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
             !ExactReminderAlarms.allowed(this)) {
             settingsGroup(settingsPanel(settingsRow("calendar-days",
@@ -2508,6 +2514,7 @@ class MainActivity : AppCompatActivity() {
         engineeringTapCount = 0
         engineeringTapStartedAt = 0L
         bankSettingsOpen = false
+        engineeringChannelsOpen = false
     }
 
     private fun renderEngineeringMenu() {
@@ -2531,6 +2538,20 @@ class MainActivity : AppCompatActivity() {
             renderTab()
         }
         contentContainer.addView(banking)
+        contentContainer.addView(verticalGap(12))
+        val channels = card().apply {
+            isClickable = true
+            isFocusable = true
+            addView(textLine("Системные каналы   ›", 17f, ink, true))
+            addView(verticalGap(5))
+            addView(textLine("Платежи, события, обновления: звук, вибрация и права Android",
+                13f, muted))
+            setOnClickListener {
+                engineeringChannelsOpen = true
+                renderTab()
+            }
+        }
+        contentContainer.addView(channels)
         contentContainer.addView(verticalGap(12))
         val notifications = card()
         notifications.addView(textLine("Диагностика уведомлений", 17f, ink, true))
@@ -2631,6 +2652,47 @@ class MainActivity : AppCompatActivity() {
         contentContainer.addView(verticalGap(12))
         contentContainer.addView(textLine(
             "При выходе из инженерного меню доступ закрывается.",
+            12f, muted))
+    }
+
+    private fun renderEngineeringChannels() {
+        contentContainer.addView(secondaryButton("‹  Инженерное меню") {
+            engineeringChannelsOpen = false
+            renderTab()
+        })
+        contentContainer.addView(verticalGap(13))
+        contentContainer.addView(textLine("Системные каналы", 23f, ink, true))
+        contentContainer.addView(verticalGap(4))
+        contentContainer.addView(textLine(
+            "Действующие параметры Android без сброса пользовательского выбора",
+            12f, muted))
+        contentContainer.addView(verticalGap(14))
+        settingsGroup(settingsPanel(*listOf(
+            BalanceNotificationSounds.PAYMENT,
+            BalanceNotificationSounds.EVENT,
+            BalanceNotificationSounds.UPDATE
+        ).map { category ->
+            val status = BalanceNotificationSounds.effectiveSummary(this, category)
+            settingsRow("settings", notificationTitle(category), status) {
+                themedDialogBuilder()
+                    .setTitle("Канал: " + notificationTitle(category))
+                    .setMessage(NotificationSignalAudit.report(this, category)
+                        .joinToString("\n"))
+                    .setNegativeButton("Закрыть", null)
+                    .setPositiveButton("Настройки Android") { _, _ ->
+                        openAndroidNotificationSettings(category)
+                    }.show()
+            }
+        }.toTypedArray()))
+        settingsGroup(settingsPanel(
+            settingsRow("settings", "Разрешения Android",
+                "Общие уведомления BalanceHub") {
+                openAndroidNotificationSettings()
+            }
+        ))
+        contentContainer.addView(textLine(
+            "Все каналы создаются включёнными. Если канал выключен вручную " +
+                "в Android, BalanceHub не изменяет его без вашего разрешения.",
             12f, muted))
     }
 
