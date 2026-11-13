@@ -34,6 +34,9 @@ internal object DailyReminderPolicy {
         dueAt > 0L && firstAt > 0L && now >= firstAt &&
             now < dueAt + DUE_GRACE_MS
 
+    fun sentOnDay(saved: String?, day: Int): Boolean =
+        saved?.split('|')?.getOrNull(1) == day.toString()
+
     /** Next local-day slot, including the final due-day reminder if needed. */
     fun following(firstAt: Long, dueAt: Long, now: Long): Long? {
         if (firstAt <= 0L || dueAt <= firstAt || now >= dueAt) return null
@@ -66,7 +69,10 @@ internal object DailyReminderLedger {
         val previous = prefs.getString(key, null)
         val value = dueAt.toString() + "|" + DailyReminderPolicy.dayKey(now) +
             "|" + noticeId
-        if (previous?.substringBeforeLast('|') == value.substringBeforeLast('|')) return null
+        // A recurring cycle may roll forward on this same calendar day.
+        // Still only one alert per payment/event ID per local day.
+        if (DailyReminderPolicy.sentOnDay(previous, DailyReminderPolicy.dayKey(now)))
+            return null
         if (!prefs.edit().putString(key, value).commit()) return null
         return Reservation(previous, previous?.substringAfterLast('|')?.toIntOrNull(), value)
     }

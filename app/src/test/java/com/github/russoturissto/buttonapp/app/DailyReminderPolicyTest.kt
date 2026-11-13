@@ -62,6 +62,13 @@ class DailyReminderPolicyTest {
         } finally { TimeZone.setDefault(zone) }
     }
 
+    @Test fun dailyDedupCoversAnotherCycleOfTheSamePayment() {
+        assertTrue(DailyReminderPolicy.sentOnDay(
+            "1799990000000|20261119|15", 20261119))
+        assertFalse(DailyReminderPolicy.sentOnDay(
+            "1799990000000|20261118|15", 20261119))
+    }
+
     @Test fun recurringDueDoesNotAdvanceAtEarlyReminder() {
         val due = at(2026, 11, 19, 10)
         assertEquals(at(2026, 11, 26, 10),
