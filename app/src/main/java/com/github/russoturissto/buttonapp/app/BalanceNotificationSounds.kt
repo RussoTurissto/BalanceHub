@@ -183,6 +183,53 @@ internal object BalanceNotificationSounds {
         return id
     }
 
+    /** Register default-on channels once, preserving any user changes in Android. */
+    fun ensureDefaultChannels(context: Context) {
+        for (category in listOf(PAYMENT, EVENT, UPDATE)) ensureChannel(context, category)
+    }
+
+    /**
+     * What Android will actually attempt to play, rather than merely the
+     * requested app preference. Existing user-customized channels are never
+     * reset or silently replaced.
+     */
+    fun effectiveSoundTitle(context: Context, category: String): String {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return title(context, category)
+        val id = ensureChannel(context, category)
+        val channel = (context.getSystemService(Context.NOTIFICATION_SERVICE)
+            as NotificationManager).getNotificationChannel(id)
+            ?: return "Канал не найден"
+        if (channel.importance == NotificationManager.IMPORTANCE_NONE)
+            return "Канал отключён в Android"
+        if (channel.importance < NotificationManager.IMPORTANCE_DEFAULT)
+            return "Беззвучный канал Android"
+        val actual = channel.sound
+        val key = selected(context, category)
+        val expected = if (key == "silent" || volume(context, category) == 0) null
+            else soundUri(context, key, volume(context, category))
+        if (actual == expected) return if (expected == null) "Без звука" else
+            title(context, category)
+        if (actual == null) return "Без звука в Android"
+        if (expected == null) return "Звук включён в Android"
+        if (fallbackReason(context, category) != null) return "Системный звук (резерв)"
+        return "Мелодия изменена в Android"
+    }
+
+    fun effectiveSummary(context: Context, category: String): String {
+        val sound = effectiveSoundTitle(context, category)
+        val vibration = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val id = channelId(context, category)
+            val channel = (context.getSystemService(Context.NOTIFICATION_SERVICE)
+                as NotificationManager).getNotificationChannel(id)
+            if (channel?.shouldVibrate() == true &&
+                channel.importance >= NotificationManager.IMPORTANCE_DEFAULT)
+                "вибрация включена" else "без вибрации"
+        } else if (vibrationFor(context, category)) {
+            "вибрация включена"
+        } else "без вибрации"
+        return sound + " · " + vibration
+    }
+
     /** For API 25 and earlier: newer Android versions use channel sound. */
     fun configureLegacySound(context: Context, category: String,
         builder: androidx.core.app.NotificationCompat.Builder) {
