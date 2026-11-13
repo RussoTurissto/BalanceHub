@@ -278,6 +278,20 @@ internal object BalanceNotificationSounds {
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE)
             as NotificationManager
         val oldId = ensureChannel(context, category)
+        val oldChannel = manager.getNotificationChannel(oldId)
+        val gain = volume(context, category)
+        val alreadyConfigured = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+            key != "silent" && key != "system") {
+            val media = BalanceSystemToneStore.cachedUri(context, key, gain)
+            media != null && media == oldChannel?.sound
+        } else matchesConfiguredSound(context, key, gain, oldChannel?.sound)
+        if (oldChannel != null && alreadyConfigured &&
+            oldChannel.shouldVibrate() == vibrate &&
+            oldChannel.importance >= NotificationManager.IMPORTANCE_DEFAULT) {
+            return if (preferences(context).edit().putString(category, key)
+                    .putBoolean("vibration_" + category, vibrate).commit()) null
+                else "Не удалось сохранить параметры уведомлений"
+        }
         val next = nextRevision(context, category) ?: return "Превышено число изменений канала"
         val nextId = StableNotificationChannels.id(category, next)
         val prefs = preferences(context)
