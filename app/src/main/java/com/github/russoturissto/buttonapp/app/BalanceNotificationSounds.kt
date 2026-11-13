@@ -230,6 +230,30 @@ internal object BalanceNotificationSounds {
         return sound + " · " + vibration
     }
 
+    /** Only retired BalanceHub tone variants. Active channels never appear here. */
+    fun unusedChannelIds(context: Context): List<String> {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return emptyList()
+        val active = listOf(PAYMENT, EVENT, UPDATE).map {
+            channelId(context, it)
+        }.toSet()
+        val prefixes = listOf(PAYMENT, EVENT, UPDATE).map { it + "_tone_" }
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE)
+            as NotificationManager
+        return manager.notificationChannels.map { it.id }.filter { id ->
+            id !in active && prefixes.any { id.startsWith(it) }
+        }
+    }
+
+    /** Explicit user-initiated cleanup; never silently discards Android choices. */
+    fun deleteUnusedChannels(context: Context): Int {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return 0
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE)
+            as NotificationManager
+        val stale = unusedChannelIds(context)
+        stale.forEach { manager.deleteNotificationChannel(it) }
+        return stale.size
+    }
+
     /** For API 25 and earlier: newer Android versions use channel sound. */
     fun configureLegacySound(context: Context, category: String,
         builder: androidx.core.app.NotificationCompat.Builder) {

@@ -2694,6 +2694,25 @@ class MainActivity : AppCompatActivity() {
                 openAndroidNotificationSettings()
             }
         ))
+        val unused = BalanceNotificationSounds.unusedChannelIds(this).size
+        if (unused > 0) {
+            settingsGroup(settingsPanel(settingsRow("archive",
+                "Неиспользуемые каналы: $unused",
+                "Очистить старые варианты мелодий и громкости") {
+                themedDialogBuilder()
+                    .setTitle("Очистить старые каналы?")
+                    .setMessage("Будут удалены только $unused неактивных каналов " +
+                        "BalanceHub. Их индивидуальные системные настройки могут быть " +
+                        "утрачены. Действующие каналы, звук и вибрация останутся.")
+                    .setNegativeButton("Отмена", null)
+                    .setPositiveButton("Очистить") { _, _ ->
+                        val removed = BalanceNotificationSounds.deleteUnusedChannels(this)
+                        Toast.makeText(this, "Удалено старых каналов: $removed",
+                            Toast.LENGTH_LONG).show()
+                        renderTab()
+                    }.show()
+            }))
+        }
         contentContainer.addView(textLine(
             "Все каналы создаются включёнными. Если канал выключен вручную " +
                 "в Android, BalanceHub не изменяет его без вашего разрешения.",
