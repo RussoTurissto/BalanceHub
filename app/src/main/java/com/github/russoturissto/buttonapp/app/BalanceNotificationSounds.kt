@@ -147,19 +147,26 @@ internal object BalanceNotificationSounds {
      * Return only a concise diagnostic code; never swallow a failure silently.
      */
     private fun toneProbe(context: Context, uri: Uri): String? = try {
-        context.contentResolver.openInputStream(uri)?.use { stream ->
-            val header = ByteArray(12)
-            var count = 0
-            while (count < header.size) {
-                val read = stream.read(header, count, header.size - count)
-                if (read <= 0) break
-                count += read
+        context.contentResolver.openInputStream(uri).use { stream ->
+            // A nullable return from a successful probe means "no error".
+            // Never use ?.use { ... } ?: "empty stream" here: that also
+            // turns the successful null result into a false failure.
+            if (stream == null) {
+                "пустой поток"
+            } else {
+                val header = ByteArray(12)
+                var count = 0
+                while (count < header.size) {
+                    val read = stream.read(header, count, header.size - count)
+                    if (read <= 0) break
+                    count += read
+                }
+                if (count != 12 ||
+                    !header.copyOfRange(0, 4).contentEquals("RIFF".toByteArray()) ||
+                    !header.copyOfRange(8, 12).contentEquals("WAVE".toByteArray()))
+                    "неверный WAV" else null
             }
-            if (count != 12 ||
-                !header.copyOfRange(0, 4).contentEquals("RIFF".toByteArray()) ||
-                !header.copyOfRange(8, 12).contentEquals("WAVE".toByteArray()))
-                "неверный WAV" else null
-        } ?: "пустой поток"
+        }
     } catch (error: Exception) {
         android.util.Log.w("BalanceHubSound", "Cannot read WAV " + uri.scheme, error)
         error.javaClass.simpleName
