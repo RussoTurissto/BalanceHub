@@ -32,6 +32,34 @@ class NotificationChannelSignalStateTest {
         assertTrue(issues[1].contains("вопреки"))
     }
 
+    @Test fun differentAudibleAndroidToneIsReported() {
+        val issues = NotificationChannelSignalState.issues(
+            wantsSound = true, channelHasSound = true,
+            wantsVibration = true, channelHasVibration = true,
+            soundMatches = false)
+        assertEquals(1, issues.size)
+        assertTrue(issues.single().contains("отличается"))
+    }
+
+    @Test fun differentAndroidVibrationPatternIsReported() {
+        val issues = NotificationChannelSignalState.issues(
+            wantsSound = true, channelHasSound = true,
+            wantsVibration = true, channelHasVibration = true,
+            soundMatches = true, vibrationPatternMatches = false)
+        assertEquals(1, issues.size)
+        assertTrue(issues.single().contains("Рисунок"))
+    }
+
+    @Test fun lowImportanceIsDetectedEvenWithSoundUri() {
+        val issues = NotificationChannelSignalState.issues(
+            wantsSound = true, channelHasSound = true,
+            wantsVibration = true, channelHasVibration = true,
+            soundMatches = true, vibrationPatternMatches = true,
+            channelCanAlert = false)
+        assertEquals(1, issues.size)
+        assertTrue(issues.single().contains("важность"))
+    }
+
     @Test fun soundAndVibrationAreAuditedIndependently() {
         val issues = NotificationChannelSignalState.issues(
             wantsSound = true, channelHasSound = true,
