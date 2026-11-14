@@ -45,6 +45,10 @@ internal object BalanceNotificationSounds {
     private fun preferences(context: Context) =
         context.getSharedPreferences("balancehub_notification_sounds", Context.MODE_PRIVATE)
 
+    /** Opt-in only. Xiaomi and all existing users keep standard Android channels. */
+    fun colorOsCompatibility(context: Context): Boolean =
+        preferences(context).getBoolean("coloros_direct_vibration", false)
+
     fun selected(context: Context, category: String): String {
         val default = when (category) {
             PAYMENT -> "balancehub"
@@ -261,10 +265,13 @@ internal object BalanceNotificationSounds {
     @androidx.annotation.RequiresApi(Build.VERSION_CODES.O)
     private fun newChannel(category: String, id: String, sound: Uri?,
         mode: String, importance: Int,
-        attributes: AudioAttributes? = notificationAttributes): NotificationChannel {
+        attributes: AudioAttributes? = notificationAttributes,
+        directVibration: Boolean = false): NotificationChannel {
         val channel = NotificationChannel(id, legacyChannel(category), importance)
         channel.setSound(sound, if (sound == null) null else attributes)
-        val vibrate = NotificationVibrationMode.enabled(mode)
+        // ColorOS workaround: the OS plays audio while the app vibrates with
+        // notification usage. Never ask the same channel to vibrate twice.
+        val vibrate = !directVibration && NotificationVibrationMode.enabled(mode)
         if (vibrate) {
             NotificationChannelVibration.apply(channel, NotificationVibrationMode.pattern(mode))
         } else {
@@ -286,7 +293,7 @@ internal object BalanceNotificationSounds {
         val importance = if (category == UPDATE) NotificationManager.IMPORTANCE_DEFAULT
             else NotificationManager.IMPORTANCE_HIGH
         manager.createNotificationChannel(newChannel(category, id,
-            sound, mode, importance))
+            sound, mode, importance, directVibration = colorOsCompatibility(context)))
         return if (manager.getNotificationChannel(id) != null) null
             else "Android не создал канал уведомлений"
     }
@@ -304,6 +311,79 @@ internal object BalanceNotificationSounds {
         val previous = preferences(context)
             .getInt("channel_revision_" + category, 0).coerceAtLeast(0)
         return if (previous < Int.MAX_VALUE - 1) previous + 1 else null
+    }
+
+    /**
+     * One explicitly confirmed transition for all three categories. Only after
+     * every replacement channel is registered and checked do we commit new IDs
+     * and mode; any failure keeps the old channels and settings.
+     */
+    @Synchronized
+    fun changeColorOsCompatibility(context: Context, enabled: Boolean): String? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O)
+            return "Совместимость доступна на Android 8 и новее"
+        if (colorOsCompatibility(context) == enabled) return null
+        val prefs = preferences(context)
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE)
+            as NotificationManager
+        data class Migration(val category: String, val oldId: String,
+            val newId: String, val revision: Int)
+        val created = mutableListOf<String>()
+        val changes = mutableListOf<Migration>()
+        try {
+            for (category in listOf(PAYMENT, EVENT, UPDATE)) {
+                val oldId = ensureChannel(context, category)
+                val old = manager.getNotificationChannel(oldId)
+                    ?: return "Отсутствует системный канал: " + legacyChannel(category)
+                val key = selected(context, category)
+                val mode = vibrationMode(context, category)
+                val sound = resolveSound(context, key, volume(context, category))
+                if (sound.error != null) {
+                    throw IllegalStateException(
+                        "Не удалось получить мелодию для " + legacyChannel(category) +
+                        ": " + sound.error)
+                }
+                val revision = nextRevision(context, category)
+                    ?: throw IllegalStateException("Закончились номера каналов")
+                val nextId = StableNotificationChannels.freshId(category, revision)
+                val next = newChannel(category, nextId, sound.uri, mode, old.importance,
+                    directVibration = enabled)
+                manager.createNotificationChannel(next)
+                created.add(nextId)
+                val actual = manager.getNotificationChannel(nextId)
+                if (actual == null || actual.sound != sound.uri ||
+                    actual.importance != old.importance ||
+                    actual.shouldVibrate() !=
+                        (!enabled && NotificationVibrationMode.enabled(mode))) {
+                    throw IllegalStateException(
+                        "Android изменил звук, важность или вибрацию: " +
+                            legacyChannel(category))
+                }
+                changes.add(Migration(category, oldId, nextId, revision))
+            }
+            val editor = prefs.edit()
+                .putBoolean("coloros_direct_vibration", enabled)
+            for (change in changes) {
+                editor.putString("channel_active_id_" + change.category, change.newId)
+                    .putInt("channel_revision_" + change.category, change.revision)
+            }
+            if (!editor.commit()) throw IllegalStateException("Не удалось сохранить настройки")
+            // Old channels can now be deleted. The app data and alarms are untouched.
+            for (change in changes) {
+                try { manager.deleteNotificationChannel(change.oldId) }
+                catch (_: Exception) { }
+            }
+            deleteUnusedChannels(context)
+            return null
+        } catch (error: Exception) {
+            android.util.Log.e("BalanceHubColorOs", "Compatibility switch failed", error)
+            created.forEach { id ->
+                try { manager.deleteNotificationChannel(id) }
+                catch (_: Exception) { }
+            }
+            return "Режим не включён: " +
+                (error.message ?: error.javaClass.simpleName)
+        }
     }
 
     /**
@@ -340,8 +420,9 @@ internal object BalanceNotificationSounds {
                 "канала и включите звуковые уведомления, затем выберите мелодию ещё раз."
         }
         val expectedSound = selection.uri
-        val expectedVibration = NotificationVibrationMode.enabled(mode)
-        val expectedPattern = NotificationVibrationMode.pattern(mode)
+        val directVibration = colorOsCompatibility(context)
+        val expectedVibration = !directVibration && NotificationVibrationMode.enabled(mode)
+        val expectedPattern = if (directVibration) null else NotificationVibrationMode.pattern(mode)
         fun matches(channel: NotificationChannel): Boolean =
             channel.sound == expectedSound &&
                 channel.shouldVibrate() == expectedVibration &&
@@ -355,7 +436,7 @@ internal object BalanceNotificationSounds {
         }
         // Switching from a custom waveform to the platform default also
         // requires a fresh channel, even if both options are "vibration on".
-        val modeChanged = mode != vibrationMode(context, category)
+        val modeChanged = !directVibration && mode != vibrationMode(context, category)
         if (!force && !modeChanged && matches(old)) {
             return if (save().commit()) null else "Не удалось сохранить настройки"
         }
@@ -372,7 +453,7 @@ internal object BalanceNotificationSounds {
             // An old, silent channel may carry audio attributes unsuitable for
             // notification playback. A new user-selected sound always uses USAGE_NOTIFICATION.
             val channel = newChannel(category, nextId, expectedSound, mode, old.importance,
-                notificationAttributes)
+                notificationAttributes, directVibration = directVibration)
             manager.createNotificationChannel(channel)
             val actual = manager.getNotificationChannel(nextId)
             if (actual == null || !matches(actual)) {
@@ -458,8 +539,10 @@ internal object BalanceNotificationSounds {
         val key = selected(context, category)
         val gain = volume(context, category)
         val wantsSound = key == "system" || (key != "silent" && gain > 0)
-        val wantsVibration = vibrationFor(context, category)
-        val pattern = NotificationVibrationMode.pattern(vibrationMode(context, category))
+        val directVibration = colorOsCompatibility(context)
+        val wantsVibration = !directVibration && vibrationFor(context, category)
+        val pattern = if (directVibration) null
+            else NotificationVibrationMode.pattern(vibrationMode(context, category))
         return NotificationChannelSignalState.issues(
             wantsSound = wantsSound,
             channelHasSound = channel.sound != null,
@@ -526,6 +609,12 @@ internal object BalanceNotificationSounds {
 
     fun effectiveSummary(context: Context, category: String): String {
         val sound = effectiveSoundTitle(context, category)
+        if (colorOsCompatibility(context)) {
+            val description = if (vibrationFor(context, category))
+                "Прямая вибрация: " + vibrationModeTitle(context, category)
+            else "Вибрация выключена"
+            return sound + " · " + description
+        }
         val vibration = NotificationVibrationMode.effectiveLabel(
             vibrationMode(context, category), effectiveVibration(context, category))
         return sound + " · " + vibration
