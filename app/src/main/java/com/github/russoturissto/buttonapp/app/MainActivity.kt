@@ -2374,100 +2374,18 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderNotificationsMenu() {
-        settingsHeader("Уведомления", "Три постоянных системных канала")
+        settingsHeader("Уведомления")
         settingsGroup(settingsPanel(
-            settingsRow("download", "Обновления",
-                BalanceNotificationSounds.effectiveSummary(this,
-                    BalanceNotificationSounds.UPDATE)) { openSettingsPage("update_sound") },
             settingsRow("credit-card", "Платежи",
                 BalanceNotificationSounds.effectiveSummary(this,
                     BalanceNotificationSounds.PAYMENT)) { openSettingsPage("payment") },
             settingsRow("calendar-days", "События",
                 BalanceNotificationSounds.effectiveSummary(this,
-                    BalanceNotificationSounds.EVENT)) { openSettingsPage("event") }
+                    BalanceNotificationSounds.EVENT)) { openSettingsPage("event") },
+            settingsRow("download", "Обновления",
+                BalanceNotificationSounds.effectiveSummary(this,
+                    BalanceNotificationSounds.UPDATE)) { openSettingsPage("update_sound") }
         ))
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
-            settingsGroup(settingsPanel(
-                settingsSwitch("music", "Раздельная громкость",
-                    "Настраивать каждый тип отдельно",
-                    BalanceNotificationSounds.separateVolume(this)) {
-                    BalanceNotificationSounds.setSeparateVolume(this, it)
-                    refreshSettingsWithoutJump()
-                },
-                settingsSwitch("settings", "Вибрация уведомлений",
-                    "Общий переключатель",
-                    BalanceNotificationSounds.vibrationEnabled(this)) {
-                    BalanceNotificationSounds.setVibrationEnabled(this, it)
-                    refreshSettingsWithoutJump()
-                }
-            ))
-        } else {
-            val categories = listOf(BalanceNotificationSounds.UPDATE,
-                BalanceNotificationSounds.PAYMENT, BalanceNotificationSounds.EVENT)
-            if (categories.any { BalanceNotificationSounds.needsRepair(this, it) }) {
-                settingsGroup(settingsPanel(settingsRow("settings",
-                    "Включить звук и вибрацию",
-                    "Восстановить выбранные мелодии для трёх категорий") {
-                    themedDialogBuilder()
-                        .setTitle("Восстановить уведомления?")
-                        .setMessage("Android сохранил прежние параметры каналов. " +
-                            "С вашего согласия BalanceHub заменит их выбранными " +
-                            "мелодиями и включит вибрацию. Изменения системных " +
-                            "параметров этих трёх каналов будут сброшены.")
-                        .setNegativeButton("Отмена", null)
-                        .setPositiveButton("Восстановить") { _, _ ->
-                            val errors = categories.mapNotNull { category ->
-                                val selected = BalanceNotificationSounds.selected(this, category)
-                                val wanted = if (selected == "silent")
-                                    when (category) {
-                                        BalanceNotificationSounds.UPDATE -> "spark"
-                                        BalanceNotificationSounds.EVENT -> "crystal"
-                                        else -> "balancehub"
-                                    } else selected
-                                BalanceNotificationSounds.applyUserChoice(
-                                    this, category, wanted, true)?.let {
-                                    notificationTitle(category) + ": " + it
-                                }
-                            }
-                            Toast.makeText(this,
-                                if (errors.isEmpty())
-                                    "Настройки переданы Android. Проверяем сохранение…"
-                                else errors.joinToString("; "),
-                                Toast.LENGTH_LONG).show()
-                            refreshSettingsWithoutJump()
-                            if (errors.isEmpty()) {
-                                android.os.Handler(android.os.Looper.getMainLooper())
-                                    .postDelayed({
-                                        val rejected = categories.filter {
-                                            BalanceNotificationSounds.needsRepair(this, it)
-                                        }
-                                        if (rejected.isNotEmpty()) {
-                                            Toast.makeText(this,
-                                                "Android не сохранил: " +
-                                                    rejected.joinToString {
-                                                        notificationTitle(it)
-                                                    } + ". Проверьте системные настройки.",
-                                                Toast.LENGTH_LONG).show()
-                                        } else {
-                                            Toast.makeText(this,
-                                                "Звуки и вибрация сохранены в каналах Android. " +
-                                                    "Проверьте тестовое уведомление.",
-                                                Toast.LENGTH_LONG).show()
-                                        }
-                                        if (currentTab == 4 &&
-                                            settingsScreen() == "notifications")
-                                            refreshSettingsWithoutJump()
-                                    }, 2_500L)
-                            }
-                        }.show()
-                }))
-            }
-            contentContainer.addView(textLine(
-                "Выберите одну из 15 мелодий в каждой категории и проверьте " +
-                    "настоящим тестовым уведомлением. Android может ограничивать " +
-                    "звучание в режиме «Не беспокоить» или без звука.",
-                12f, muted))
-        }
     }
 
     private fun notificationCategory() = when (settingsScreen()) {
@@ -2482,41 +2400,7 @@ class MainActivity : AppCompatActivity() {
     }
     private fun renderNotificationCategory() {
         val category = notificationCategory()
-        val title = notificationTitle(category)
-        settingsHeader(title, "Настройка оповещений")
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            settingsGroup(settingsPanel(
-                settingsRow("music", "Мелодия",
-                    BalanceNotificationSounds.effectiveSoundTitle(this, category)) {
-                    showSoundChooser(category, title)
-                },
-                settingsSwitch("settings", "Вибрация",
-                    "Для настоящих уведомлений Android",
-                    BalanceNotificationSounds.effectiveVibration(this, category)) { enabled ->
-                    val error = BalanceNotificationSounds.applyVibrationChoice(this,
-                        category, enabled)
-                    if (error != null) Toast.makeText(this, error, Toast.LENGTH_LONG).show()
-                    refreshSettingsWithoutJump()
-                },
-                settingsRow("settings", "Настройки Android",
-                    "Проверить системные разрешения и канал") {
-                    openAndroidNotificationSettings(category)
-                },
-                settingsRow("check", "Проверить уведомление",
-                    "Отправить настоящее уведомление со звуком и вибрацией") {
-                    sendNotificationTest(category)
-                }
-            ))
-            if (BalanceNotificationSounds.needsRepair(this, category)) {
-                contentContainer.addView(textLine(
-                    "Параметры Android отличаются от выбранных в BalanceHub. " +
-                        "Выберите мелодию снова, чтобы применить её к уведомлениям, " +
-                        "или откройте системные настройки.",
-                    12f, muted))
-            }
-            return
-        }
-        val volumeKey = if (BalanceNotificationSounds.separateVolume(this)) category else null
+        settingsHeader(notificationTitle(category))
         val current = BalanceNotificationSounds.volume(this, category)
         val level = textLine("$current%", 13f, accent, true)
         val volumeRow = LinearLayout(this).apply {
@@ -2539,31 +2423,47 @@ class MainActivity : AppCompatActivity() {
                         fromUser: Boolean) { level.text = "$value%" }
                     override fun onStartTrackingTouch(bar: SeekBar?) = Unit
                     override fun onStopTrackingTouch(bar: SeekBar?) {
-                        BalanceNotificationSounds.setVolume(this@MainActivity, volumeKey,
-                            (bar?.progress ?: current).coerceIn(0, 100))
+                        val gain = (bar?.progress ?: current).coerceIn(0, 100)
+                        val error = BalanceNotificationSounds.applyVolumeChoice(
+                            this@MainActivity, category, gain)
+                        if (error != null)
+                            Toast.makeText(this@MainActivity,
+                                error, Toast.LENGTH_LONG).show()
                         refreshSettingsWithoutJump()
                     }
                 })
             })
         }
         settingsGroup(settingsPanel(
-            settingsRow("music", "Мелодия",
-                BalanceNotificationSounds.effectiveSoundTitle(this, category)) {
-                showSoundChooser(category, title)
+            settingsRow("music", "Звук",
+                BalanceNotificationSounds.title(this, category)) {
+                showSoundChooser(category, notificationTitle(category))
             },
             volumeRow,
-            settingsSwitch("settings", "Вибрация",
-                when (category) {
-                    BalanceNotificationSounds.EVENT -> "Два коротких импульса"
-                    BalanceNotificationSounds.UPDATE -> "Короткий сигнал"
-                    else -> "Двойной сигнал"
-                },
-                BalanceNotificationSounds.vibrationFor(this, category)) { enabled ->
-                BalanceNotificationSounds.setVibrationFor(this, category, enabled)
-                refreshSettingsWithoutJump()
+            settingsRow("settings", "Вибросигнал",
+                BalanceNotificationSounds.vibrationModeTitle(this, category)) {
+                showVibrationChooser(category)
             }
         ))
     }
+
+    private fun showVibrationChooser(category: String) {
+        val options = NotificationVibrationMode.options
+        val labels = options.map { NotificationVibrationMode.title(it) }
+        val selected = options.indexOf(BalanceNotificationSounds.vibrationMode(this, category))
+        showThemedChoices("Вибросигнал", labels, selected) { index ->
+            val mode = options[index]
+            val error = BalanceNotificationSounds.applyVibrationModeChoice(
+                this, category, mode)
+            if (error != null) {
+                Toast.makeText(this, error, Toast.LENGTH_LONG).show()
+            } else if (mode != NotificationVibrationMode.OFF) {
+                BalanceVibration.preview(this, category)
+            }
+            refreshSettingsWithoutJump()
+        }
+    }
+
     private fun renderUpdateSettings() {
         settingsHeader("Обновления", "Версия и проверка новых сборок")
         val installed = packageManager.getPackageInfo(packageName, 0)
@@ -2796,6 +2696,31 @@ class MainActivity : AppCompatActivity() {
                     }.show()
             }
         }.toTypedArray()))
+        settingsGroup(settingsPanel(settingsRow("settings",
+            "Восстановить каналы",
+            "Повторно применить сохранённые звуки и вибрацию") {
+            themedDialogBuilder()
+                .setTitle("Восстановить уведомления?")
+                .setMessage("Будут пересозданы только каналы BalanceHub. " +
+                    "Их настройки Android могут измениться. " +
+                    "Текущие настройки приложения останутся без изменений.")
+                .setNegativeButton("Отмена", null)
+                .setPositiveButton("Восстановить") { _, _ ->
+                    val errors = listOf(
+                        BalanceNotificationSounds.PAYMENT,
+                        BalanceNotificationSounds.EVENT,
+                        BalanceNotificationSounds.UPDATE
+                    ).mapNotNull { category ->
+                        BalanceNotificationSounds.repairChannel(this, category)?.let {
+                            notificationTitle(category) + ": " + it
+                        }
+                    }
+                    Toast.makeText(this,
+                        if (errors.isEmpty()) "Настройки каналов применены"
+                        else errors.joinToString("; "), Toast.LENGTH_LONG).show()
+                    renderTab()
+                }.show()
+        }))
         settingsGroup(settingsPanel(
             settingsRow("settings", "Разрешения Android",
                 "Общие уведомления BalanceHub") {
@@ -2835,7 +2760,7 @@ class MainActivity : AppCompatActivity() {
         val dialog = themedDialogBuilder()
             .setTitle("Звук: " + title)
             .setView(android.widget.ScrollView(this).apply { addView(content) })
-            .setNegativeButton("Закрыть", null).create()
+            .setNegativeButton("Отмена", null).create()
         val options = listOf("system" to "Системный звук") +
             BalanceNotificationSounds.tones.map { it.key to it.title } +
             listOf("silent" to "Без звука")
@@ -2844,34 +2769,29 @@ class MainActivity : AppCompatActivity() {
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                setPadding(dp(9), dp(6), dp(9), dp(6))
+                setPadding(dp(11), dp(5), dp(11), dp(5))
                 background = rounded(if (key == selected) softAccent else surface, 11)
+                isClickable = true
+                isFocusable = true
+                contentDescription = "Выбрать мелодию: " + label
             }
             val name = textLine(
                 (if (key == selected) "✓  " else "     ") + label,
-                14f, if (key == selected) accent else ink, key == selected)
-            row.addView(name, LinearLayout.LayoutParams(0, dp(43), 1f))
+                15f, if (key == selected) accent else ink, key == selected)
+            row.addView(name, LinearLayout.LayoutParams(-1, dp(48)))
             name.gravity = Gravity.CENTER_VERTICAL
-            row.isClickable = true
-            row.isFocusable = true
             row.setOnClickListener {
-                val error = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
-                    BalanceNotificationSounds.applyUserChoice(this, category, key,
-                        BalanceNotificationSounds.vibrationFor(this, category))
-                else {
-                    BalanceNotificationSounds.choose(this, category, key)
-                    null
-                }
+                val error = BalanceNotificationSounds.applyUserChoice(
+                    this, category, key,
+                    BalanceNotificationSounds.vibrationFor(this, category))
                 if (error == null) {
-                    BalanceNotificationSounds.stopPreview()
                     dialog.dismiss()
-                    renderTab()
+                    refreshSettingsWithoutJump()
+                    if (key != "silent") {
+                        if (key == "system") BalanceNotificationSounds.previewChannel(this, category)
+                        else BalanceNotificationSounds.preview(this, key, category)
+                    }
                 } else Toast.makeText(this, error, Toast.LENGTH_LONG).show()
-            }
-            if (BalanceNotificationSounds.tones.any { it.key == key }) {
-                row.addView(secondaryButton("▶") {
-                    BalanceNotificationSounds.preview(this, key, category)
-                }, LinearLayout.LayoutParams(dp(52), dp(43)))
             }
             content.addView(row)
             content.addView(verticalGap(3))
