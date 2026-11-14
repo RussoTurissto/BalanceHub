@@ -21,8 +21,8 @@ internal object NotificationSignalAudit {
         }
         lines.add("Выбрана мелодия: " + BalanceNotificationSounds.title(context, category))
         lines.add("Громкость BalanceHub: " + BalanceNotificationSounds.volume(context, category) + "%")
-        lines.add("Вибрация в BalanceHub: " +
-            if (BalanceNotificationSounds.vibrationFor(context, category)) "включена" else "выключена")
+        lines.add("Вибросигнал BalanceHub: " +
+            BalanceNotificationSounds.vibrationModeTitle(context, category))
         val audio = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
         lines.add("Режим звука Android: " + when (audio.ringerMode) {
             AudioManager.RINGER_MODE_NORMAL -> "обычный"
@@ -52,6 +52,8 @@ internal object NotificationSignalAudit {
                 })
                 lines.add("Вибрация канала: " +
                     if (channel.shouldVibrate()) "включена" else "выключена")
+                lines.add("Рисунок канала: " +
+                    (channel.vibrationPattern?.joinToString(",") ?: "системный"))
                 val sound = channel.sound
                 val mediaTone = sound != null && BalanceNotificationSounds.tones.any {
                     BalanceSystemToneStore.cachedUri(context, it.key,
