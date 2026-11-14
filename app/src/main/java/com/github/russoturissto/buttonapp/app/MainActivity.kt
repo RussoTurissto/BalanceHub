@@ -2395,6 +2395,11 @@ class MainActivity : AppCompatActivity() {
                 BalanceNotificationSounds.effectiveSummary(this,
                     BalanceNotificationSounds.UPDATE)) { openSettingsPage("update_sound") }
         ))
+        settingsGroup(settingsPanel(settingsRow("settings",
+            "Общие настройки уведомлений Android",
+            "Разрешение, звук, вибрация и категории приложения") {
+            openAndroidNotificationSettings()
+        }))
     }
 
     private fun notificationCategory() = when (settingsScreen()) {
