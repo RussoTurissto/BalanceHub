@@ -10,6 +10,7 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.edit
 
 /**
  * Opt-in OnePlus/ColorOS workaround. OS still delivers notifications and their
@@ -42,10 +43,10 @@ internal object ColorOsDirectVibration {
 
     private fun record(context: Context, category: String, result: Result): Result {
         context.getSharedPreferences("balancehub_coloros_direct_vibration", Context.MODE_PRIVATE)
-            .edit()
-            .putString("last_result_" + category, result.name)
-            .putLong("last_time_" + category, System.currentTimeMillis())
-            .apply()
+            .edit {
+                putString("last_result_" + category, result.name)
+                putLong("last_time_" + category, System.currentTimeMillis())
+            }
         return result
     }
 
@@ -66,6 +67,7 @@ internal object ColorOsDirectVibration {
      */
     @Suppress("DEPRECATION")
     fun afterNotification(context: Context, category: String, channelId: String): Result {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return Result.DISABLED
         if (!BalanceNotificationSounds.colorOsCompatibility(context))
             return Result.DISABLED
         if (!BalanceNotificationSounds.vibrationFor(context, category) ||
