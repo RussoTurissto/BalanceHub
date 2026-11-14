@@ -208,6 +208,33 @@ class NotificationChannelEmulatorTest {
             BalanceNotificationSounds.needsRepair(context, category))
     }
 
+    @Test fun choosingToneAndVibrationInsideAppUpdatesActiveChannel() {
+        if (Build.VERSION.SDK_INT < 26) return
+        val category = BalanceNotificationSounds.PAYMENT
+        val initial = BalanceNotificationSounds.applySettings(
+            app, category, "balancehub", NotificationVibrationMode.LONG, 100,
+            force = true)
+        assertNull("Cannot set original tone: " + initial, initial)
+        val before = BalanceNotificationSounds.channelId(app, category)
+        val error = BalanceNotificationSounds.applySettings(
+            app, category, "crystal", NotificationVibrationMode.DOUBLE, 75)
+        assertNull("In-app selection did not apply to Android: " + error, error)
+        val after = BalanceNotificationSounds.channelId(app, category)
+        assertNotEquals("Changed sound must use new channel generation", before, after)
+        val channel = manager().getNotificationChannel(after)
+        assertNotNull(channel)
+        assertNotNull("New channel has no sound", channel!!.sound)
+        assertTrue("New channel has no vibration", channel.shouldVibrate())
+        assertArrayEquals(NotificationVibrationMode.pattern(NotificationVibrationMode.DOUBLE),
+            channel.vibrationPattern)
+        assertTrue("Channel disagrees with app: " +
+            BalanceNotificationSounds.signalIssues(app, category),
+            BalanceNotificationSounds.signalIssues(app, category).isEmpty())
+        assertNull("Old channel must be retired", manager().getNotificationChannel(before))
+        BalanceNotificationSounds.ensureDefaultChannels(app)
+        assertEquals(after, BalanceNotificationSounds.channelId(app, category))
+    }
+
     @Test fun systemNotificationToneIgnoresBundledWavGain() {
         if (Build.VERSION.SDK_INT < 26) return
         val category = BalanceNotificationSounds.EVENT
