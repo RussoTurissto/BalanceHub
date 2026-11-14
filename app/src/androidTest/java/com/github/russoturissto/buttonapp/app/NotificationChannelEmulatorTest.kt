@@ -281,6 +281,67 @@ class NotificationChannelEmulatorTest {
             BalanceNotificationSounds.channelId(app, BalanceNotificationSounds.PAYMENT))
     }
 
+    @Test fun newProbeModesKeepSeparateIdsAndExactWaveforms() {
+        if (Build.VERSION.SDK_INT < 26) return
+        if (Build.VERSION.SDK_INT >= 33) {
+            InstrumentationRegistry.getInstrumentation().uiAutomation
+                .grantRuntimePermission(app.packageName,
+                    android.Manifest.permission.POST_NOTIFICATIONS)
+        }
+        val paymentId = BalanceNotificationSounds.ensureChannel(
+            app, BalanceNotificationSounds.PAYMENT)
+        val modes = listOf(AndroidSignalProbe.Mode.SHORT,
+            AndroidSignalProbe.Mode.LONG, AndroidSignalProbe.Mode.DOUBLE)
+        val ids = mutableSetOf<String>()
+        for (mode in modes) {
+            val result = AndroidSignalProbe.send(app, mode)
+            assertNotNull("Missing probe for " + mode.label + ": " + result.report, result.id)
+            val id = result.id!!
+            assertTrue("Channels must use distinct IDs", ids.add(id))
+            assertTrue(StableNotificationChannels.isProbe(id))
+            val expected = AndroidSignalProbe.requestedPattern(mode)
+            assertNotNull("No expected custom vibration for " + mode.label, expected)
+            val channel = manager().getNotificationChannel(id)
+            assertNotNull(channel)
+            assertTrue("No vibration: " + mode.label, channel!!.shouldVibrate())
+            assertArrayEquals("Wrong Android vibration: " + mode.label,
+                expected, channel.vibrationPattern)
+            if (Build.VERSION.SDK_INT >= 35) {
+                assertNotNull("No API 35 vibration effect: " + mode.label,
+                    channel.vibrationEffect)
+            }
+            assertEquals("Channel ID changed when test was repeated", id,
+                AndroidSignalProbe.send(app, mode).id)
+        }
+        assertEquals("New tests changed active payment settings", paymentId,
+            BalanceNotificationSounds.channelId(app, BalanceNotificationSounds.PAYMENT))
+    }
+
+    @Test fun crystalProbeUsesPublicMediaStoreSoundWithoutReplacingUserChannels() {
+        if (Build.VERSION.SDK_INT < 29) return
+        if (Build.VERSION.SDK_INT >= 33) {
+            InstrumentationRegistry.getInstrumentation().uiAutomation
+                .grantRuntimePermission(app.packageName,
+                    android.Manifest.permission.POST_NOTIFICATIONS)
+        }
+        val oldPaymentId = BalanceNotificationSounds.ensureChannel(
+            app, BalanceNotificationSounds.PAYMENT)
+        val tone = AndroidSignalProbe.send(app, AndroidSignalProbe.Mode.TONE)
+        assertNotNull("Crystal test channel missing: " + tone.report, tone.id)
+        val channel = manager().getNotificationChannel(tone.id!!)
+        assertNotNull(channel)
+        assertEquals("Custom sound must use Android MediaStore",
+            "media", channel!!.sound?.authority)
+        assertNull("Stored WAV should be readable",
+            BalanceNotificationSounds.audioProbe(app, channel.sound!!))
+        assertTrue(channel.shouldVibrate())
+        assertArrayEquals(NotificationVibrationMode.pattern(NotificationVibrationMode.LONG),
+            channel.vibrationPattern)
+        assertEquals(tone.id, AndroidSignalProbe.send(app, AndroidSignalProbe.Mode.TONE).id)
+        assertEquals(oldPaymentId, BalanceNotificationSounds.channelId(
+            app, BalanceNotificationSounds.PAYMENT))
+    }
+
     @Test fun systemNotificationToneIgnoresBundledWavGain() {
         if (Build.VERSION.SDK_INT < 26) return
         val category = BalanceNotificationSounds.EVENT
