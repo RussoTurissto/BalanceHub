@@ -352,10 +352,13 @@ internal object BalanceNotificationSounds {
                 manager.createNotificationChannel(next)
                 created.add(nextId)
                 val actual = manager.getNotificationChannel(nextId)
-                if (actual == null || actual.sound != sound.uri ||
-                    actual.importance != old.importance ||
-                    actual.shouldVibrate() !=
-                        (!enabled && NotificationVibrationMode.enabled(mode))) {
+                // A user-muted category must remain muted. Some Android builds
+                // suppress its sound/vibration settings while importance is low.
+                val activeAlert = old.importance >= NotificationManager.IMPORTANCE_DEFAULT
+                if (actual == null || actual.importance != old.importance ||
+                    (activeAlert && actual.sound != sound.uri) ||
+                    (activeAlert && actual.shouldVibrate() !=
+                        (!enabled && NotificationVibrationMode.enabled(mode)))) {
                     throw IllegalStateException(
                         "Android изменил звук, важность или вибрацию: " +
                             legacyChannel(category))
