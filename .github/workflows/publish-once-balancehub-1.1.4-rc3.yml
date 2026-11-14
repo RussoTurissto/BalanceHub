@@ -1,0 +1,103 @@
+name: Publish verified owner-test BalanceHub 1.1.4-rc3 APK
+
+on:
+  push:
+    branches:
+      - feature/balancehub-foundation
+    paths:
+      - ".github/workflows/publish-once-balancehub-1.1.4-rc3.yml"
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    if: ${{ github.repository == 'RussoTurissto/BalanceHub' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_RUN: "43600566050"
+      EMULATOR_RUN: "43600566106"
+      SOURCE_SHA: "412b024195832a241c6045ecbb43b64d7dbe03cf"
+      TAG: "v1.1.4-rc3"
+      VERSION: "1.1.4-rc3"
+      CODE: "608"
+      PREVIOUS_TAG: "v1.1.4-rc2"
+    steps:
+      - name: Checkout tested release notes
+        uses: actions/checkout@v4
+
+      - name: Verify signed APK and all three Android emulator runs
+        shell: bash
+        run: |
+          set -euo pipefail
+          for run in "$SOURCE_RUN" "$EMULATOR_RUN"; do
+            state="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run" --jq .conclusion)"
+            sha="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run" --jq .head_sha)"
+            branch="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run" --jq .head_branch)"
+            if [[ "$state" != success || "$sha" != "$SOURCE_SHA" ||
+                  "$branch" != "feature/balancehub-foundation" ]]; then
+              echo "::error::Run $run has not passed at approved SHA"
+              exit 1
+            fi
+          done
+          platforms="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$EMULATOR_RUN/jobs?per_page=20" \
+            --jq '[.jobs[] | select(.name | startswith("Android API")) | (.name + ":" + .conclusion)] | sort | join(",")')"
+          if [[ "$platforms" != "Android API 29:success,Android API 35:success,Android API 36:success" ]]; then
+            echo "::error::Expected all three Android API emulator checks: $platforms"
+            exit 1
+          fi
+          mkdir -p dist
+          gh run download "$SOURCE_RUN" --repo "$GITHUB_REPOSITORY" --name BalanceHub --dir dist
+          test -s dist/BalanceHub.apk
+
+      - name: Check APK signature version and update compatibility
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          "$tools/apksigner" verify --verbose --print-certs dist/BalanceHub.apk \
+            | tee "$RUNNER_TEMP/current-signature.txt"
+          grep -q 'Verified using v2 scheme (APK Signature Scheme v2): true' \
+            "$RUNNER_TEMP/current-signature.txt"
+          "$tools/aapt" dump badging dist/BalanceHub.apk > "$RUNNER_TEMP/current-package.txt"
+          grep -q "^package: name='com.github.russoturissto.buttonapp.app'" "$RUNNER_TEMP/current-package.txt"
+          grep -q "versionName='$VERSION'" "$RUNNER_TEMP/current-package.txt"
+          grep -q "versionCode='$CODE'" "$RUNNER_TEMP/current-package.txt"
+          mkdir -p previous
+          gh release download "$PREVIOUS_TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern BalanceHub.apk --dir previous
+          test -s previous/BalanceHub.apk
+          "$tools/apksigner" verify --verbose --print-certs previous/BalanceHub.apk \
+            > "$RUNNER_TEMP/previous-signature.txt"
+          "$tools/aapt" dump badging previous/BalanceHub.apk > "$RUNNER_TEMP/previous-package.txt"
+          previous_code="$(sed -n -E "s/^package:.*versionCode='([0-9]+)'.*/\1/p" "$RUNNER_TEMP/previous-package.txt" | head -n 1)"
+          current="$(sed -n -E 's/^.*certificate SHA-256 digest: ([0-9a-fA-F]+)$/\1/p' \
+            "$RUNNER_TEMP/current-signature.txt" | head -n 1)"
+          previous="$(sed -n -E 's/^.*certificate SHA-256 digest: ([0-9a-fA-F]+)$/\1/p' \
+            "$RUNNER_TEMP/previous-signature.txt" | head -n 1)"
+          if [[ -z "$current" || "$current" != "$previous" || -z "$previous_code" || "$CODE" -le "$previous_code" ]]; then
+            echo "::error::Signing identity mismatch or versionCode is not increasing"
+            exit 1
+          fi
+          echo "Signer and versionCode verified for in-place update"
+          sha256sum dist/BalanceHub.apk
+
+      - name: Publish prerelease with directly downloadable APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::Refusing to replace existing release $TAG"
+            exit 1
+          fi
+          test -s release/notes.md
+          grep -q 'BalanceHub 1.1.4-rc3' release/notes.md
+          gh release create "$TAG" "dist/BalanceHub.apk#BalanceHub.apk" \
+            --repo "$GITHUB_REPOSITORY" --target "$SOURCE_SHA" \
+            --title "BalanceHub 1.1.4-rc3 — восстановление сигналов Android" \
+            --notes-file release/notes.md --prerelease --latest=false
+          echo "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/BalanceHub.apk" \
+            >> "$GITHUB_STEP_SUMMARY"
