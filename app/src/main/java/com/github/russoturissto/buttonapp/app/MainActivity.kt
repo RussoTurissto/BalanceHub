@@ -2479,23 +2479,30 @@ class MainActivity : AppCompatActivity() {
             sendNotificationTest(category)
         })
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            rows.add(settingsRow("settings", "Тест: системная вибрация",
-                "Звук Android и системный рисунок, постоянный отдельный канал") {
-                runAndroidSignalProbe(AndroidSignalProbe.Mode.SYSTEM)
-            })
-            rows.add(settingsRow("settings", "Тест: заданная вибрация",
-                "Тот же звук Android и два заданных импульса, другой канал") {
-                runAndroidSignalProbe(AndroidSignalProbe.Mode.PATTERN)
-            })
-            if (AndroidSignalProbe.channelId(this, AndroidSignalProbe.Mode.SYSTEM) != null) {
-                rows.add(settingsRow("settings", "Результат системного теста",
-                    "Проверить настройки первоначального канала Android") {
-                    showAndroidSignalProbeState(AndroidSignalProbe.Mode.SYSTEM)
+            val probeModes = listOf(
+                AndroidSignalProbe.Mode.SYSTEM, AndroidSignalProbe.Mode.SHORT,
+                AndroidSignalProbe.Mode.LONG, AndroidSignalProbe.Mode.DOUBLE,
+                AndroidSignalProbe.Mode.TONE
+            )
+            for (mode in probeModes) {
+                rows.add(settingsRow("settings", "Тест: " + mode.label,
+                    if (mode == AndroidSignalProbe.Mode.TONE)
+                        "Отдельный канал: встроенный WAV и длинный импульс"
+                    else "Отдельный постоянный системный канал Android") {
+                    runAndroidSignalProbe(mode)
                 })
             }
+            for (mode in probeModes) {
+                if (AndroidSignalProbe.channelId(this, mode) != null) {
+                    rows.add(settingsRow("settings", "Результат: " + mode.label,
+                        "Звук, рисунок вибрации и настройки канала Android") {
+                        showAndroidSignalProbeState(mode)
+                    })
+                }
+            }
             if (AndroidSignalProbe.channelId(this, AndroidSignalProbe.Mode.PATTERN) != null) {
-                rows.add(settingsRow("settings", "Результат заданного теста",
-                    "Проверить настройки канала с рисунком вибрации") {
+                rows.add(settingsRow("settings", "Результат старого теста rc6",
+                    "Сохранённый канал с двумя импульсами, без сброса") {
                     showAndroidSignalProbeState(AndroidSignalProbe.Mode.PATTERN)
                 })
             }
@@ -2787,14 +2794,20 @@ class MainActivity : AppCompatActivity() {
             selectDiagnosticCategory { category -> sendVibrationTest(category) }
         })
         notifications.addView(verticalGap(9))
-        notifications.addView(secondaryButton("Прямой тест вибромотора без канала") {
-            val started = BalanceVibration.directProbe(this)
-            Toast.makeText(this,
-                if (started) "Команда вибромотору отправлена. Проверьте физический отклик."
-                else "Не удалось запустить вибромотор. Проверьте ограничения Android.",
-                Toast.LENGTH_LONG).show()
-        })
-        notifications.addView(verticalGap(9))
+        for (mode in listOf(NotificationVibrationMode.SHORT,
+            NotificationVibrationMode.LONG, NotificationVibrationMode.DOUBLE)) {
+            notifications.addView(secondaryButton(
+                "Прямой вибротест: " + NotificationVibrationMode.title(mode)) {
+                val started = BalanceVibration.directProbe(this, mode)
+                Toast.makeText(this,
+                    if (started) "Команда вибромотору отправлена: " +
+                        NotificationVibrationMode.title(mode) +
+                        ". Проверьте, совпадает ли физический отклик."
+                    else "Не удалось запустить вибромотор. Проверьте настройки Android.",
+                    Toast.LENGTH_LONG).show()
+            })
+            notifications.addView(verticalGap(9))
+        }
         notifications.addView(secondaryButton("Проверить уведомление") {
             selectDiagnosticCategory { category -> sendNotificationTest(category) }
         })
@@ -2812,21 +2825,18 @@ class MainActivity : AppCompatActivity() {
             }
         })
         notifications.addView(verticalGap(9))
-        notifications.addView(secondaryButton("Тест: системная вибрация Android") {
-            runAndroidSignalProbe(AndroidSignalProbe.Mode.SYSTEM)
-        })
-        notifications.addView(verticalGap(9))
-        notifications.addView(secondaryButton("Тест: заданный рисунок вибрации") {
-            runAndroidSignalProbe(AndroidSignalProbe.Mode.PATTERN)
-        })
-        notifications.addView(verticalGap(9))
-        notifications.addView(secondaryButton("Состояние системного теста") {
-            showAndroidSignalProbeState(AndroidSignalProbe.Mode.SYSTEM)
-        })
-        notifications.addView(verticalGap(9))
-        notifications.addView(secondaryButton("Состояние теста с рисунком") {
-            showAndroidSignalProbeState(AndroidSignalProbe.Mode.PATTERN)
-        })
+        for (mode in listOf(AndroidSignalProbe.Mode.SYSTEM,
+            AndroidSignalProbe.Mode.SHORT, AndroidSignalProbe.Mode.LONG,
+            AndroidSignalProbe.Mode.DOUBLE, AndroidSignalProbe.Mode.TONE)) {
+            notifications.addView(secondaryButton("Тест: " + mode.label) {
+                runAndroidSignalProbe(mode)
+            })
+            notifications.addView(verticalGap(9))
+            notifications.addView(secondaryButton("Диагностика: " + mode.label) {
+                showAndroidSignalProbeState(mode)
+            })
+            notifications.addView(verticalGap(9))
+        }
         notifications.addView(verticalGap(9))
         notifications.addView(secondaryButton("Тест платежа через 2 минуты") {
             scheduleDiagnosticReminder(BalanceNotificationSounds.PAYMENT)
