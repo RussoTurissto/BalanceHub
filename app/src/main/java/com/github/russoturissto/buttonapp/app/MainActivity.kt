@@ -2590,6 +2590,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun openAndroidProbeSettings() {
         val id = AndroidSignalProbe.channelId(this) ?: return
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            openAndroidNotificationSettings()
+            return
+        }
         val intent = Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS).apply {
             putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
             putExtra(Settings.EXTRA_CHANNEL_ID, id)
