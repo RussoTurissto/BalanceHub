@@ -64,6 +64,8 @@ class PaymentReminderReceiver : BroadcastReceiver() {
             context, BalanceNotificationSounds.PAYMENT, builder)
         try {
             notifications.notify(noticeId, builder.build())
+            ColorOsDirectVibration.afterNotification(
+                context, BalanceNotificationSounds.PAYMENT, channelId)
             reservation?.previousNotificationId?.takeIf { it != noticeId }?.let {
                 notifications.cancel(it)
             }
