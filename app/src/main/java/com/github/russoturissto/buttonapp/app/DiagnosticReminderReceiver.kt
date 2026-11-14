@@ -68,7 +68,11 @@ class DiagnosticReminderReceiver : BroadcastReceiver() {
         try {
             NotificationManagerCompat.from(context)
                 .notify(ReminderNoticeIds.diagnostic(key, expected), notification)
-            prefs.edit { putLong("${key}_posted", System.currentTimeMillis()) }
+            val vibration = ColorOsDirectVibration.afterNotification(context, category, channel)
+            prefs.edit {
+                putLong("${key}_posted", System.currentTimeMillis())
+                putString("${key}_direct_vibration_result", vibration.name)
+            }
         } catch (_: SecurityException) { /* Android notification permission was denied. */ }
     }
 }
