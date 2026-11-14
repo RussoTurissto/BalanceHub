@@ -46,8 +46,8 @@ internal object NotificationSignalAudit {
                     NotificationManager.IMPORTANCE_NONE -> "выключен"
                     NotificationManager.IMPORTANCE_MIN -> "минимальная, без звука"
                     NotificationManager.IMPORTANCE_LOW -> "низкая, без звука"
-                    NotificationManager.IMPORTANCE_DEFAULT -> "обычная, со звуком"
-                    NotificationManager.IMPORTANCE_HIGH -> "высокая, со звуком"
+                    NotificationManager.IMPORTANCE_DEFAULT -> "обычная (звук разрешён)"
+                    NotificationManager.IMPORTANCE_HIGH -> "высокая (звук разрешён)"
                     else -> "код " + channel.importance
                 })
                 lines.add("Вибрация канала: " +
@@ -67,6 +67,21 @@ internal object NotificationSignalAudit {
                     isCustom -> "фирменная мелодия BalanceHub"
                     else -> "системная мелодия/выбор Android"
                 })
+                val selected = BalanceNotificationSounds.selected(context, category)
+                val wantsSound = selected == "system" ||
+                    (selected != "silent" && BalanceNotificationSounds.volume(context, category) > 0)
+                val issues = NotificationChannelSignalState.issues(
+                    wantsSound = wantsSound,
+                    channelHasSound = sound != null,
+                    wantsVibration = BalanceNotificationSounds.vibrationFor(context, category),
+                    channelHasVibration = channel.shouldVibrate())
+                issues.forEach { lines.add("Несоответствие: " + it) }
+                if (channel.importance >= NotificationManager.IMPORTANCE_DEFAULT &&
+                    issues.isNotEmpty()) {
+                    lines.add("Для применения выбранных сигналов используйте " +
+                        "кнопку восстановления в настройках категории, " +
+                        "либо настройте канал вручную в Android")
+                }
                 if (sound != null && isCustom) {
                     val failure = BalanceNotificationSounds.audioProbe(context, sound)
                     lines.add("Доступ к WAV через Android: " +
