@@ -20,9 +20,9 @@ internal object BalanceVibration {
     @Suppress("DEPRECATION")
     fun preview(context: Context, category: String): Boolean {
         val motor = motor(context) ?: return false
-        if (!motor.hasVibrator()) return false
+        if (!motor.hasVibrator() || !BalanceNotificationSounds.vibrationFor(context, category)) return false
         return try {
-            val pulse = BalanceNotificationSounds.vibrationPattern(category)
+            val pulse = BalanceNotificationSounds.selectedVibrationPattern(context, category)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 motor.vibrate(VibrationEffect.createWaveform(pulse, -1))
             } else motor.vibrate(pulse, -1)
