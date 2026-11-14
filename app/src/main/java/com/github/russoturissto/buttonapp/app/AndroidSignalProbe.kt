@@ -7,41 +7,55 @@ import android.app.NotificationManager
 import android.content.Context
 import android.content.pm.PackageManager
 import android.media.AudioAttributes
+import android.media.AudioManager
 import android.media.RingtoneManager
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 
 /**
- * Independent Android baseline. This is intentionally NOT a Payments/Events/
- * Updates channel: it isolates the OEM's treatment of the platform ringtone
- * and default vibration from BalanceHub's custom WAV and vibration patterns.
- *
- * Only created on explicit user request. A unique ID prevents resurrection of
- * old, user-muted Android channels. At most one active probe is retained.
+ * Two isolated Android notification probes: one uses the OS default vibration,
+ * the other specifies a waveform. Neither changes the Payments/Events/Updates
+ * channels. Reusing each probe ID is intentional: it lets the user compare the
+ * *same* system channel before and after leaving Android Settings.
  */
 @SuppressLint("UseKtx")
 internal object AndroidSignalProbe {
     private const val PREFS = "balancehub_android_signal_probe"
-    private const val ACTIVE_ID = "last_probe_channel"
+
+    enum class Mode(val preferenceKey: String, val label: String) {
+        SYSTEM("last_probe_channel", "Системная вибрация"),
+        PATTERN("last_pattern_probe_channel", "Заданный рисунок")
+    }
 
     data class Result(val id: String?, val report: String)
 
-    fun channelId(context: Context): String? =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(ACTIVE_ID, null)?.takeIf(StableNotificationChannels::isProbe)
+    // Two short pulses with a gap, intentionally different from the platform default.
+    fun explicitPattern(): LongArray = longArrayOf(0L, 180L, 120L, 220L)
 
-    fun report(context: Context): String {
+    fun channelId(context: Context, mode: Mode = Mode.SYSTEM): String? =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(mode.preferenceKey, null)?.takeIf(StableNotificationChannels::isProbe)
+
+    fun report(context: Context, mode: Mode = Mode.SYSTEM): String {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
             return "Системные каналы недоступны на этой версии Android"
         }
-        val id = channelId(context) ?: return "Проверка ещё не запускалась"
+        val id = channelId(context, mode) ?: return "Проверка «${mode.label}» ещё не запускалась"
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE)
             as NotificationManager
         val channel = manager.getNotificationChannel(id)
             ?: return "Тестовый канал отсутствует в Android. ID: $id"
+        val audio = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        val ringerMode = when (audio.ringerMode) {
+            AudioManager.RINGER_MODE_NORMAL -> "Обычный (со звуком)"
+            AudioManager.RINGER_MODE_VIBRATE -> "Только вибрация"
+            else -> "Без звука"
+        }
         return buildString {
-            append("ID тестового канала: ").append(id)
+            append("Тест: ").append(mode.label)
+            append("\nID тестового канала: ").append(id)
+            append("\nРежим телефона: ").append(ringerMode)
             append("\nВажность: ").append(channel.importance)
             append("\nЗвук: ").append(when (channel.sound) {
                 null -> "Нет"
@@ -49,17 +63,20 @@ internal object AndroidSignalProbe {
                     "Системная мелодия по умолчанию"
                 else -> "Android выбрал другую мелодию"
             })
-            append("\nВибрация: ").append(if (channel.shouldVibrate())
+            append("\nВибрация (ответ API): ").append(if (channel.shouldVibrate())
                 "Включена" else "Выключена")
-            append("\nРисунок вибрации: ").append(
-                channel.vibrationPattern?.joinToString(",") ?: "Системный")
+            append("\nРисунок вибрации (ответ API): ").append(
+                channel.vibrationPattern?.joinToString(",") ?: "Системный / не указан")
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 append("\nЗвук изменён в Android: ").append(channel.hasUserSetSound())
             }
+            append("\n\nЭто данные API Android, а не подтверждение физической вибрации. ")
+            append("Переключатель в системных настройках может отличаться. ")
+            append("Сравнивайте оба режима телефона на одном и том же ID.")
         }
     }
 
-    fun send(context: Context): Result {
+    fun send(context: Context, mode: Mode = Mode.SYSTEM): Result {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
             return Result(null, "Тест системного канала доступен на Android 8 и новее")
         }
@@ -76,48 +93,55 @@ internal object AndroidSignalProbe {
             ?: return Result(null, "В Android не выбрана системная мелодия уведомления")
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE)
             as NotificationManager
-        val id = StableNotificationChannels.probeId()
+        val previousId = channelId(context, mode)
+        val existing = previousId?.let(manager::getNotificationChannel)
+        val id = if (existing == null) StableNotificationChannels.probeId() else previousId
+            ?: return Result(null, "Не удалось определить ID тестового канала")
         return try {
-            val channel = NotificationChannel(id,
-                "BalanceHub · Тест системных сигналов", NotificationManager.IMPORTANCE_HIGH)
-            channel.setSound(sound, AudioAttributes.Builder()
-                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                .setUsage(AudioAttributes.USAGE_NOTIFICATION).build())
-            // Crucial: do not attach a custom waveform; ask Android for its own
-            // default notification vibration, as commonly used by messengers.
-            channel.enableVibration(true)
-            manager.createNotificationChannel(channel)
-            val actual = manager.getNotificationChannel(id)
-                ?: return Result(null, "Android не создал новый тестовый канал")
-            val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            val previous = channelId(context)
-            if (!prefs.edit().putString(ACTIVE_ID, id).commit()) {
-                manager.deleteNotificationChannel(id)
-                return Result(null, "Не удалось запомнить тестовый канал")
-            }
-            previous?.takeIf { it != id }?.let { previousId ->
-                // Never delete an unrelated user/app channel.
-                if (StableNotificationChannels.isProbe(previousId)) {
-                    manager.deleteNotificationChannel(previousId)
+            if (existing == null) {
+                val name = if (mode == Mode.SYSTEM)
+                    "BalanceHub · Тест системной вибрации"
+                else "BalanceHub · Тест заданной вибрации"
+                val channel = NotificationChannel(
+                    id, name, NotificationManager.IMPORTANCE_HIGH)
+                channel.setSound(sound, AudioAttributes.Builder()
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .setUsage(AudioAttributes.USAGE_NOTIFICATION).build())
+                if (mode == Mode.PATTERN) {
+                    channel.vibrationPattern = explicitPattern()
+                }
+                // Boolean last for OEMs that modify it when a waveform is assigned.
+                channel.enableVibration(true)
+                manager.createNotificationChannel(channel)
+                if (manager.getNotificationChannel(id) == null) {
+                    return Result(null, "Android не создал новый тестовый канал")
+                }
+                val stored = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                    .edit().putString(mode.preferenceKey, id).commit()
+                if (!stored) {
+                    manager.deleteNotificationChannel(id)
+                    return Result(null, "Не удалось запомнить тестовый канал")
                 }
             }
+            // Do not recreate an existing channel: Android owns its user settings.
             val notice = NotificationCompat.Builder(context, id)
                 .setSmallIcon(context.applicationInfo.icon)
-                .setContentTitle("BalanceHub: системный тест")
-                .setContentText("Стандартный звук и вибрация Android")
+                .setContentTitle("BalanceHub: ${mode.label}")
+                .setContentText("Проверка звука и вибрации канала Android")
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setAutoCancel(true)
                 .build()
             notifier.notify(ReminderNoticeIds.test(), notice)
             Result(id, "Тестовое уведомление отправлено. " +
-                "Это отдельный канал, настройки платежей не изменены.\n\n" +
-                report(context) + "\n\nПроверьте звук и вибрацию на телефоне.")
+                "Это отдельный канал; настройки платежей и событий не изменены.\n\n" +
+                report(context, mode) +
+                "\n\nОткройте настройки этого канала и сравните звук и вибрацию.")
         } catch (error: SecurityException) {
-            Result(id, "Android не разрешил отправку теста. " +
-                error.javaClass.simpleName + "\n\n" + report(context))
+            Result(id, "Android не разрешил отправку теста: " +
+                error.javaClass.simpleName + "\n\n" + report(context, mode))
         } catch (error: RuntimeException) {
-            Result(id, "Android отклонил тестовый канал: " +
-                error.javaClass.simpleName + "\n\n" + report(context))
+            Result(id, "Android отклонил тест: " +
+                error.javaClass.simpleName + "\n\n" + report(context, mode))
         }
     }
 }
