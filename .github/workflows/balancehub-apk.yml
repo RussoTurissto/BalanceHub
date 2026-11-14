@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   issues: write
 
 # Cancel obsolete builds after a newer approved change; only the
@@ -154,8 +154,77 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      # Release publication is deliberately separate from CI. The owner must
-      # approve the final changelog and version before any GitHub Release.
+      # A draft prerelease is visible only to repository writers. Do not publish.
+      # GitHub forbids the native "Latest" label on drafts: use an owner-only title.
+      - name: Create private Draft Pre-release from signed APK
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="1.1.4-rc6"
+          code="$((GITHUB_RUN_NUMBER + 300))"
+          tag="v$version-build$code"
+          apk="app/build/outputs/apk/release/BalanceHub.apk"
+          [[ -s "$apk" ]] || { echo "::error::Missing signed APK"; exit 1; }
+          existing="$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" |
+            jq -r --arg tag "$tag" '.[] | select(.tag_name == $tag) | .id' | head -1)"
+          [[ -z "$existing" ]] || {
+            echo "::error::Release already exists, refusing overwrite: $tag"; exit 1;
+          }
+          gh release create "$tag" "$apk#BalanceHub.apk" \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "★ АКТУАЛЬНАЯ ТЕСТОВАЯ · BalanceHub $version (сборка $code)" \
+            --notes-file "release/notes-$version.md" \
+            --draft --prerelease --latest=false
+          # Retire previous draft title markers but retain all old APK assets.
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" |
+            jq -r --arg tag "$tag" '.[] |
+              select(.draft == true and .prerelease == true and .tag_name != $tag
+                and (.name | startswith("★ АКТУАЛЬНАЯ ТЕСТОВАЯ · "))) |
+              [.id, .name] | @tsv' |
+            while IFS=
+
+      - name: Notify build result in GitHub issue
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const status = '${{ job.status }}';
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const resultText = status === 'success' ? '✅ APK собран и проверки пройдены' : status === 'cancelled' ? '⚪ Сборка отменена' : '❌ Ошибка сборки APK';
+            const body = [
+              '@RussoTurissto',
+              `**${resultText}**`,
+              `Запуск: ${runUrl}`,
+              `Коммит: \`${context.sha.slice(0, 12)}\``,
+              status === 'success' ? `APK помещена в Draft Pre-release, доступный только участникам с правами записи. Смотрите GitHub Releases.` : 'Диагностика: откройте журнал неуспешного шага сборки.',
+              'Автоматический журнал: этот комментарий создаёт GitHub Actions сразу после завершения запуска.'
+            ].join('\n\n');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 1,
+              body
+            });
+\t' read -r id old_name; do
+              new_name="$(printf '%s' "$old_name" |
+                sed 's/^★ АКТУАЛЬНАЯ ТЕСТОВАЯ · //')"
+              gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$id" \
+                -f name="$new_name" --jq '{tag_name,draft,prerelease,name}'
+            done
+          result="$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" |
+            jq -r --arg tag "$tag" '.[] |
+              select(.tag_name == $tag and .draft == true and .prerelease == true and
+                ([.assets[].name] | index("BalanceHub.apk") != null)) | .tag_name')"
+          [[ "$result" == "$tag" ]] || {
+            echo "::error::Draft APK missing or draft status incorrect"; exit 1;
+          }
+          echo "Private draft $tag: https://github.com/$GITHUB_REPOSITORY/releases" \
+            >> "$GITHUB_STEP_SUMMARY"
+
 
       - name: Notify build result in GitHub issue
         if: ${{ always() }}
