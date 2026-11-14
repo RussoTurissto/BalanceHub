@@ -23,6 +23,13 @@ internal object NotificationSignalAudit {
         lines.add("Громкость BalanceHub: " + BalanceNotificationSounds.volume(context, category) + "%")
         lines.add("Вибросигнал BalanceHub: " +
             BalanceNotificationSounds.vibrationModeTitle(context, category))
+        if (BalanceNotificationSounds.colorOsCompatibility(context)) {
+            lines.add("Совместимость с ColorOS: включена")
+            lines.add("Вибрация системного канала должна быть выключена: " +
+                "BalanceHub подаёт сигнал отдельно")
+            lines.add("Последний прямой сигнал: " +
+                ColorOsDirectVibration.lastResult(context, category))
+        } else lines.add("Совместимость с ColorOS: выключена")
         lines.add("Стандартная мелодия Android задана: " +
             BalanceNotificationSounds.hasActualDefaultNotificationSound(context))
         val audio = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
