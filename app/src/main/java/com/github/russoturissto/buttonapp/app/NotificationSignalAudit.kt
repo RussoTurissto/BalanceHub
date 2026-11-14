@@ -38,6 +38,14 @@ internal object NotificationSignalAudit {
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val id = BalanceNotificationSounds.ensureChannel(context, category)
+            lines.add("Активный системный ID: $id")
+            val categoryIds = manager.notificationChannels.map { it.id }
+                .filter { StableNotificationChannels.belongsToCategory(it, category) }
+            lines.add("Существующих каналов этой категории: " + categoryIds.size)
+            if (categoryIds.any { it != id }) {
+                lines.add("Другие ID этой категории: " +
+                    categoryIds.filter { it != id }.take(5).joinToString(", "))
+            }
             val channel = manager.getNotificationChannel(id)
             if (channel == null) {
                 lines.add("Ошибка: канал уведомлений не найден")
@@ -50,8 +58,10 @@ internal object NotificationSignalAudit {
                     NotificationManager.IMPORTANCE_HIGH -> "высокая (звук разрешён)"
                     else -> "код " + channel.importance
                 })
-                lines.add("Вибрация канала: " +
+                lines.add("Вибрация канала (ответ API): " +
                     if (channel.shouldVibrate()) "включена" else "выключена")
+                lines.add("ID проверяемого канала совпадает с активным: " +
+                    (channel.id == BalanceNotificationSounds.channelId(context, category)))
                 lines.add("Рисунок канала: " +
                     (channel.vibrationPattern?.joinToString(",") ?: "системный"))
                 val sound = channel.sound
@@ -61,7 +71,7 @@ internal object NotificationSignalAudit {
                 }
                 val isCustom = sound?.authority == context.packageName + ".sounds" ||
                     sound?.scheme == "android.resource" || mediaTone
-                lines.add("Звук канала: " + when {
+                lines.add("Звук канала (ответ API): " + when {
                     sound == null -> "без звука"
                     mediaTone -> "фирменная мелодия через медиатеку Android"
                     isCustom -> "фирменная мелодия BalanceHub"
@@ -93,6 +103,10 @@ internal object NotificationSignalAudit {
                     }
                 }
             }
+        }
+        lines.add("Это сведения API Android, не измерение звука или вибромотора.")
+        AndroidSignalProbe.channelId(context)?.let { probe ->
+            lines.add("Независимый тестовый канал: $probe")
         }
         BalanceNotificationSounds.fallbackReason(context, category)?.let {
             lines.add("Резервная мелодия: $it")
