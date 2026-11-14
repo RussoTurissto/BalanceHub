@@ -2434,17 +2434,21 @@ class MainActivity : AppCompatActivity() {
                 })
             })
         }
-        settingsGroup(settingsPanel(
-            settingsRow("music", "Звук",
-                BalanceNotificationSounds.title(this, category)) {
-                showSoundChooser(category, notificationTitle(category))
-            },
-            volumeRow,
-            settingsRow("settings", "Вибросигнал",
-                BalanceNotificationSounds.vibrationModeTitle(this, category)) {
-                showVibrationChooser(category)
-            }
-        ))
+        val rows = mutableListOf<View>()
+        rows.add(settingsRow("music", "Звук",
+            BalanceNotificationSounds.title(this, category)) {
+            showSoundChooser(category, notificationTitle(category))
+        })
+        // Android owns the volume of its system ringtone. The in-app slider
+        // applies to BalanceHub's bundled WAV tones only.
+        val selectedSound = BalanceNotificationSounds.selected(this, category)
+        if (BalanceNotificationSounds.tones.any { it.key == selectedSound })
+            rows.add(volumeRow)
+        rows.add(settingsRow("settings", "Вибросигнал",
+            BalanceNotificationSounds.vibrationModeTitle(this, category)) {
+            showVibrationChooser(category)
+        })
+        settingsGroup(settingsPanel(*rows.toTypedArray()))
     }
 
     private fun showVibrationChooser(category: String) {
