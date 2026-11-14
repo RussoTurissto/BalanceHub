@@ -323,7 +323,10 @@ internal object BalanceNotificationSounds {
                 .putBoolean("vibration_" + category, expectedVibration)
                 .putInt("volume_" + category, percent)
         }
-        if (!force && matches(old)) {
+        // Switching from a custom waveform to the platform default also
+        // requires a fresh channel, even if both options are "vibration on".
+        val modeChanged = mode != vibrationMode(context, category)
+        if (!force && !modeChanged && matches(old)) {
             return if (save().commit()) null else "Не удалось сохранить настройки"
         }
         val next = nextRevision(context, category)
