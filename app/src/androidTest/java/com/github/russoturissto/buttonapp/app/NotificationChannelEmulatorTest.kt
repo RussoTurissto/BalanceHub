@@ -235,7 +235,7 @@ class NotificationChannelEmulatorTest {
         assertEquals(after, BalanceNotificationSounds.channelId(app, category))
     }
 
-    @Test fun defaultAndroidProbeKeepsPaymentChannelUntouched() {
+    @Test fun bothAndroidProbesKeepOwnIdsAndPaymentChannelUntouched() {
         if (Build.VERSION.SDK_INT < 26) return
         if (Build.VERSION.SDK_INT >= 33) {
             InstrumentationRegistry.getInstrumentation().uiAutomation
@@ -244,27 +244,41 @@ class NotificationChannelEmulatorTest {
         }
         val paymentId = BalanceNotificationSounds.ensureChannel(
             app, BalanceNotificationSounds.PAYMENT)
-        val first = AndroidSignalProbe.send(app)
-        assertNotNull("Probe was not created: " + first.report, first.id)
-        val id = first.id!!
-        assertTrue("Probe ID should be independent of reminders",
-            StableNotificationChannels.isProbe(id))
-        val channel = manager().getNotificationChannel(id)
-        assertNotNull("Independent Android channel missing", channel)
+        val system = AndroidSignalProbe.send(app, AndroidSignalProbe.Mode.SYSTEM)
+        assertNotNull("System probe not created: " + system.report, system.id)
+        val systemId = system.id!!
+        assertTrue(StableNotificationChannels.isProbe(systemId))
+        val defaultChannel = manager().getNotificationChannel(systemId)
+        assertNotNull(defaultChannel)
         assertEquals(android.media.RingtoneManager.getDefaultUri(
-            android.media.RingtoneManager.TYPE_NOTIFICATION), channel!!.sound)
-        assertTrue("Default OS vibration was rejected", channel.shouldVibrate())
-        assertNull("No custom vibration pattern must be set",
-            channel.vibrationPattern)
-        assertEquals("Payment channel was replaced by system test",
-            paymentId, BalanceNotificationSounds.channelId(app,
-                BalanceNotificationSounds.PAYMENT))
-        val again = AndroidSignalProbe.send(app)
-        assertNotNull(again.id)
-        assertNotEquals("New test should never reuse deleted ID", id, again.id)
-        assertNull("Old test channel not removed", manager().getNotificationChannel(id))
-        assertTrue("Latest test should remain", manager().getNotificationChannel(
-            again.id!!)?.shouldVibrate() == true)
+            android.media.RingtoneManager.TYPE_NOTIFICATION), defaultChannel!!.sound)
+        assertTrue("Default OS vibration was rejected", defaultChannel.shouldVibrate())
+        assertNull("OS default probe must have no custom vibration pattern",
+            defaultChannel.vibrationPattern)
+
+        val explicit = AndroidSignalProbe.send(app, AndroidSignalProbe.Mode.PATTERN)
+        assertNotNull("Explicit probe not created: " + explicit.report, explicit.id)
+        val patternId = explicit.id!!
+        assertNotEquals("Different tests need different channels", systemId, patternId)
+        assertTrue(StableNotificationChannels.isProbe(patternId))
+        val patternChannel = manager().getNotificationChannel(patternId)
+        assertNotNull(patternChannel)
+        assertTrue("Explicit vibration rejected", patternChannel!!.shouldVibrate())
+        assertArrayEquals("Explicit waveform was not registered",
+            AndroidSignalProbe.explicitPattern(), patternChannel.vibrationPattern)
+        assertEquals("Both tests use the same OS notification sound",
+            defaultChannel.sound, patternChannel.sound)
+
+        val againSystem = AndroidSignalProbe.send(app, AndroidSignalProbe.Mode.SYSTEM)
+        val againPattern = AndroidSignalProbe.send(app, AndroidSignalProbe.Mode.PATTERN)
+        assertEquals("System ID must persist across test runs", systemId, againSystem.id)
+        assertEquals("Pattern ID must persist across test runs", patternId, againPattern.id)
+        assertNotNull("System channel unexpectedly deleted",
+            manager().getNotificationChannel(systemId))
+        assertNotNull("Pattern channel unexpectedly deleted",
+            manager().getNotificationChannel(patternId))
+        assertEquals("Test modified a payment channel", paymentId,
+            BalanceNotificationSounds.channelId(app, BalanceNotificationSounds.PAYMENT))
     }
 
     @Test fun systemNotificationToneIgnoresBundledWavGain() {
