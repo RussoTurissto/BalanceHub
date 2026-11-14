@@ -145,10 +145,20 @@ internal object BalanceNotificationSounds {
         else -> "Обновления"
     }
 
-    /** Existing Android channels remain untouched until the user explicitly applies changes. */
-    fun channelId(context: Context, category: String): String =
-        StableNotificationChannels.id(category,
-            preferences(context).getInt("channel_revision_" + category, 0).coerceAtLeast(0))
+    /**
+     * Persist the exact active channel ID. Older installations only stored a
+     * revision number, so continue to recognize that legacy ID until the user
+     * explicitly changes the signals.
+     */
+    fun channelId(context: Context, category: String): String {
+        val prefs = preferences(context)
+        val saved = prefs.getString("channel_active_id_" + category, null)
+        if (saved != null && StableNotificationChannels.belongsToCategory(saved, category)) {
+            return saved
+        }
+        return StableNotificationChannels.id(category,
+            prefs.getInt("channel_revision_" + category, 0).coerceAtLeast(0))
+    }
 
     private val notificationAttributes: AudioAttributes
         get() = AudioAttributes.Builder()
@@ -247,10 +257,12 @@ internal object BalanceNotificationSounds {
         val channel = NotificationChannel(id, legacyChannel(category), importance)
         channel.setSound(sound, if (sound == null) null else attributes)
         val vibrate = NotificationVibrationMode.enabled(mode)
-        channel.enableVibration(vibrate)
         if (vibrate) {
             NotificationVibrationMode.pattern(mode)?.let { channel.vibrationPattern = it }
         }
+        // Set the explicit boolean last: some OEM implementations interpret a
+        // missing or replaced pattern as a reason to turn vibration off.
+        channel.enableVibration(vibrate)
         return channel
     }
 
@@ -342,8 +354,13 @@ internal object BalanceNotificationSounds {
         }
         val next = nextRevision(context, category)
             ?: return "Слишком много изменений настроек"
-        val nextId = StableNotificationChannels.id(category, next)
+        // A deleted Android channel can be restored with its previous muted
+        // settings. A UUID-suffixed channel ID is never reused on a later repair.
+        val nextId = StableNotificationChannels.freshId(category, next)
         return try {
+            if (manager.getNotificationChannel(nextId) != null) {
+                return "Новый идентификатор канала неожиданно уже существует"
+            }
             // Preserve the user's system-level decision to mute a category.
             // An old, silent channel may carry audio attributes unsuitable for
             // notification playback. A new user-selected sound always uses USAGE_NOTIFICATION.
@@ -365,7 +382,8 @@ internal object BalanceNotificationSounds {
                 manager.deleteNotificationChannel(nextId)
                 return reason
             }
-            if (!save().putInt("channel_revision_" + category, next).commit()) {
+            if (!save().putInt("channel_revision_" + category, next)
+                    .putString("channel_active_id_" + category, nextId).commit()) {
                 manager.deleteNotificationChannel(nextId)
                 return "Не удалось сохранить настройки"
             }
