@@ -105,8 +105,10 @@ internal object NotificationSignalAudit {
             }
         }
         lines.add("Это сведения API Android, не измерение звука или вибромотора.")
-        AndroidSignalProbe.channelId(context)?.let { probe ->
-            lines.add("Независимый тестовый канал: $probe")
+        for (mode in AndroidSignalProbe.Mode.values()) {
+            AndroidSignalProbe.channelId(context, mode)?.let { probe ->
+                lines.add("Тестовый канал (${mode.label}): $probe")
+            }
         }
         BalanceNotificationSounds.fallbackReason(context, category)?.let {
             lines.add("Резервная мелодия: $it")
