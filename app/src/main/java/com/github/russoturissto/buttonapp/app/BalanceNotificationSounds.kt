@@ -500,6 +500,10 @@ internal object BalanceNotificationSounds {
             "Без звука (выбрано)" else "Без звука в Android (выбрана: " +
             title(context, category) + ")"
         val key = selected(context, category)
+        if (actual == RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION) &&
+            !hasActualDefaultNotificationSound(context)) {
+            return "Системная мелодия не назначена в Android"
+        }
         return when {
             matchesConfiguredSound(context, key, volume(context, category), actual) ->
                 title(context, category)
