@@ -235,6 +235,38 @@ class NotificationChannelEmulatorTest {
         assertEquals(after, BalanceNotificationSounds.channelId(app, category))
     }
 
+    @Test fun defaultAndroidProbeKeepsPaymentChannelUntouched() {
+        if (Build.VERSION.SDK_INT < 26) return
+        if (Build.VERSION.SDK_INT >= 33) {
+            InstrumentationRegistry.getInstrumentation().uiAutomation
+                .grantRuntimePermission(app.packageName,
+                    android.Manifest.permission.POST_NOTIFICATIONS)
+        }
+        val paymentId = BalanceNotificationSounds.ensureChannel(
+            app, BalanceNotificationSounds.PAYMENT)
+        val first = AndroidSignalProbe.send(app)
+        assertNotNull("Probe was not created: " + first.report, first.id)
+        val id = first.id!!
+        assertTrue("Probe ID should be independent of reminders",
+            StableNotificationChannels.isProbe(id))
+        val channel = manager().getNotificationChannel(id)
+        assertNotNull("Independent Android channel missing", channel)
+        assertEquals(android.media.RingtoneManager.getDefaultUri(
+            android.media.RingtoneManager.TYPE_NOTIFICATION), channel!!.sound)
+        assertTrue("Default OS vibration was rejected", channel.shouldVibrate())
+        assertNull("No custom vibration pattern must be set",
+            channel.vibrationPattern)
+        assertEquals("Payment channel was replaced by system test",
+            paymentId, BalanceNotificationSounds.channelId(app,
+                BalanceNotificationSounds.PAYMENT))
+        val again = AndroidSignalProbe.send(app)
+        assertNotNull(again.id)
+        assertNotEquals("New test should never reuse deleted ID", id, again.id)
+        assertNull("Old test channel not removed", manager().getNotificationChannel(id))
+        assertTrue("Latest test should remain", manager().getNotificationChannel(
+            again.id!!)?.shouldVibrate() == true)
+    }
+
     @Test fun systemNotificationToneIgnoresBundledWavGain() {
         if (Build.VERSION.SDK_INT < 26) return
         val category = BalanceNotificationSounds.EVENT
