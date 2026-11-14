@@ -111,6 +111,6 @@ jobs:
           gh release create "$TAG" "dist/BalanceHub.apk#BalanceHub.apk" \
             --repo "$GITHUB_REPOSITORY" --target "$SOURCE_SHA" \
             --title "BalanceHub 1.1.4-rc5 — совместимость системных уведомлений с Android" \
-            --notes-file release/notes-1.1.4-rc5.md --prerelease --latest=false
+            --notes-file release/notes-1.1.4-rc5.md --draft --prerelease --latest=false
           echo "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/BalanceHub.apk" \
             >> "$GITHUB_STEP_SUMMARY"
