@@ -1,6 +1,7 @@
 package com.github.russoturissto.buttonapp.app
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
@@ -19,6 +20,7 @@ import androidx.core.app.NotificationManagerCompat
  * Only created on explicit user request. A unique ID prevents resurrection of
  * old, user-muted Android channels. At most one active probe is retained.
  */
+@SuppressLint("UseKtx")
 internal object AndroidSignalProbe {
     private const val PREFS = "balancehub_android_signal_probe"
     private const val ACTIVE_ID = "last_probe_channel"
