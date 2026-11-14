@@ -94,9 +94,9 @@ internal object AndroidSignalProbe {
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE)
             as NotificationManager
         val previousId = channelId(context, mode)
-        val existing = previousId?.let(manager::getNotificationChannel)
-        val id = if (existing == null) StableNotificationChannels.probeId() else previousId
-            ?: return Result(null, "Не удалось определить ID тестового канала")
+        val existing = previousId?.let { manager.getNotificationChannel(it) }
+        val id = if (existing == null) StableNotificationChannels.probeId()
+            else previousId ?: return Result(null, "Не удалось определить ID тестового канала")
         return try {
             if (existing == null) {
                 val name = if (mode == Mode.SYSTEM)
