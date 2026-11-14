@@ -132,6 +132,8 @@ class EventReminderReceiver : BroadcastReceiver() {
             context, BalanceNotificationSounds.EVENT, builder)
         try {
             notifications.notify(noticeId, builder.build())
+            ColorOsDirectVibration.afterNotification(
+                context, BalanceNotificationSounds.EVENT, channelId)
             reservation.previousNotificationId?.takeIf { it != noticeId }?.let {
                 notifications.cancel(it)
             }
