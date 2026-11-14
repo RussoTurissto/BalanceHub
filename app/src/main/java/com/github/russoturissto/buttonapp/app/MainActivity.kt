@@ -5220,16 +5220,12 @@ class MainActivity : AppCompatActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = system.getNotificationChannel(channelId)
             if (channel != null) {
-                val issues = mutableListOf<String>()
-                if (channel.sound == null &&
-                    BalanceNotificationSounds.selected(this, category) != "silent" &&
-                    BalanceNotificationSounds.volume(this, category) > 0) {
-                    issues.add("Звук канала отключён в Android")
-                }
-                if (!channel.shouldVibrate() &&
-                    BalanceNotificationSounds.vibrationFor(this, category)) {
-                    issues.add("Вибрация канала отключена в Android")
-                }
+                val issues = NotificationChannelSignalState.issues(
+                    wantsSound = BalanceNotificationSounds.selected(this, category) != "silent" &&
+                        BalanceNotificationSounds.volume(this, category) > 0,
+                    channelHasSound = channel.sound != null,
+                    wantsVibration = BalanceNotificationSounds.vibrationFor(this, category),
+                    channelHasVibration = channel.shouldVibrate())
                 if (issues.isNotEmpty()) {
                     themedDialogBuilder()
                         .setTitle("Уведомление будет без части сигналов")
