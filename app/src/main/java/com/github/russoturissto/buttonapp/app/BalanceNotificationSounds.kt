@@ -420,21 +420,35 @@ internal object BalanceNotificationSounds {
             actual == BalanceSystemToneStore.cachedUri(context, key, gain)
     }
 
-    /** An explicit repair action is offered rather than silently resetting Android settings. */
-    fun needsRepair(context: Context, category: String): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
+    /**
+     * Single source of truth for the category UI, diagnostics and notification
+     * tests. Reading channel state must never silently overwrite Android.
+     */
+    fun signalIssues(context: Context, category: String): List<String> {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return emptyList()
         val id = ensureChannel(context, category)
         val channel = (context.getSystemService(Context.NOTIFICATION_SERVICE)
-            as NotificationManager).getNotificationChannel(id) ?: return true
-        val gain = volume(context, category)
+            as NotificationManager).getNotificationChannel(id)
+            ?: return listOf("Android не создал канал уведомлений")
         val key = selected(context, category)
-        return channel.importance < NotificationManager.IMPORTANCE_DEFAULT ||
-            !matchesConfiguredSound(context, key, gain, channel.sound) ||
-            channel.shouldVibrate() != vibrationFor(context, category) ||
-            (NotificationVibrationMode.pattern(vibrationMode(context, category))?.let {
-                !it.contentEquals(channel.vibrationPattern)
-            } ?: false)
+        val gain = volume(context, category)
+        val wantsSound = key == "system" || (key != "silent" && gain > 0)
+        val wantsVibration = vibrationFor(context, category)
+        val pattern = NotificationVibrationMode.pattern(vibrationMode(context, category))
+        return NotificationChannelSignalState.issues(
+            wantsSound = wantsSound,
+            channelHasSound = channel.sound != null,
+            wantsVibration = wantsVibration,
+            channelHasVibration = channel.shouldVibrate(),
+            soundMatches = matchesConfiguredSound(context, key, gain, channel.sound),
+            vibrationPatternMatches = pattern?.contentEquals(channel.vibrationPattern),
+            channelCanAlert = channel.importance >= NotificationManager.IMPORTANCE_DEFAULT
+        )
     }
+
+    /** Rebuilds remain explicitly confirmed; Android is authoritative. */
+    fun needsRepair(context: Context, category: String): Boolean =
+        signalIssues(context, category).isNotEmpty()
 
     /** Always keep precisely the three current categories in the active channel list. */
     fun ensureDefaultChannels(context: Context) {
