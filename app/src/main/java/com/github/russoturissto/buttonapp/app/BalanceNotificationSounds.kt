@@ -210,6 +210,11 @@ internal object BalanceNotificationSounds {
     /** Read-only diagnostics shared by the settings and channel audit screen. */
     fun audioProbe(context: Context, uri: Uri): String? = toneProbe(context, uri)
 
+    /** A default URI can exist even when Android has no actual default ringtone. */
+    fun hasActualDefaultNotificationSound(context: Context): Boolean =
+        RingtoneManager.getActualDefaultRingtoneUri(
+            context, RingtoneManager.TYPE_NOTIFICATION) != null
+
     private data class SoundSelection(val uri: Uri?, val error: String? = null)
 
     private fun resolveSound(context: Context, key: String, gain: Int): SoundSelection {
@@ -219,6 +224,9 @@ internal object BalanceNotificationSounds {
             return SoundSelection(null)
         }
         if (key == "system") {
+            // Default URI is an indirection; it can be non-null even when the
+            // user's actual notification ringtone is unset. Never choose an
+            // arbitrary replacement against the user's system preferences.
             val system = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
             return SoundSelection(system, if (system == null) "В Android не выбран системный звук"
                 else null)
@@ -258,11 +266,10 @@ internal object BalanceNotificationSounds {
         channel.setSound(sound, if (sound == null) null else attributes)
         val vibrate = NotificationVibrationMode.enabled(mode)
         if (vibrate) {
-            NotificationVibrationMode.pattern(mode)?.let { channel.vibrationPattern = it }
+            NotificationChannelVibration.apply(channel, NotificationVibrationMode.pattern(mode))
+        } else {
+            channel.enableVibration(false)
         }
-        // Set the explicit boolean last: some OEM implementations interpret a
-        // missing or replaced pattern as a reason to turn vibration off.
-        channel.enableVibration(vibrate)
         return channel
     }
 
