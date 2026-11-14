@@ -1,5 +1,6 @@
 package com.github.russoturissto.buttonapp.app
 
+import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
@@ -25,6 +26,26 @@ internal object BalanceSystemToneStore {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getString("tone_" + key + "_" + gain.coerceIn(0, 100), null)
             ?.let(Uri::parse)
+
+    /**
+     * The stock OnePlus picker may identify the same media row by the
+     * aggregated 'external' volume rather than 'external_primary'.
+     * Try that form only for a NEW payment notification channel.
+     * A readable WAV is required; an inaccessible alternate is never used.
+     */
+    fun pickerCompatibleUri(context: Context, registered: Uri): Uri? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
+            registered.scheme != "content" || registered.authority != "media" ||
+            registered.pathSegments.firstOrNull() != MediaStore.VOLUME_EXTERNAL_PRIMARY) {
+            return null
+        }
+        val id = try { ContentUris.parseId(registered) }
+            catch (_: Exception) { return null }
+        if (id < 0L) return null
+        val alternative = ContentUris.withAppendedId(
+            MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL), id)
+        return alternative.takeIf { readable(context, it) }
+    }
 
     private fun readable(context: Context, uri: Uri): Boolean = try {
         val input = context.contentResolver.openInputStream(uri)

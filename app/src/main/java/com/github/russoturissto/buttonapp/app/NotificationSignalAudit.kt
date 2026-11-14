@@ -86,8 +86,11 @@ internal object NotificationSignalAudit {
                 }
                 val sound = channel.sound
                 val mediaTone = sound != null && BalanceNotificationSounds.tones.any {
-                    BalanceSystemToneStore.cachedUri(context, it.key,
-                        BalanceNotificationSounds.volume(context, category)) == sound
+                    val cached = BalanceSystemToneStore.cachedUri(context, it.key,
+                        BalanceNotificationSounds.volume(context, category))
+                    cached == sound || (category == BalanceNotificationSounds.PAYMENT &&
+                        BalanceNotificationSounds.colorOsCompatibility(context) &&
+                        NotificationToneIdentity.same(cached?.toString(), sound.toString()))
                 }
                 val isCustom = sound?.authority == context.packageName + ".sounds" ||
                     sound?.scheme == "android.resource" || mediaTone
