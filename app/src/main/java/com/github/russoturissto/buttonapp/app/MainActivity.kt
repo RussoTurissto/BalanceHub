@@ -2787,6 +2787,14 @@ class MainActivity : AppCompatActivity() {
             selectDiagnosticCategory { category -> sendVibrationTest(category) }
         })
         notifications.addView(verticalGap(9))
+        notifications.addView(secondaryButton("Прямой тест вибромотора без канала") {
+            val started = BalanceVibration.directProbe(this)
+            Toast.makeText(this,
+                if (started) "Команда вибромотору отправлена. Проверьте физический отклик."
+                else "Не удалось запустить вибромотор. Проверьте ограничения Android.",
+                Toast.LENGTH_LONG).show()
+        })
+        notifications.addView(verticalGap(9))
         notifications.addView(secondaryButton("Проверить уведомление") {
             selectDiagnosticCategory { category -> sendNotificationTest(category) }
         })
