@@ -17,13 +17,16 @@ internal object BalanceVibration {
 
     fun available(context: Context): Boolean = motor(context)?.hasVibrator() == true
 
-    /** Independent hardware command; ignores category preferences and channels. */
+    /** Independent hardware command; no notification channel is involved. */
     @Suppress("DEPRECATION")
-    fun directProbe(context: Context): Boolean {
+    fun directProbe(
+        context: Context,
+        mode: String = NotificationVibrationMode.DOUBLE
+    ): Boolean {
         val motor = motor(context) ?: return false
+        val pulse = NotificationVibrationMode.pattern(mode) ?: return false
         if (!motor.hasVibrator()) return false
         return try {
-            val pulse = longArrayOf(0L, 180L, 120L, 180L)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 motor.vibrate(VibrationEffect.createWaveform(pulse, -1))
             } else motor.vibrate(pulse, -1)
