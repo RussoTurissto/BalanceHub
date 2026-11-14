@@ -146,13 +146,9 @@ jobs:
         shell: bash
         run: cp app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/release/BalanceHub.apk
 
-      - name: Upload installable APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: BalanceHub
-          path: app/build/outputs/apk/release/BalanceHub.apk
-          if-no-files-found: error
-          retention-days: 30
+      # Do not expose signed APKs as public Actions artifacts: public-repo
+      # readers can download them even when the Release is a private draft.
+      # The APK is attached only to the owner-visible draft below.
 
       # A draft prerelease is visible only to repository writers. Do not publish.
       # GitHub forbids the native "Latest" label on drafts: use an owner-only title.
