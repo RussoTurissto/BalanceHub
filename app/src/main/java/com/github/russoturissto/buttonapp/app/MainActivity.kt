@@ -169,7 +169,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
     private var editingId: String? = null
-    private var dueDate = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, 7) }
+    private var dueDate = ReminderDateTimePolicy.atOpening()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         val mode = when (getSharedPreferences("balancehub_data", MODE_PRIVATE)
@@ -2037,7 +2037,7 @@ class MainActivity : AppCompatActivity() {
     private fun showNewPaymentDialog() {
         editingId = null
         selectedPaymentIcon = null
-        dueDate = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, 7) }
+        dueDate = ReminderDateTimePolicy.atOpening()
         val form = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(10), dp(18), dp(18))
@@ -2062,6 +2062,19 @@ class MainActivity : AppCompatActivity() {
             setOnClickListener { chooseDate() }
         }
         updateDateButton()
+        val timeButton = secondaryButton("Время: " +
+            java.text.SimpleDateFormat("HH:mm", Locale("ru")).format(dueDate.time)) {}
+        timeButton.setOnClickListener {
+            BalanceTimePicker.show(this, dueDate.get(Calendar.HOUR_OF_DAY),
+                dueDate.get(Calendar.MINUTE)) { hour, minute ->
+                dueDate.set(Calendar.HOUR_OF_DAY, hour)
+                dueDate.set(Calendar.MINUTE, minute)
+                dueDate.set(Calendar.SECOND, 0)
+                dueDate.set(Calendar.MILLISECOND, 0)
+                timeButton.text = "Время: " +
+                    java.text.SimpleDateFormat("HH:mm", Locale("ru")).format(dueDate.time)
+            }
+        }
         val recOptions = listOf("Единоразовый", "Еженедельный", "Ежемесячный")
         recurrenceInput = styledSpinner(recOptions)
         form.addView(textLine("Название", 13f, muted))
@@ -2076,7 +2089,13 @@ class MainActivity : AppCompatActivity() {
         form.addView(textLine("Валюта", 13f, muted))
         form.addView(currencyInput)
         form.addView(verticalGap(12))
-        form.addView(dateButton, LinearLayout.LayoutParams(-1, dp(50)))
+        val paymentDateTime = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+        paymentDateTime.addView(dateButton, LinearLayout.LayoutParams(0, dp(50), 3f))
+        paymentDateTime.addView(View(this), LinearLayout.LayoutParams(dp(7), 1))
+        paymentDateTime.addView(timeButton, LinearLayout.LayoutParams(0, dp(50), 2f))
+        form.addView(paymentDateTime)
         form.addView(verticalGap(12))
         form.addView(textLine("Повторение платежа", 13f, muted))
         form.addView(verticalGap(6))
@@ -4044,6 +4063,11 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "Проверьте название, сумму, валюту и срок напоминания", Toast.LENGTH_LONG).show()
             return false
         }
+        if (dueDate.timeInMillis <= System.currentTimeMillis()) {
+            Toast.makeText(this, "Укажите будущую дату и время платежа",
+                Toast.LENGTH_LONG).show()
+            return false
+        }
         val recurrence = listOf("once", "weekly", "monthly")[recurrenceInput.selectedItemPosition]
         val old = payments.firstOrNull { it.id == editingId }
         if (old != null) {
@@ -4511,8 +4535,8 @@ class MainActivity : AppCompatActivity() {
                 }
                 cell.addView(label, LinearLayout.LayoutParams(-1, -1))
                 cell.setOnClickListener {
-                    chosen.set(visible.get(Calendar.YEAR), visible.get(Calendar.MONTH), day, 9, 0, 0)
-                    chosen.set(Calendar.MILLISECOND, 0)
+                    ReminderDateTimePolicy.selectDay(chosen,
+                        visible.get(Calendar.YEAR), visible.get(Calendar.MONTH), day)
                     refresh()
                 }
                 grid.addView(cell, android.view.ViewGroup.LayoutParams(cellWidth, dp(46)))
@@ -4557,10 +4581,23 @@ class MainActivity : AppCompatActivity() {
         val date = Calendar.getInstance().apply { timeInMillis = payment.dueAt }
         val dateControl = secondaryButton("Дата: " +
             DateFormat.getDateInstance(DateFormat.MEDIUM).format(date.time)) {}
+        val timeControl = secondaryButton("Время: " +
+            java.text.SimpleDateFormat("HH:mm", Locale("ru")).format(date.time)) {}
         dateControl.setOnClickListener {
             showThemedCalendar(date) {
                 dateControl.text = "Дата: " +
                     DateFormat.getDateInstance(DateFormat.MEDIUM).format(date.time)
+            }
+        }
+        timeControl.setOnClickListener {
+            BalanceTimePicker.show(this, date.get(Calendar.HOUR_OF_DAY),
+                date.get(Calendar.MINUTE)) { hour, minute ->
+                date.set(Calendar.HOUR_OF_DAY, hour)
+                date.set(Calendar.MINUTE, minute)
+                date.set(Calendar.SECOND, 0)
+                date.set(Calendar.MILLISECOND, 0)
+                timeControl.text = "Время: " +
+                    java.text.SimpleDateFormat("HH:mm", Locale("ru")).format(date.time)
             }
         }
         val options = listOf("Единоразовый", "Еженедельный", "Ежемесячный")
@@ -4596,7 +4633,13 @@ class MainActivity : AppCompatActivity() {
         editor.addView(textLine("Валюта", 13f, muted))
         editor.addView(currency)
         editor.addView(verticalGap(12))
-        editor.addView(dateControl)
+        val paymentDateTime = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+        paymentDateTime.addView(dateControl, LinearLayout.LayoutParams(0, dp(48), 3f))
+        paymentDateTime.addView(View(this), LinearLayout.LayoutParams(dp(7), 1))
+        paymentDateTime.addView(timeControl, LinearLayout.LayoutParams(0, dp(48), 2f))
+        editor.addView(paymentDateTime)
         editor.addView(verticalGap(12))
         editor.addView(textLine("Повторение", 13f, muted))
         editor.addView(verticalGap(6))
@@ -5087,15 +5130,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showEventEditor(original: PlannedEvent? = null) {
-        val date = Calendar.getInstance().apply {
-            if (original != null) timeInMillis = original.dueAt
-            else {
-                add(Calendar.DAY_OF_YEAR, 1)
-                set(Calendar.HOUR_OF_DAY, 9)
-                set(Calendar.MINUTE, 0)
-                set(Calendar.SECOND, 0)
-            }
-        }
+        val date = if (original == null) ReminderDateTimePolicy.atOpening()
+            else Calendar.getInstance().apply { timeInMillis = original.dueAt }
         var manualIcon = original?.iconId
         val editor = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -5131,6 +5167,7 @@ class MainActivity : AppCompatActivity() {
                 date.set(Calendar.HOUR_OF_DAY, hour)
                 date.set(Calendar.MINUTE, minute)
                 date.set(Calendar.SECOND, 0)
+                date.set(Calendar.MILLISECOND, 0)
                 timeButton.text = "Время: " +
                     java.text.SimpleDateFormat("HH:mm", Locale("ru")).format(date.time)
             }
