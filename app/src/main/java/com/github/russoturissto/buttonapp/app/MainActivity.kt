@@ -5451,7 +5451,12 @@ class MainActivity : AppCompatActivity() {
             // A separate notification on every press, not an update of one test.
             androidx.core.app.NotificationManagerCompat.from(this)
                 .notify(ReminderNoticeIds.test(), builder.build())
+            val compatibilityVibration =
+                ColorOsDirectVibration.afterNotification(this, category, channelId)
             Toast.makeText(this, "Уведомление передано Android. " +
+                if (BalanceNotificationSounds.colorOsCompatibility(this))
+                    "Прямая вибрация: " + compatibilityVibration.name + ". "
+                else "" +
                 "Фактическое воспроизведение зависит от настроек устройства.",
                 Toast.LENGTH_LONG).show()
         } catch (_: SecurityException) {
