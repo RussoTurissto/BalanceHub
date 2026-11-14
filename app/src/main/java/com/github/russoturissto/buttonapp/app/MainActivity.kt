@@ -106,6 +106,8 @@ class MainActivity : AppCompatActivity() {
     private var updateDialogOpen = false
     private var pendingGithubInstall = false
     private var lastExactAlarmState: Boolean? = null
+    private var pendingSignalRepair: Pair<String, String>? = null
+    private var signalRepairCheckAfter: Long = 0L
     private var deferredUpdate: UpdateRelease? = null
     private val downloadedApkReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -320,6 +322,13 @@ class MainActivity : AppCompatActivity() {
         }
         if (::contentContainer.isInitialized &&
             (currentTab == 0 || currentTab == 1 || currentTab == 3 || currentTab == 4)) renderTab()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus && pendingSignalRepair != null) {
+            Handler(Looper.getMainLooper()).postDelayed({ verifyPendingSignalRepair() }, 300L)
+        }
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
@@ -2464,6 +2473,18 @@ class MainActivity : AppCompatActivity() {
             "Проверить реальные звук и вибрацию через Android") {
             sendNotificationTest(category)
         })
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            rows.add(settingsRow("settings", "Чистый тест Android",
+                "Стандартный системный звук и вибрация в отдельном канале") {
+                runAndroidSignalProbe()
+            })
+            if (AndroidSignalProbe.channelId(this) != null) {
+                rows.add(settingsRow("settings", "Результат чистого теста",
+                    "Состояние тестового канала после открытия Android") {
+                    showAndroidSignalProbeState()
+                })
+            }
+        }
         settingsGroup(settingsPanel(*rows.toTypedArray()))
     }
 
@@ -2509,12 +2530,99 @@ class MainActivity : AppCompatActivity() {
                             BalanceNotificationSounds.channelId(this, category))
                     } else {
                         Toast.makeText(this,
-                            "Новый канал применён. Проверьте звук и вибрацию на телефоне.",
+                            "Новый канал создан. Повторная проверка состояния Android...",
                             Toast.LENGTH_LONG).show()
                     }
+                    if (remaining.isEmpty()) scheduleSignalRepairVerification(category)
                 }
                 refreshSettingsWithoutJump()
             }.show()
+    }
+
+    /**
+     * The immediate getNotificationChannel response is not proof that an OEM
+     * settings UI or later delivery will keep the same sound and vibration.
+     */
+    private fun scheduleSignalRepairVerification(category: String) {
+        pendingSignalRepair = category to BalanceNotificationSounds.channelId(this, category)
+        signalRepairCheckAfter = SystemClock.elapsedRealtime() + 2400L
+        Handler(Looper.getMainLooper()).postDelayed({ verifyPendingSignalRepair() }, 2700L)
+    }
+
+    private fun verifyPendingSignalRepair() {
+        val pending = pendingSignalRepair ?: return
+        if (SystemClock.elapsedRealtime() < signalRepairCheckAfter ||
+            !window.decorView.hasWindowFocus() || isFinishing || isDestroyed) return
+        pendingSignalRepair = null
+        val (category, expectedId) = pending
+        val currentId = BalanceNotificationSounds.channelId(this, category)
+        val problems = BalanceNotificationSounds.signalIssues(this, category)
+        if (currentId != expectedId || problems.isNotEmpty()) {
+            val report = buildString {
+                if (currentId != expectedId) {
+                    append("Активный канал изменился после восстановления.\n")
+                }
+                append(problems.joinToString("\n"))
+                append("\n\nАктивный ID: ").append(currentId)
+                append("\nОжидался ID: ").append(expectedId)
+                append("\nПроверьте фактические настройки в Android.")
+            }
+            themedDialogBuilder()
+                .setTitle("Android не сохранил выбранные сигналы")
+                .setMessage(report)
+                .setNegativeButton("Закрыть", null)
+                .setPositiveButton("Открыть канал Android") { _, _ ->
+                    openAndroidNotificationSettings(category)
+                }.show()
+        } else {
+            Toast.makeText(this,
+                "Android подтвердил параметры канала повторно. " +
+                "Реальные звук и вибрацию нужно проверить на телефоне.",
+                Toast.LENGTH_LONG).show()
+        }
+        if (currentTab == 4) refreshSettingsWithoutJump()
+    }
+
+    private fun openAndroidProbeSettings() {
+        val id = AndroidSignalProbe.channelId(this) ?: return
+        val intent = Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS).apply {
+            putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+            putExtra(Settings.EXTRA_CHANNEL_ID, id)
+        }
+        try { startActivity(intent) }
+        catch (_: Exception) { openAndroidNotificationSettings() }
+    }
+
+    private fun showAndroidSignalProbeState() {
+        val id = AndroidSignalProbe.channelId(this)
+        themedDialogBuilder()
+            .setTitle("Независимый тест Android")
+            .setMessage(AndroidSignalProbe.report(this) +
+                "\n\nСравните переключатели в настройках именно этого канала.")
+            .setNegativeButton("Закрыть", null)
+            .setPositiveButton("Настройки Android") { _, _ ->
+                if (id != null) openAndroidProbeSettings()
+            }.show()
+    }
+
+    private fun runAndroidSignalProbe() {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+                PackageManager.PERMISSION_GRANTED) {
+            requestNotificationPermissionIfNeeded()
+            return
+        }
+        val result = AndroidSignalProbe.send(this)
+        themedDialogBuilder()
+            .setTitle("Проверка стандартных сигналов Android")
+            .setMessage(result.report)
+            .setNegativeButton("Закрыть", null)
+            .setPositiveButton(if (result.id == null) "Настройки уведомлений"
+                else "Настройки тестового канала") { _, _ ->
+                if (result.id == null) openAndroidNotificationSettings()
+                else openAndroidProbeSettings()
+            }.show()
+        refreshSettingsWithoutJump()
     }
 
     private fun showVibrationChooser(category: String) {
@@ -2668,6 +2776,14 @@ class MainActivity : AppCompatActivity() {
                         openAndroidNotificationSettings(category)
                     }.show()
             }
+        })
+        notifications.addView(verticalGap(9))
+        notifications.addView(secondaryButton("Чистый тест системного звука и вибрации") {
+            runAndroidSignalProbe()
+        })
+        notifications.addView(verticalGap(9))
+        notifications.addView(secondaryButton("Состояние тестового канала Android") {
+            showAndroidSignalProbeState()
         })
         notifications.addView(verticalGap(9))
         notifications.addView(secondaryButton("Тест платежа через 2 минуты") {
