@@ -1,0 +1,109 @@
+name: Publish owner-test BalanceHub 1.1.4-rc1 APK
+
+on:
+  push:
+    branches:
+      - feature/balancehub-foundation
+    paths:
+      - ".github/workflows/publish-once-balancehub-1.1.4-rc1.yml"
+
+# This single-use publisher is added only after explicit owner approval.
+# Remove it after successful publication to avoid perpetual release credentials.
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    if: ${{ github.repository == 'RussoTurissto/BalanceHub' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_RUN: "43592682882"
+      SOURCE_SHA: "eea03f03d6711f73c05f234aa62296210d65e354"
+      EMULATOR_RUN: "43592663576"
+      EMULATOR_SHA: "8c358d00e484bae372cd949cb51b638ccef9782c"
+      TAG: "v1.1.4-rc1"
+      VERSION: "1.1.4-rc1"
+      CODE: "595"
+      PREVIOUS_TAG: "v1.1.3-rc4"
+    steps:
+      - name: Checkout approved release notes
+        uses: actions/checkout@v4
+
+      - name: Verify successful signed APK build and three emulator suites
+        shell: bash
+        run: |
+          set -euo pipefail
+          for kind in SOURCE EMULATOR; do
+            run_var="${kind}_RUN"
+            sha_var="${kind}_SHA"
+            run_id="${!run_var}"
+            expected_sha="${!sha_var}"
+            state="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" --jq .conclusion)"
+            sha="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" --jq .head_sha)"
+            branch="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" --jq .head_branch)"
+            if [[ "$state" != success || "$sha" != "$expected_sha" || "$branch" != "feature/balancehub-foundation" ]]; then
+              echo "::error::$kind checks are not successful, not from approved revision or wrong branch"
+              exit 1
+            fi
+          done
+          platforms="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$EMULATOR_RUN/jobs?per_page=20" \
+            --jq '[.jobs[] | select(.name | startswith("Android API")) | (.name + ":" + .conclusion)] | sort | join(",")')"
+          if [[ "$platforms" != "Android API 29:success,Android API 35:success,Android API 36:success" ]]; then
+            echo "::error::Three passing Android emulator jobs are required; got $platforms"
+            exit 1
+          fi
+          mkdir -p dist
+          gh run download "$SOURCE_RUN" --repo "$GITHUB_REPOSITORY" --name BalanceHub --dir dist
+          test -s dist/BalanceHub.apk
+
+      - name: Check APK package version signature and upgrade compatibility
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          "$tools/apksigner" verify --verbose --print-certs dist/BalanceHub.apk \
+            | tee "$RUNNER_TEMP/current-signature.txt"
+          grep -q 'Verified using v2 scheme (APK Signature Scheme v2): true' \
+            "$RUNNER_TEMP/current-signature.txt"
+          "$tools/aapt" dump badging dist/BalanceHub.apk > "$RUNNER_TEMP/current-package.txt"
+          grep -q "^package: name='com.github.russoturissto.buttonapp.app'" "$RUNNER_TEMP/current-package.txt"
+          grep -q "versionName='$VERSION'" "$RUNNER_TEMP/current-package.txt"
+          grep -q "versionCode='$CODE'" "$RUNNER_TEMP/current-package.txt"
+          mkdir -p previous
+          gh release download "$PREVIOUS_TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern BalanceHub.apk --dir previous
+          test -s previous/BalanceHub.apk
+          "$tools/apksigner" verify --verbose --print-certs previous/BalanceHub.apk \
+            > "$RUNNER_TEMP/previous-signature.txt"
+          "$tools/aapt" dump badging previous/BalanceHub.apk > "$RUNNER_TEMP/previous-package.txt"
+          previous_code="$(sed -n -E "s/^package:.*versionCode='([0-9]+)'.*/\1/p" "$RUNNER_TEMP/previous-package.txt" | head -n 1)"
+          current="$(sed -n -E 's/^.*certificate SHA-256 digest: ([0-9a-fA-F]+)$/\1/p' \
+            "$RUNNER_TEMP/current-signature.txt" | head -n 1)"
+          previous="$(sed -n -E 's/^.*certificate SHA-256 digest: ([0-9a-fA-F]+)$/\1/p' \
+            "$RUNNER_TEMP/previous-signature.txt" | head -n 1)"
+          if [[ -z "$current" || "$current" != "$previous" || -z "$previous_code" || "$CODE" -le "$previous_code" ]]; then
+            echo "::error::Signing identity changed or APK versionCode would not upgrade previous release"
+            exit 1
+          fi
+          echo "APK uses matching signing certificate and greater versionCode than $PREVIOUS_TAG"
+          sha256sum dist/BalanceHub.apk
+
+      - name: Publish approved APK as test prerelease only
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::Release already exists; refusing to overwrite"
+            exit 1
+          fi
+          test -s release/notes.md
+          grep -q 'BalanceHub 1.1.4-rc1' release/notes.md
+          gh release create "$TAG" "dist/BalanceHub.apk#BalanceHub.apk" \
+            --repo "$GITHUB_REPOSITORY" --target "$SOURCE_SHA" \
+            --title "BalanceHub 1.1.4-rc1 — тестовая сборка" \
+            --notes-file release/notes.md --prerelease --latest=false
+          echo "Test APK: https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/BalanceHub.apk" \
+            >> "$GITHUB_STEP_SUMMARY"
