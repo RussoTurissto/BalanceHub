@@ -139,7 +139,11 @@ class NotificationChannelEmulatorTest {
         val category = BalanceNotificationSounds.EVENT
         BalanceNotificationSounds.ensureDefaultChannels(context)
         if (Build.VERSION.SDK_INT < 26) return
-        val first = BalanceNotificationSounds.applyUserChoice(context, category, "crystal", true)
+        // Tests run in one installed app. A previous system-ringtone test may
+        // have saved a 0% custom WAV gain, so this case must select its own
+        // audible gain rather than inheriting another test's preference.
+        val first = BalanceNotificationSounds.applySettings(context, category,
+            "crystal", NotificationVibrationMode.DEFAULT, 100)
         assertNull("Initial tone failed: " + first, first)
         val firstChannelId = BalanceNotificationSounds.channelId(context, category)
         var channel = manager().getNotificationChannel(firstChannelId)
