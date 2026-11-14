@@ -199,4 +199,40 @@ class NotificationChannelEmulatorTest {
             }
         }
     }
+    @Test fun fiveVibrationModesAndVolumeAreAppliedToAndroidChannels() {
+        if (Build.VERSION.SDK_INT < 26) return
+        val category = BalanceNotificationSounds.PAYMENT
+        val configure = BalanceNotificationSounds.applySettings(app, category,
+            "crystal", NotificationVibrationMode.DOUBLE, 55)
+        assertNull("Custom vibration and volume were rejected: " + configure, configure)
+        assertEquals(55, BalanceNotificationSounds.volume(app, category))
+        assertEquals(NotificationVibrationMode.DOUBLE,
+            BalanceNotificationSounds.vibrationMode(app, category))
+        var channel = manager().getNotificationChannel(
+            BalanceNotificationSounds.channelId(app, category))
+        assertNotNull(channel)
+        assertTrue(channel!!.shouldVibrate())
+        assertArrayEquals(NotificationVibrationMode.pattern(NotificationVibrationMode.DOUBLE),
+            channel.vibrationPattern)
+        assertNotNull(channel.sound)
+
+        val silentHaptics = BalanceNotificationSounds.applyVibrationModeChoice(
+            app, category, NotificationVibrationMode.OFF)
+        assertNull("Cannot disable vibration: " + silentHaptics, silentHaptics)
+        channel = manager().getNotificationChannel(
+            BalanceNotificationSounds.channelId(app, category))
+        assertNotNull(channel)
+        assertFalse(channel!!.shouldVibrate())
+        assertNotNull("Changing vibration must preserve sound", channel.sound)
+
+        val defaultHaptics = BalanceNotificationSounds.applyVibrationModeChoice(
+            app, category, NotificationVibrationMode.DEFAULT)
+        assertNull("Cannot restore default vibration: " + defaultHaptics, defaultHaptics)
+        BalanceNotificationSounds.ensureDefaultChannels(app)
+        channel = manager().getNotificationChannel(
+            BalanceNotificationSounds.channelId(app, category))
+        assertNotNull(channel)
+        assertTrue(channel!!.shouldVibrate())
+    }
+
 }
