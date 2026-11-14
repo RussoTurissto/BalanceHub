@@ -23,6 +23,8 @@ internal object NotificationSignalAudit {
         lines.add("Громкость BalanceHub: " + BalanceNotificationSounds.volume(context, category) + "%")
         lines.add("Вибросигнал BalanceHub: " +
             BalanceNotificationSounds.vibrationModeTitle(context, category))
+        lines.add("Стандартная мелодия Android задана: " +
+            BalanceNotificationSounds.hasActualDefaultNotificationSound(context))
         val audio = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
         lines.add("Режим звука Android: " + when (audio.ringerMode) {
             AudioManager.RINGER_MODE_NORMAL -> "обычный"
@@ -64,6 +66,17 @@ internal object NotificationSignalAudit {
                     (channel.id == BalanceNotificationSounds.channelId(context, category)))
                 lines.add("Рисунок канала: " +
                     (channel.vibrationPattern?.joinToString(",") ?: "системный"))
+                val desiredPattern = NotificationVibrationMode.pattern(
+                    BalanceNotificationSounds.vibrationMode(context, category))
+                if (desiredPattern != null) {
+                    lines.add("Запрошенный рисунок: " + desiredPattern.joinToString(","))
+                    lines.add("Рисунок сохранён Android: " +
+                        NotificationChannelVibration.hasRequestedPattern(channel, desiredPattern))
+                }
+                if (Build.VERSION.SDK_INT >= 35) {
+                    lines.add("Эффект API 35+: " +
+                        if (channel.vibrationEffect != null) "сохранён" else "не указан")
+                }
                 val sound = channel.sound
                 val mediaTone = sound != null && BalanceNotificationSounds.tones.any {
                     BalanceSystemToneStore.cachedUri(context, it.key,
