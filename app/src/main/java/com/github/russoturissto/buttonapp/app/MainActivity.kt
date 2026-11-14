@@ -2395,6 +2395,61 @@ class MainActivity : AppCompatActivity() {
                 BalanceNotificationSounds.effectiveSummary(this,
                     BalanceNotificationSounds.UPDATE)) { openSettingsPage("update_sound") }
         ))
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            settingsGroup(settingsPanel(
+                settingsSwitch("smartphone", "Совместимость с ColorOS",
+                    "Для OnePlus: звук через Android, вибрация напрямую. На Xiaomi не включать.",
+                    BalanceNotificationSounds.colorOsCompatibility(this)) { enable ->
+                    val dialog = themedDialogBuilder()
+                        .setTitle(if (enable) "Включить обход ColorOS?"
+                            else "Выключить обход ColorOS?")
+                        .setMessage(
+                            "BalanceHub создаст по одному новому каналу для платежей, " +
+                            "событий и обновлений. Старые настройки этих каналов " +
+                            "Android (в том числе мелодии, выбранные вручную) " +
+                            "могут сброситься. Сами платежи, события и напоминания " +
+                            "останутся.\n\n" +
+                            if (enable)
+                                "Системная вибрация новых каналов будет выключена, " +
+                                    "а пользовательский сигнал запустит BalanceHub. " +
+                                    "В режиме «Без звука», при «Не беспокоить» и " +
+                                    "отключённых уведомлениях дополнительная вибрация " +
+                                    "не запускается."
+                            else "Будут созданы стандартные каналы Android. " +
+                                "Ручные настройки существующих каналов могут сброситься.")
+                        .setNegativeButton("Отмена", null)
+                        .setPositiveButton("Подтвердить") { _, _ ->
+                            val error = BalanceNotificationSounds.changeColorOsCompatibility(
+                                this, enable)
+                            if (error != null) {
+                                themedDialogBuilder().setTitle("Режим не изменён")
+                                    .setMessage(error)
+                                    .setPositiveButton("Закрыть", null).show()
+                            } else {
+                                Toast.makeText(this,
+                                    if (enable) "Совместимость с ColorOS включена"
+                                    else "Стандартные каналы восстановлены",
+                                    Toast.LENGTH_LONG).show()
+                            }
+                            refreshSettingsWithoutJump()
+                        }.create()
+                    dialog.setOnDismissListener { refreshSettingsWithoutJump() }
+                    dialog.show()
+                },
+                settingsRow("settings", "Диагностика прямой вибрации",
+                    "Последний результат для платежей, событий и обновлений") {
+                    themedDialogBuilder()
+                        .setTitle("Прямые уведомления ColorOS")
+                        .setMessage(listOf(BalanceNotificationSounds.PAYMENT,
+                            BalanceNotificationSounds.EVENT, BalanceNotificationSounds.UPDATE)
+                            .joinToString("\n\n") { category ->
+                                notificationTitle(category) + ": " +
+                                    ColorOsDirectVibration.lastResult(this, category)
+                            })
+                        .setPositiveButton("Закрыть", null).show()
+                }
+            ))
+        }
         settingsGroup(settingsPanel(settingsRow("settings",
             "Общие настройки уведомлений Android",
             "Разрешение, звук, вибрация и категории приложения") {
@@ -5453,10 +5508,10 @@ class MainActivity : AppCompatActivity() {
                 .notify(ReminderNoticeIds.test(), builder.build())
             val compatibilityVibration =
                 ColorOsDirectVibration.afterNotification(this, category, channelId)
-            Toast.makeText(this, "Уведомление передано Android. " +
-                if (BalanceNotificationSounds.colorOsCompatibility(this))
-                    "Прямая вибрация: " + compatibilityVibration.name + ". "
-                else "" +
+            val directReport = if (BalanceNotificationSounds.colorOsCompatibility(this))
+                "Прямая вибрация: " + compatibilityVibration.name + ". "
+            else ""
+            Toast.makeText(this, "Уведомление передано Android. " + directReport +
                 "Фактическое воспроизведение зависит от настроек устройства.",
                 Toast.LENGTH_LONG).show()
         } catch (_: SecurityException) {
