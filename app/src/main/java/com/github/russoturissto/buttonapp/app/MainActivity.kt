@@ -2448,7 +2448,51 @@ class MainActivity : AppCompatActivity() {
             BalanceNotificationSounds.vibrationModeTitle(this, category)) {
             showVibrationChooser(category)
         })
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            rows.add(settingsRow("settings", "Канал уведомлений Android",
+                BalanceNotificationSounds.effectiveSummary(this, category)) {
+                openAndroidNotificationSettings(category)
+            })
+            if (BalanceNotificationSounds.needsRepair(this, category)) {
+                rows.add(settingsRow("settings", "Применить звук и вибрацию",
+                    "Выбранные настройки отличаются от канала Android") {
+                    showChannelRepairDialog(category)
+                })
+            }
+        }
         settingsGroup(settingsPanel(*rows.toTypedArray()))
+    }
+
+    private fun showChannelRepairDialog(category: String) {
+        themedDialogBuilder()
+            .setTitle("Применить настройки: " + notificationTitle(category) + "?")
+            .setMessage("Android сохраняет отдельно звук и вибрацию системного канала. " +
+                "BalanceHub создаст новый канал с выбранной здесь мелодией и " +
+                "вибросигналом. Изменённые вручную параметры этого канала могут " +
+                "сброситься. Другие категории, платежи и события не изменятся. " +
+                "Если Android не примет настройки, текущий канал останется.")
+            .setNegativeButton("Отмена", null)
+            .setNeutralButton("Настройки Android") { _, _ ->
+                openAndroidNotificationSettings(category)
+            }
+            .setPositiveButton("Применить") { _, _ ->
+                val error = BalanceNotificationSounds.repairChannel(this, category)
+                if (error != null) {
+                    themedDialogBuilder()
+                        .setTitle("Android не применил настройки")
+                        .setMessage(error + "\n\nПроверьте звук и вибрацию " +
+                            "непосредственно в системном канале.")
+                        .setNegativeButton("Закрыть", null)
+                        .setPositiveButton("Настройки Android") { _, _ ->
+                            openAndroidNotificationSettings(category)
+                        }.show()
+                } else {
+                    Toast.makeText(this,
+                        "Настройки переданы Android. Проверьте уведомление на телефоне.",
+                        Toast.LENGTH_LONG).show()
+                }
+                refreshSettingsWithoutJump()
+            }.show()
     }
 
     private fun showVibrationChooser(category: String) {
@@ -5173,6 +5217,41 @@ class MainActivity : AppCompatActivity() {
                 return
             }
         }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = system.getNotificationChannel(channelId)
+            if (channel != null) {
+                val issues = mutableListOf<String>()
+                if (channel.sound == null &&
+                    BalanceNotificationSounds.selected(this, category) != "silent" &&
+                    BalanceNotificationSounds.volume(this, category) > 0) {
+                    issues.add("Звук канала отключён в Android")
+                }
+                if (!channel.shouldVibrate() &&
+                    BalanceNotificationSounds.vibrationFor(this, category)) {
+                    issues.add("Вибрация канала отключена в Android")
+                }
+                if (issues.isNotEmpty()) {
+                    themedDialogBuilder()
+                        .setTitle("Уведомление будет без части сигналов")
+                        .setMessage(issues.joinToString("\n") +
+                            "\n\nНастройки в BalanceHub не заменяют системные " +
+                            "параметры канала. Откройте настройки Android либо " +
+                            "восстановите канал в настройках этой категории.")
+                        .setNegativeButton("Отмена", null)
+                        .setNeutralButton("Настройки Android") { _, _ ->
+                            openAndroidNotificationSettings(category)
+                        }
+                        .setPositiveButton("Отправить тест") { _, _ ->
+                            postDiagnosticNotification(category, channelId)
+                        }.show()
+                    return
+                }
+            }
+        }
+        postDiagnosticNotification(category, channelId)
+    }
+
+    private fun postDiagnosticNotification(category: String, channelId: String) {
         val builder = androidx.core.app.NotificationCompat.Builder(this, channelId)
             .setSmallIcon(applicationInfo.icon)
             .setContentTitle("Тест BalanceHub: " + notificationTitle(category))
