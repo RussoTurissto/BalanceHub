@@ -2472,6 +2472,11 @@ class MainActivity : AppCompatActivity() {
                     "Выбранные настройки отличаются от канала Android") {
                     showChannelRepairDialog(category)
                 })
+            } else {
+                rows.add(settingsRow("settings", "Повторно применить сигналы",
+                    "Только по подтверждению: новый канал, настройки Android могут сброситься") {
+                    showChannelRepairDialog(category)
+                })
             }
         }
         rows.add(settingsRow("settings", "Проверить уведомление",
