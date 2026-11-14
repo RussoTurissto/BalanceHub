@@ -8,7 +8,7 @@ import android.content.Context
 import android.content.Intent
 import org.json.JSONArray
 
-/** A separate due-time alarm advances cycles after daily reminders finish. */
+/** Advance/archive only after the payment-only late-delivery grace has expired. */
 internal object PaymentArchiveScheduler {
     private fun pending(context: Context, id: String, dueAt: Long): PendingIntent =
         PendingIntent.getBroadcast(context, id.hashCode(),
@@ -18,7 +18,7 @@ internal object PaymentArchiveScheduler {
             }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
 
     fun schedule(context: Context, id: String, dueAt: Long) {
-        val trigger = dueAt + DailyReminderPolicy.DUE_GRACE_MS
+        val trigger = dueAt + PaymentDeliveryPolicy.LATE_GRACE_MS
         if (trigger <= System.currentTimeMillis()) return
         ExactReminderAlarms.schedule(context, trigger, pending(context, id, dueAt))
     }
@@ -35,7 +35,8 @@ class PaymentArchiveReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val id = intent.getStringExtra("id") ?: return
         val dueAt = intent.getLongExtra("dueAt", -1L)
-        if (dueAt <= 0L || System.currentTimeMillis() < dueAt) return
+        if (dueAt <= 0L ||
+            System.currentTimeMillis() - dueAt < PaymentDeliveryPolicy.LATE_GRACE_MS) return
         val prefs = context.getSharedPreferences("balancehub_data", Context.MODE_PRIVATE)
         val items = try {
             JSONArray(prefs.getString("payment_reminders", "[]") ?: "[]")

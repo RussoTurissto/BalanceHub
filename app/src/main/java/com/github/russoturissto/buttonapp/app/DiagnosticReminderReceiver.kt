@@ -35,6 +35,10 @@ class DiagnosticReminderReceiver : BroadcastReceiver() {
                 putBoolean("${key}_exact_allowed", ExactReminderAlarms.allowed(context))
                 putBoolean("${key}_battery_unrestricted",
                     power.isIgnoringBatteryOptimizations(context.packageName))
+                if (key == "payment") {
+                    putBoolean("payment_scheduled_power_saver", power.isPowerSaveMode)
+                    putBoolean("payment_scheduled_interactive", power.isInteractive)
+                }
                 remove("${key}_delivered")
                 remove("${key}_posted")
             }
@@ -50,7 +54,16 @@ class DiagnosticReminderReceiver : BroadcastReceiver() {
         val actual = System.currentTimeMillis()
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         if (expected <= 0L || prefs.getLong("${key}_planned", -1) != expected) return
-        prefs.edit { putLong("${key}_delivered", actual) }
+        prefs.edit {
+            putLong("${key}_delivered", actual)
+            if (key == "payment") {
+                val power = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+                putBoolean("payment_fired_idle", power.isDeviceIdleMode)
+                putBoolean("payment_fired_interactive", power.isInteractive)
+                putBoolean("payment_fired_power_saver", power.isPowerSaveMode)
+                putBoolean("payment_fired_exact_allowed", ExactReminderAlarms.allowed(context))
+            }
+        }
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
                 != PackageManager.PERMISSION_GRANTED) return

@@ -2538,6 +2538,22 @@ class MainActivity : AppCompatActivity() {
             "Проверить реальные звук и вибрацию через Android") {
             sendNotificationTest(category)
         })
+        if (category == BalanceNotificationSounds.PAYMENT) {
+            val power = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+            val exact = ExactReminderAlarms.allowed(this)
+            val battery = power.isIgnoringBatteryOptimizations(packageName)
+            rows.add(settingsRow("settings", "Доставка платежей",
+                "Точные сигналы: " + (if (exact) "разрешены" else "нет разрешения") +
+                    " · Исключение из оптимизации: " + (if (battery) "да" else "нет")) {
+                showPaymentDeliverySettings()
+            })
+            rows.add(settingsRow("settings", "Журнал доставки платежей",
+                "Планирование, задержки и результат последнего напоминания") {
+                themedDialogBuilder().setTitle("Доставка платежей")
+                    .setMessage(PaymentDeliveryLog.report(this).joinToString("\n"))
+                    .setPositiveButton("Закрыть", null).show()
+            })
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val probeModes = listOf(
                 AndroidSignalProbe.Mode.SYSTEM, AndroidSignalProbe.Mode.SHORT,
@@ -2568,6 +2584,47 @@ class MainActivity : AppCompatActivity() {
             }
         }
         settingsGroup(settingsPanel(*rows.toTypedArray()))
+    }
+
+    private fun showPaymentDeliverySettings() {
+        val power = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+        val exact = ExactReminderAlarms.allowed(this)
+        val exception = power.isIgnoringBatteryOptimizations(packageName)
+        val message = "Точные напоминания Android: " +
+            (if (exact) "разрешены" else "нет разрешения") +
+            "\nИсключение из оптимизации батареи: " +
+            (if (exception) "есть" else "нет") +
+            "\n\nТочный сигнал без значка будильника работает через " +
+            "setExactAndAllowWhileIdle(). При Doze и ограничениях OxygenOS " +
+            "Android всё же может задержать запуск. Фоновая активность и " +
+            "исключение из оптимизации — разные настройки.\n\n" +
+            "В параметрах батареи можно вручную разрешить работу без " +
+            "ограничений. BalanceHub не меняет системные настройки сам."
+        themedDialogBuilder()
+            .setTitle("Надёжность доставки платежей")
+            .setMessage(message)
+            .setNegativeButton("Закрыть", null)
+            .setNeutralButton("Настройки батареи") { _, _ ->
+                openBatteryOptimizationSettings()
+            }
+            .setPositiveButton(if (exact) "Настройки приложения" else "Точные сигналы") {
+                _, _ ->
+                val fallback = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    ("package:" + packageName).toUri())
+                val target = if (!exact && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
+                    Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
+                        ("package:" + packageName).toUri())
+                else fallback
+                try { startActivity(target) }
+                catch (_: Exception) { startActivity(fallback) }
+            }.show()
+    }
+
+    private fun openBatteryOptimizationSettings() {
+        val fallback = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+            ("package:" + packageName).toUri())
+        try { startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) }
+        catch (_: Exception) { startActivity(fallback) }
     }
 
     private fun showChannelRepairDialog(category: String, testAfterRepair: Boolean = false) {
@@ -2908,12 +2965,7 @@ class MainActivity : AppCompatActivity() {
         val log = getSharedPreferences("balancehub_reminder_diagnostics", MODE_PRIVATE)
         notifications.addView(verticalGap(8))
         notifications.addView(secondaryButton("Настройки батареи Android") {
-            try {
-                startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
-            } catch (_: Exception) {
-                startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                    ("package:" + packageName).toUri()))
-            }
+            openBatteryOptimizationSettings()
         })
         notifications.addView(verticalGap(9))
         for ((key, title) in listOf("payment" to "Платёж", "event" to "Событие")) {
@@ -2928,7 +2980,7 @@ class MainActivity : AppCompatActivity() {
                     DateFormat.getTimeInstance(DateFormat.MEDIUM).format(Date(planned)) +
                     delta, 12f, muted))
                 val method = when (log.getString("${key}_mode", "")) {
-                    "exact_idle" -> "точный будильник"
+                    "exact_idle" -> "точный сигнал без значка будильника"
                     "inexact_idle" -> "резервный неточный"
                     "expired" -> "время уже прошло"
                     else -> "неизвестен"
@@ -2945,6 +2997,17 @@ class MainActivity : AppCompatActivity() {
                     notifications.addView(textLine("Отправка в Android спустя " +
                         ((posted - delivered) / 1000L) + " сек после запуска",
                         12f, muted))
+                if (key == "payment" && delivered >= planned && delivered > 0L) {
+                    notifications.addView(textLine(
+                        "При запуске: экран " +
+                            (if (log.getBoolean("payment_fired_interactive", true))
+                                "включён" else "выключен") +
+                            " · Doze: " +
+                            (if (log.getBoolean("payment_fired_idle", false)) "да" else "нет") +
+                            " · экономия энергии: " +
+                            (if (log.getBoolean("payment_fired_power_saver", false))
+                                "да" else "нет"), 12f, muted))
+                }
             }
         }
         contentContainer.addView(notifications)

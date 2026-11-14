@@ -25,24 +25,38 @@ class PaymentReminderReceiver : BroadcastReceiver() {
                     it.optLong("dueAt", -1L) == due }
         } catch (_: Exception) { null } else null
         if (!test && item == null) return
+        if (!test) PaymentDeliveryLog.received(context,
+            intent.getLongExtra(PaymentDeliveryLog.EXTRA_EXPECTED_AT, -1L), now)
         val leadDays = if (test) 0 else item!!.optInt("leadDays", 0)
         val first = if (test) now else DailyReminderPolicy.firstPayment(due, leadDays)
-        if (!test && !DailyReminderPolicy.eligible(first, due, now)) return
+        if (!test && !PaymentDeliveryPolicy.eligible(first, due, now)) {
+            PaymentDeliveryLog.skipped(context, "Срок допустимой доставки истёк")
+            return
+        }
         if (!test) DailyReminderPolicy.following(first, due, now)?.let {
             PaymentAlarmScheduler.scheduleFollowingDay(context, intent, it)
         }
         if (Build.VERSION.SDK_INT >= 33 &&
             context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
-                PackageManager.PERMISSION_GRANTED) return
+                PackageManager.PERMISSION_GRANTED) {
+            if (!test) PaymentDeliveryLog.skipped(context, "Нет разрешения на уведомления")
+            return
+        }
         val notifications = NotificationManagerCompat.from(context)
-        if (!notifications.areNotificationsEnabled()) return
+        if (!notifications.areNotificationsEnabled()) {
+            if (!test) PaymentDeliveryLog.skipped(context, "Уведомления отключены Android")
+            return
+        }
         val channelId = BalanceNotificationSounds.ensureChannel(
             context, BalanceNotificationSounds.PAYMENT)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val manager = context.getSystemService(Context.NOTIFICATION_SERVICE)
                 as NotificationManager
             if (manager.getNotificationChannel(channelId)?.importance ==
-                NotificationManager.IMPORTANCE_NONE) return
+                NotificationManager.IMPORTANCE_NONE) {
+                if (!test) PaymentDeliveryLog.skipped(context, "Канал платежей выключен")
+                return
+            }
         }
         val title = intent.getStringExtra("title") ?: "Предстоящий платёж"
         val amount = intent.getStringExtra("amount").orEmpty()
@@ -51,7 +65,11 @@ class PaymentReminderReceiver : BroadcastReceiver() {
         val noticeId = ReminderNoticeIds.payment(id, due,
             DailyReminderPolicy.dayKey(now))
         val reservation = if (!test) DailyReminderLedger.reserve(context,
-            "payment", id, due, now, noticeId) ?: return else null
+            "payment", id, due, now, noticeId) else null
+        if (!test && reservation == null) {
+            PaymentDeliveryLog.skipped(context, "Дубль в тот же день предотвращён")
+            return
+        }
         val builder = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(context.applicationInfo.icon)
             .setContentTitle("Скоро платёж: $title")
@@ -64,12 +82,14 @@ class PaymentReminderReceiver : BroadcastReceiver() {
             context, BalanceNotificationSounds.PAYMENT, builder)
         try {
             notifications.notify(noticeId, builder.build())
+            if (!test) PaymentDeliveryLog.posted(context)
             ColorOsDirectVibration.afterNotification(
                 context, BalanceNotificationSounds.PAYMENT, channelId)
             reservation?.previousNotificationId?.takeIf { it != noticeId }?.let {
                 notifications.cancel(it)
             }
         } catch (_: SecurityException) {
+            if (!test) PaymentDeliveryLog.skipped(context, "Android отклонил отправку")
             if (reservation != null) DailyReminderLedger.rollback(
                 context, "payment", id, reservation)
         }

@@ -18,6 +18,12 @@ class ReminderTriggerPolicyTest {
             ReminderTriggerPolicy.payment(day(2026, 11, 11), 3, now))
     }
 
+    @Test fun delayedDueTimeIsRescheduledWithinShortGrace() {
+        val now = day(2026, 11, 9)
+        assertEquals(now + 1_000L,
+            ReminderTriggerPolicy.payment(now - 120_000L, 0, now))
+    }
+
     @Test fun futureLeadTimeUsesLocalCalendar() {
         val now = day(2026, 11, 1)
         assertEquals(day(2026, 11, 8),
@@ -26,7 +32,8 @@ class ReminderTriggerPolicyTest {
 
     @Test fun neverRescheduleExpiredOrInvalidPayments() {
         val now = day(2026, 11, 9)
-        assertNull(ReminderTriggerPolicy.payment(now, 0, now))
+        assertNull(ReminderTriggerPolicy.payment(
+            now - PaymentDeliveryPolicy.LATE_GRACE_MS, 0, now))
         assertNull(ReminderTriggerPolicy.payment(now + 60_000L, 31, now))
     }
 }

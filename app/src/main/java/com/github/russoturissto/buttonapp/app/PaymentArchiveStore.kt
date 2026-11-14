@@ -32,9 +32,14 @@ internal object PaymentArchiveStore {
     const val COMPLETED = "completed"
     const val DELETED = "deleted"
 
-    /** An alert sent early is NOT the payment's actual due date. */
+    /**
+     * Keep a one-time payment active during the bounded grace for a late alarm.
+     * Otherwise the archive could remove the item before the alarm receiver
+     * validates it, silently dropping the final payment notification.
+     */
     fun shouldArchive(recurrence: String, dueAt: Long, now: Long): Boolean =
-        recurrence == "once" && dueAt <= now
+        recurrence == "once" && dueAt > 0L && now >= dueAt &&
+            now - dueAt >= PaymentDeliveryPolicy.LATE_GRACE_MS
 
     private fun readArray(raw: String?): JSONArray? = try {
         JSONArray(raw ?: "[]")

@@ -32,7 +32,10 @@ class PaymentBootReceiver : BroadcastReceiver() {
                 val due = Calendar.getInstance().apply {
                     timeInMillis = payment.getLong("dueAt")
                 }
-                while (due.timeInMillis <= now) {
+                // Do not advance a recurring cycle while its final payment
+                // alert might still arrive late under Android Doze.
+                while (due.timeInMillis <= now &&
+                    now - due.timeInMillis >= PaymentDeliveryPolicy.LATE_GRACE_MS) {
                     if (recur == "weekly") due.add(Calendar.DAY_OF_YEAR, 7)
                     else due.add(Calendar.MONTH, 1)
                     advanced = true
