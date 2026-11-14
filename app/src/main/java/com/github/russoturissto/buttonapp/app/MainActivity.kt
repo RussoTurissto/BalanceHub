@@ -2479,14 +2479,24 @@ class MainActivity : AppCompatActivity() {
             sendNotificationTest(category)
         })
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            rows.add(settingsRow("settings", "Чистый тест Android",
-                "Стандартный системный звук и вибрация в отдельном канале") {
-                runAndroidSignalProbe()
+            rows.add(settingsRow("settings", "Тест: системная вибрация",
+                "Звук Android и системный рисунок, постоянный отдельный канал") {
+                runAndroidSignalProbe(AndroidSignalProbe.Mode.SYSTEM)
             })
-            if (AndroidSignalProbe.channelId(this) != null) {
-                rows.add(settingsRow("settings", "Результат чистого теста",
-                    "Состояние тестового канала после открытия Android") {
-                    showAndroidSignalProbeState()
+            rows.add(settingsRow("settings", "Тест: заданная вибрация",
+                "Тот же звук Android и два заданных импульса, другой канал") {
+                runAndroidSignalProbe(AndroidSignalProbe.Mode.PATTERN)
+            })
+            if (AndroidSignalProbe.channelId(this, AndroidSignalProbe.Mode.SYSTEM) != null) {
+                rows.add(settingsRow("settings", "Результат системного теста",
+                    "Проверить настройки первоначального канала Android") {
+                    showAndroidSignalProbeState(AndroidSignalProbe.Mode.SYSTEM)
+                })
+            }
+            if (AndroidSignalProbe.channelId(this, AndroidSignalProbe.Mode.PATTERN) != null) {
+                rows.add(settingsRow("settings", "Результат заданного теста",
+                    "Проверить настройки канала с рисунком вибрации") {
+                    showAndroidSignalProbeState(AndroidSignalProbe.Mode.PATTERN)
                 })
             }
         }
@@ -2588,8 +2598,10 @@ class MainActivity : AppCompatActivity() {
         if (currentTab == 4) refreshSettingsWithoutJump()
     }
 
-    private fun openAndroidProbeSettings() {
-        val id = AndroidSignalProbe.channelId(this) ?: return
+    private fun openAndroidProbeSettings(
+        mode: AndroidSignalProbe.Mode = AndroidSignalProbe.Mode.SYSTEM
+    ) {
+        val id = AndroidSignalProbe.channelId(this, mode) ?: return
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
             openAndroidNotificationSettings()
             return
@@ -2602,34 +2614,39 @@ class MainActivity : AppCompatActivity() {
         catch (_: Exception) { openAndroidNotificationSettings() }
     }
 
-    private fun showAndroidSignalProbeState() {
-        val id = AndroidSignalProbe.channelId(this)
+    private fun showAndroidSignalProbeState(
+        mode: AndroidSignalProbe.Mode = AndroidSignalProbe.Mode.SYSTEM
+    ) {
+        val id = AndroidSignalProbe.channelId(this, mode)
         themedDialogBuilder()
-            .setTitle("Независимый тест Android")
-            .setMessage(AndroidSignalProbe.report(this) +
+            .setTitle("Диагностика: " + mode.label)
+            .setMessage(AndroidSignalProbe.report(this, mode) +
                 "\n\nСравните переключатели в настройках именно этого канала.")
             .setNegativeButton("Закрыть", null)
             .setPositiveButton("Настройки Android") { _, _ ->
-                if (id != null) openAndroidProbeSettings()
+                if (id != null) openAndroidProbeSettings(mode)
+                else openAndroidNotificationSettings()
             }.show()
     }
 
-    private fun runAndroidSignalProbe() {
+    private fun runAndroidSignalProbe(
+        mode: AndroidSignalProbe.Mode = AndroidSignalProbe.Mode.SYSTEM
+    ) {
         if (Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
                 PackageManager.PERMISSION_GRANTED) {
             requestNotificationPermissionIfNeeded()
             return
         }
-        val result = AndroidSignalProbe.send(this)
+        val result = AndroidSignalProbe.send(this, mode)
         themedDialogBuilder()
-            .setTitle("Проверка стандартных сигналов Android")
+            .setTitle("Проверка: " + mode.label)
             .setMessage(result.report)
             .setNegativeButton("Закрыть", null)
             .setPositiveButton(if (result.id == null) "Настройки уведомлений"
                 else "Настройки тестового канала") { _, _ ->
                 if (result.id == null) openAndroidNotificationSettings()
-                else openAndroidProbeSettings()
+                else openAndroidProbeSettings(mode)
             }.show()
         refreshSettingsWithoutJump()
     }
@@ -2787,12 +2804,20 @@ class MainActivity : AppCompatActivity() {
             }
         })
         notifications.addView(verticalGap(9))
-        notifications.addView(secondaryButton("Чистый тест системного звука и вибрации") {
-            runAndroidSignalProbe()
+        notifications.addView(secondaryButton("Тест: системная вибрация Android") {
+            runAndroidSignalProbe(AndroidSignalProbe.Mode.SYSTEM)
         })
         notifications.addView(verticalGap(9))
-        notifications.addView(secondaryButton("Состояние тестового канала Android") {
-            showAndroidSignalProbeState()
+        notifications.addView(secondaryButton("Тест: заданный рисунок вибрации") {
+            runAndroidSignalProbe(AndroidSignalProbe.Mode.PATTERN)
+        })
+        notifications.addView(verticalGap(9))
+        notifications.addView(secondaryButton("Состояние системного теста") {
+            showAndroidSignalProbeState(AndroidSignalProbe.Mode.SYSTEM)
+        })
+        notifications.addView(verticalGap(9))
+        notifications.addView(secondaryButton("Состояние теста с рисунком") {
+            showAndroidSignalProbeState(AndroidSignalProbe.Mode.PATTERN)
         })
         notifications.addView(verticalGap(9))
         notifications.addView(secondaryButton("Тест платежа через 2 минуты") {
