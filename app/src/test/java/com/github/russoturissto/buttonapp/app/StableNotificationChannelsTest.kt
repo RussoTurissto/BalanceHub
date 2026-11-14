@@ -38,6 +38,31 @@ class StableNotificationChannelsTest {
         assertFalse(StableNotificationChannels.isManaged("balancehub.channel.event.configured.bad"))
     }
 
+    @Test fun newChannelIdsNeverReuseOldAndroidDeletedChannelIds() {
+        val category = BalanceNotificationSounds.PAYMENT
+        val legacy = StableNotificationChannels.id(category, 45)
+        val first = StableNotificationChannels.freshId(category, 45)
+        val second = StableNotificationChannels.freshId(category, 45)
+        assertFalse(first == second)
+        assertFalse(first == legacy)
+        assertTrue(StableNotificationChannels.belongsToCategory(first, category))
+        assertTrue(StableNotificationChannels.isManaged(first))
+        assertFalse(StableNotificationChannels.belongsToCategory(first,
+            BalanceNotificationSounds.EVENT))
+        assertFalse(StableNotificationChannels.isManaged(
+            StableNotificationChannels.id(category) + ".configured.1.bad"))
+    }
+
+    @Test fun systemProbeIdsNeverMatchUserPaymentOrEventChannels() {
+        val a = StableNotificationChannels.probeId()
+        val b = StableNotificationChannels.probeId()
+        assertFalse(a == b)
+        assertTrue(StableNotificationChannels.isProbe(a))
+        assertFalse(StableNotificationChannels.isManaged(a))
+        assertFalse(StableNotificationChannels.isRetired(a))
+        assertFalse(StableNotificationChannels.isProbe("balancehub.channel.signal_test.invalid"))
+    }
+
     @Test fun legacyVariantsAreIdentifiedWithoutMatchingNewChannels() {
         for (category in listOf(BalanceNotificationSounds.PAYMENT,
             BalanceNotificationSounds.EVENT, BalanceNotificationSounds.UPDATE)) {
