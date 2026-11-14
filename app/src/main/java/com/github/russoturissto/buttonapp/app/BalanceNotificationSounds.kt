@@ -203,7 +203,11 @@ internal object BalanceNotificationSounds {
     private data class SoundSelection(val uri: Uri?, val error: String? = null)
 
     private fun resolveSound(context: Context, key: String, gain: Int): SoundSelection {
-        if (key == "silent" || gain == 0) return SoundSelection(null)
+        // The in-app gain slider only attenuates bundled WAV tones.
+        // A system ringtone always follows the Android notification volume.
+        if (key == "silent" || (key != "system" && gain == 0)) {
+            return SoundSelection(null)
+        }
         if (key == "system") {
             val system = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
             return SoundSelection(system, if (system == null) "В Android не выбран системный звук"
@@ -311,7 +315,7 @@ internal object BalanceNotificationSounds {
         if (selection.error != null) return selection.error
         // Never silently undo a channel that the user muted in Android.
         // Selecting a tone can only make sound audible once its importance is restored.
-        if (key != "silent" && percent > 0 &&
+        if ((key == "system" || (key != "silent" && percent > 0)) &&
             old.importance < NotificationManager.IMPORTANCE_DEFAULT) {
             return "Android перевёл этот канал в беззвучный режим. Откройте настройки " +
                 "канала и включите звуковые уведомления, затем выберите мелодию ещё раз."
@@ -408,7 +412,7 @@ internal object BalanceNotificationSounds {
 
     private fun matchesConfiguredSound(context: Context, key: String, gain: Int,
         actual: Uri?): Boolean {
-        if (key == "silent" || gain == 0) return actual == null
+        if (key == "silent" || (key != "system" && gain == 0)) return actual == null
         if (key == "system")
             return actual == RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
         return actual == soundUri(context, key, gain) ||
