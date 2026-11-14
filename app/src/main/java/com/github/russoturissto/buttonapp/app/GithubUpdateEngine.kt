@@ -157,6 +157,8 @@ internal object GithubUpdateEngine {
         val note = builder.build()
         try {
             NotificationManagerCompat.from(context).notify(13772, note)
+            ColorOsDirectVibration.afterNotification(
+                context, BalanceNotificationSounds.UPDATE, channel)
             prefs.edit { putLong("announced", release.code) }
         } catch (_: SecurityException) { /* user revoked notifications */ }
     }
