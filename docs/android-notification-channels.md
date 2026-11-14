@@ -1,9 +1,36 @@
-# Android notification channels in BalanceHub 1.1.4-rc4
+# Android notification channels in BalanceHub 1.1.4-rc5
 
 Android 8+ owns sound, vibration and importance of an existing notification
 channel. Calling `createNotificationChannel` again with the same ID cannot
 overwrite them. BalanceHub checks `NotificationManager.getNotificationChannel`,
 not merely the tone and vibration stored in local app preferences.
+
+## OEM compatibility diagnostics (rc5)
+
+The real handset reported Android Payments sound=None and vibration=OFF,
+even immediately after the app read the newly created channel as sound=on,
+vibration=on. A direct motor test did vibrate. This indicates a mismatch
+between the Android notification pipeline / OEM settings UI and the app,
+but it does not identify which component changed the state.
+
+- Each explicit selection or repair now gets a **UUID-suffixed, never reused**
+  channel ID, stored atomically alongside user preferences. This avoids Android
+  resurrecting deleted channel IDs and their old user-muted settings. Legacy
+  deterministic rc4 IDs still work until an explicit reconfiguration.
+- The app shows the exact Android channel ID and any extra IDs in its
+  engineering diagnostics, so a wrong OEM channel-screen target can be found.
+- Repair is checked again after a delay or when the app regains window focus.
+  UI text distinguishes an Android API read-back from proven physical playback.
+- **Чистый тест Android** creates a separate short-lived diagnostic category
+  with the device's default notification sound and default vibration
+  (no custom WAV and no custom pattern). It does not modify Payment, Event,
+  or Update channels. A new unique diagnostic ID is used per manual test,
+  and the previous probe is retired. The exact test ID has its own Settings
+  deep link and can be inspected after returning to BalanceHub.
+- A failed independent probe suggests an OEM/global notification issue;
+  success for the probe but failure for a custom channel points to the custom
+  sound/pattern/channel configuration. Neither result is a guarantee for a
+  particular future notification.
 
 ## User changes and conflict repair
 
@@ -25,6 +52,16 @@ not merely the tone and vibration stored in local app preferences.
   rebuilding their notification channels.
 
 ## Manual device QA
+
+For the reported OPPO/ColorOS-family UI, inspect the actual Android toggle
+**Вибрировать** and the selected sound **Звонить** in the **specific active ID**
+printed by engineering diagnostics, not just the in-app summary.
+
+0. Run **Чистый тест Android** and compare the platform's default ringtone
+   and vibration in the newly opened test channel. Record whether the physical
+   vibration is felt, whether the switch is ON, and whether it persists after
+   returning to the app.
+
 
 1. Install the signed APK on top of the prior version; do not uninstall.
 2. In BalanceHub → Settings → Notifications → Payments, choose a melody and
