@@ -8,6 +8,7 @@ import android.os.VibrationEffect
  * An OS channel is immutable after registration. Configure the waveform only
  * while building a new channel. Android/OEM vibration policy remains authoritative.
  */
+@androidx.annotation.RequiresApi(Build.VERSION_CODES.O)
 internal object NotificationChannelVibration {
     fun apply(channel: NotificationChannel, pattern: LongArray?) {
         if (pattern == null) {
