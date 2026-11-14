@@ -26,12 +26,31 @@ class PaymentReminderReceiver : BroadcastReceiver() {
         } catch (_: Exception) { null } else null
         if (!test && item == null) return
         if (!test) PaymentDeliveryLog.received(context,
-            intent.getLongExtra(PaymentDeliveryLog.EXTRA_EXPECTED_AT, -1L), now)
+            intent.getLongExtra(PaymentDeliveryLog.EXTRA_EXPECTED_AT, -1L), now, due)
         val leadDays = if (test) 0 else item!!.optInt("leadDays", 0)
         val first = if (test) now else DailyReminderPolicy.firstPayment(due, leadDays)
-        if (!test && !PaymentDeliveryPolicy.eligible(first, due, now)) {
-            PaymentDeliveryLog.skipped(context, "Срок допустимой доставки истёк")
-            return
+        if (!test) {
+            when (PaymentDeliveryPolicy.status(first, due, now)) {
+                PaymentDeliveryPolicy.Status.EARLY -> {
+                    val retryAt = PaymentDeliveryPolicy.earlyRetryAt(first, due, now)
+                        ?: return
+                    val mode = PaymentAlarmScheduler.rearmEarly(context, intent, retryAt)
+                    PaymentDeliveryLog.skipped(context,
+                        if (mode == "expired" || mode == "invalid")
+                            "Ранний сигнал: не удалось повторно запланировать"
+                        else "Сигнал раньше срока — переназначен")
+                    return
+                }
+                PaymentDeliveryPolicy.Status.EXPIRED -> {
+                    PaymentDeliveryLog.skipped(context, "Срок допустимой доставки истёк")
+                    return
+                }
+                PaymentDeliveryPolicy.Status.INVALID -> {
+                    PaymentDeliveryLog.skipped(context, "Некорректный срок платежа")
+                    return
+                }
+                PaymentDeliveryPolicy.Status.READY -> Unit
+            }
         }
         if (!test) DailyReminderPolicy.following(first, due, now)?.let {
             PaymentAlarmScheduler.scheduleFollowingDay(context, intent, it)

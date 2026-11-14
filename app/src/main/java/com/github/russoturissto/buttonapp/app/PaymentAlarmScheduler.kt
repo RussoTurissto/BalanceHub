@@ -34,6 +34,28 @@ internal object PaymentAlarmScheduler {
         PaymentDeliveryLog.scheduled(context, trigger, mode)
     }
 
+    /**
+     * An early receiver cannot post yet. Re-arm the same PendingIntent identity,
+     * so Android replaces the pending attempt rather than creating a duplicate.
+     * Do not touch the archive alarm or notification channels here.
+     */
+    fun rearmEarly(context: Context, source: Intent, requestedAt: Long): String {
+        val id = source.getStringExtra("id") ?: return "invalid"
+        val dueAt = source.getLongExtra("dueAt", -1L)
+        val trigger = maxOf(requestedAt, System.currentTimeMillis() + 1_000L)
+        val pending = pending(context, id,
+            source.getStringExtra("title").orEmpty(),
+            source.getStringExtra("amount").orEmpty(),
+            source.getStringExtra("currency").orEmpty(),
+            dueAt,
+            source.getIntExtra("leadDays", 0),
+            source.getStringExtra("recurrence").orEmpty(),
+            trigger)
+        val mode = ExactReminderAlarms.schedule(context, trigger, pending)
+        PaymentDeliveryLog.scheduled(context, trigger, mode)
+        return mode
+    }
+
     fun scheduleFollowingDay(context: Context, source: Intent, nextAt: Long) {
         val id = source.getStringExtra("id") ?: return
         val next = Intent(context, PaymentReminderReceiver::class.java).apply {

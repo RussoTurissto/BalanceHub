@@ -18,11 +18,12 @@ internal object PaymentDeliveryLog {
         }
     }
 
-    fun received(context: Context, expectedAt: Long, actualAt: Long) {
+    fun received(context: Context, expectedAt: Long, actualAt: Long, dueAt: Long) {
         val power = context.getSystemService(Context.POWER_SERVICE) as PowerManager
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit {
             putLong("received_at", actualAt)
             putLong("expected_at", expectedAt)
+            putLong("received_due_at", dueAt)
             putBoolean("received_interactive", power.isInteractive)
             putBoolean("received_idle", power.isDeviceIdleMode)
             putBoolean("received_power_saver", power.isPowerSaveMode)
@@ -44,6 +45,15 @@ internal object PaymentDeliveryLog {
         }
     }
 
+    /** Never report an early delivery as a zero-second Android delay. */
+    fun timingLine(expectedAt: Long, actualAt: Long): String? {
+        if (expectedAt <= 0L || actualAt <= 0L) return null
+        return if (actualAt < expectedAt)
+            "Опережение относительно плана: " +
+                ((expectedAt - actualAt + 999L) / 1_000L) + " сек"
+        else "Задержка Android: " + ((actualAt - expectedAt) / 1_000L) + " сек"
+    }
+
     fun report(context: Context): List<String> {
         val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         fun time(at: Long): String = if (at > 0L) DateFormat.getDateTimeInstance(
@@ -62,9 +72,10 @@ internal object PaymentDeliveryLog {
             },
             "Последний запуск обработчика: " + time(fired))
         if (fired > 0L) {
+            lines.add("Срок платежа этого запуска: " +
+                time(p.getLong("received_due_at", 0L)))
             lines.add("Плановое время этого запуска: " + time(expected))
-            if (expected > 0L) lines.add("Задержка Android: " +
-                ((fired - expected).coerceAtLeast(0L) / 1000L) + " сек")
+            timingLine(expected, fired)?.let(lines::add)
             lines.add("Экран при запуске: " +
                 (if (p.getBoolean("received_interactive", true)) "включён" else "выключен"))
             lines.add("Doze при запуске: " +
