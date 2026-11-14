@@ -334,7 +334,8 @@ internal object BalanceNotificationSounds {
             for (category in listOf(PAYMENT, EVENT, UPDATE)) {
                 val oldId = ensureChannel(context, category)
                 val old = manager.getNotificationChannel(oldId)
-                    ?: return "Отсутствует системный канал: " + legacyChannel(category)
+                    ?: throw IllegalStateException(
+                        "Отсутствует системный канал: " + legacyChannel(category))
                 val key = selected(context, category)
                 val mode = vibrationMode(context, category)
                 val sound = resolveSound(context, key, volume(context, category))
@@ -373,7 +374,7 @@ internal object BalanceNotificationSounds {
                 try { manager.deleteNotificationChannel(change.oldId) }
                 catch (_: Exception) { }
             }
-            deleteUnusedChannels(context)
+            try { deleteUnusedChannels(context) } catch (_: Exception) { }
             return null
         } catch (error: Exception) {
             android.util.Log.e("BalanceHubColorOs", "Compatibility switch failed", error)
