@@ -169,6 +169,55 @@ class NotificationChannelEmulatorTest {
         assertNotNull("Tone not restored", channel.sound)
     }
 
+    @Test fun explicitRepairRestoresSignalsWhenAppAndAndroidSettingsDiverged() {
+        if (Build.VERSION.SDK_INT < 26) return
+        val context = app
+        val category = BalanceNotificationSounds.UPDATE
+        val muted = BalanceNotificationSounds.applySettings(
+            context, category, "silent", NotificationVibrationMode.OFF, 100)
+        assertNull("Cannot prepare silent channel: " + muted, muted)
+        val oldId = BalanceNotificationSounds.channelId(context, category)
+        val before = manager().getNotificationChannel(oldId)
+        assertNotNull(before)
+        assertNull(before!!.sound)
+        assertFalse(before.shouldVibrate())
+
+        // Simulate an upgrade that preserved the user's desired app settings
+        // while the OS channel remained silent. Saving a preference is NOT
+        // allowed to silently replace the system channel.
+        BalanceNotificationSounds.choose(context, category, "balancehub")
+        BalanceNotificationSounds.setVibrationFor(context, category, true)
+        assertEquals(oldId, BalanceNotificationSounds.channelId(context, category))
+        assertNull(manager().getNotificationChannel(oldId)!!.sound)
+        assertTrue(BalanceNotificationSounds.needsRepair(context, category))
+
+        // Explicit consent creates a new channel, without reinstalling the app.
+        val repaired = BalanceNotificationSounds.repairChannel(context, category)
+        assertNull("Channel repair failed: " + repaired, repaired)
+        val newId = BalanceNotificationSounds.channelId(context, category)
+        assertTrue("A new channel generation is required", newId != oldId)
+        val after = manager().getNotificationChannel(newId)
+        assertNotNull(after)
+        assertNotNull("Custom tone was dropped", after!!.sound)
+        assertTrue("Vibration did not return", after.shouldVibrate())
+        assertFalse("Repair still reported as needed",
+            BalanceNotificationSounds.needsRepair(context, category))
+    }
+
+    @Test fun systemNotificationToneIgnoresBundledWavGain() {
+        if (Build.VERSION.SDK_INT < 26) return
+        val category = BalanceNotificationSounds.EVENT
+        val applied = BalanceNotificationSounds.applySettings(
+            app, category, "system", NotificationVibrationMode.DEFAULT, 0)
+        assertNull("System ringtone must work at app WAV gain zero: " + applied, applied)
+        val channel = manager().getNotificationChannel(
+            BalanceNotificationSounds.channelId(app, category))
+        assertNotNull(channel)
+        assertEquals(android.media.RingtoneManager.getDefaultUri(
+            android.media.RingtoneManager.TYPE_NOTIFICATION), channel!!.sound)
+        assertFalse(BalanceNotificationSounds.needsRepair(app, category))
+    }
+
     @Test fun mediaStoreSoundIsReadableBySeparateShellProcess() {
         if (Build.VERSION.SDK_INT < 29) return
         val context = app
