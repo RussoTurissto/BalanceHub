@@ -2782,8 +2782,24 @@ class MainActivity : AppCompatActivity() {
             val name = textLine(
                 (if (key == selected) "✓  " else "     ") + label,
                 15f, if (key == selected) accent else ink, key == selected)
-            row.addView(name, LinearLayout.LayoutParams(-1, dp(48)))
+            row.addView(name, LinearLayout.LayoutParams(0, dp(48), 1f))
             name.gravity = Gravity.CENTER_VERTICAL
+            // Listening never selects a tone, closes the picker or changes a channel.
+            if (key != "silent") {
+                val listen = textLine("▶", 22f, accent, true).apply {
+                    gravity = Gravity.CENTER
+                    contentDescription = "Прослушать мелодию: " + label
+                    isClickable = true
+                    isFocusable = true
+                    setOnClickListener {
+                        BalanceNotificationSounds.preview(
+                            this@MainActivity, key, category)?.let { error ->
+                            Toast.makeText(this@MainActivity, error, Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
+                row.addView(listen, LinearLayout.LayoutParams(dp(52), dp(48)))
+            }
             row.setOnClickListener {
                 val error = BalanceNotificationSounds.applyUserChoice(
                     this, category, key,
@@ -2791,10 +2807,15 @@ class MainActivity : AppCompatActivity() {
                 if (error == null) {
                     dialog.dismiss()
                     refreshSettingsWithoutJump()
-                    if (key != "silent") {
-                        if (key == "system") BalanceNotificationSounds.previewChannel(this, category)
-                        else BalanceNotificationSounds.preview(this, key, category)
-                    }
+                } else if (error.contains("настройки канала", ignoreCase = true) ||
+                    error.contains("настройках канала", ignoreCase = true)) {
+                    themedDialogBuilder()
+                        .setTitle("Настройки звука Android")
+                        .setMessage(error)
+                        .setNegativeButton("Позже", null)
+                        .setPositiveButton("Открыть канал") { _, _ ->
+                            openAndroidNotificationSettings(category)
+                        }.show()
                 } else Toast.makeText(this, error, Toast.LENGTH_LONG).show()
             }
             content.addView(row)

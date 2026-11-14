@@ -23,6 +23,17 @@ internal object NotificationVibrationMode {
         else -> "По умолчанию"
     }
 
+    /** Show a configured pattern separately from what Android currently reports. */
+    fun effectiveLabel(requestedMode: String, channelVibrates: Boolean): String {
+        val chosen = title(requestedMode)
+        return when {
+            requestedMode == OFF && !channelVibrates -> chosen
+            requestedMode == OFF -> "$chosen (в Android включена)"
+            !channelVibrates -> "$chosen (в Android отключена)"
+            else -> chosen
+        }
+    }
+
     fun enabled(value: String): Boolean = value != OFF
 
     /** null means the platform's default notification vibration. */

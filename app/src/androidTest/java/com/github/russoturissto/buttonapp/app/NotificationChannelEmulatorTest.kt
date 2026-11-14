@@ -110,6 +110,30 @@ class NotificationChannelEmulatorTest {
         }
     }
 
+    @Test fun aPreviouslySilentCategoryCanApplyBundledSoundOnExplicitSelection() {
+        if (Build.VERSION.SDK_INT < 26) return
+        val context = app
+        val category = BalanceNotificationSounds.UPDATE
+        val silent = BalanceNotificationSounds.applySettings(
+            context, category, "silent", NotificationVibrationMode.OFF, 100)
+        assertNull("Cannot start with silent channel: " + silent, silent)
+        val silentChannel = manager().getNotificationChannel(
+            BalanceNotificationSounds.channelId(context, category))
+        assertNotNull(silentChannel)
+        assertNull("Silent configuration must have no sound", silentChannel!!.sound)
+
+        val enabled = BalanceNotificationSounds.applySettings(
+            context, category, "crystal", NotificationVibrationMode.DOUBLE, 90)
+        assertNull("Cannot re-enable a saved silent channel: " + enabled, enabled)
+        val restoredChannel = manager().getNotificationChannel(
+            BalanceNotificationSounds.channelId(context, category))
+        assertNotNull(restoredChannel)
+        assertNotNull("Restored custom sound was dropped by Android", restoredChannel!!.sound)
+        assertTrue("Restored vibration is missing", restoredChannel.shouldVibrate())
+        assertNull("Restored WAV cannot be opened",
+            BalanceNotificationSounds.audioProbe(context, restoredChannel.sound!!))
+    }
+
     @Test fun changingMelodyAndVibrationPersistsAfterSettingsRecreated() {
         val context = app
         val category = BalanceNotificationSounds.EVENT

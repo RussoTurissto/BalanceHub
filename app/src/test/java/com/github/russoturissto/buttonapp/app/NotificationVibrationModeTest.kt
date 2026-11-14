@@ -17,6 +17,17 @@ class NotificationVibrationModeTest {
             NotificationVibrationMode.title(NotificationVibrationMode.DOUBLE))
     }
 
+    @Test fun configuredVibrationIsNotMisreportedAsAnAbsentMotor() {
+        assertEquals("Двойной (в Android отключена)",
+            NotificationVibrationMode.effectiveLabel(NotificationVibrationMode.DOUBLE, false))
+        assertEquals("Двойной",
+            NotificationVibrationMode.effectiveLabel(NotificationVibrationMode.DOUBLE, true))
+        assertEquals("Выключено",
+            NotificationVibrationMode.effectiveLabel(NotificationVibrationMode.OFF, false))
+        assertEquals("Выключено (в Android включена)",
+            NotificationVibrationMode.effectiveLabel(NotificationVibrationMode.OFF, true))
+    }
+
     @Test fun offDisablesOnlyTheHapticAlert() {
         assertFalse(NotificationVibrationMode.enabled(NotificationVibrationMode.OFF))
         assertTrue(NotificationVibrationMode.enabled(NotificationVibrationMode.DEFAULT))

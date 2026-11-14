@@ -309,6 +309,13 @@ internal object BalanceNotificationSounds {
             ?: return "Канал Android недоступен"
         val selection = resolveSound(context, key, percent)
         if (selection.error != null) return selection.error
+        // Never silently undo a channel that the user muted in Android.
+        // Selecting a tone can only make sound audible once its importance is restored.
+        if (key != "silent" && percent > 0 &&
+            old.importance < NotificationManager.IMPORTANCE_DEFAULT) {
+            return "Android перевёл этот канал в беззвучный режим. Откройте настройки " +
+                "канала и включите звуковые уведомления, затем выберите мелодию ещё раз."
+        }
         val expectedSound = selection.uri
         val expectedVibration = NotificationVibrationMode.enabled(mode)
         val expectedPattern = NotificationVibrationMode.pattern(mode)
@@ -334,13 +341,25 @@ internal object BalanceNotificationSounds {
         val nextId = StableNotificationChannels.id(category, next)
         return try {
             // Preserve the user's system-level decision to mute a category.
+            // An old, silent channel may carry audio attributes unsuitable for
+            // notification playback. A new user-selected sound always uses USAGE_NOTIFICATION.
             val channel = newChannel(category, nextId, expectedSound, mode, old.importance,
-                old.audioAttributes ?: notificationAttributes)
+                notificationAttributes)
             manager.createNotificationChannel(channel)
             val actual = manager.getNotificationChannel(nextId)
             if (actual == null || !matches(actual)) {
+                val reason = when {
+                    actual == null -> "Android не создал канал уведомлений"
+                    expectedSound != null && actual.sound == null ->
+                        "Android оставил канал без звука. Откройте настройки канала и выберите мелодию."
+                    actual.sound != expectedSound ->
+                        "Android назначил другую мелодию. Проверьте звук в настройках канала."
+                    actual.shouldVibrate() != expectedVibration ->
+                        "Android не принял настройку вибрации канала"
+                    else -> "Android изменил рисунок вибрации"
+                }
                 manager.deleteNotificationChannel(nextId)
-                return "Android не принял звук или вибрацию"
+                return reason
             }
             if (!save().putInt("channel_revision_" + category, next).commit()) {
                 manager.deleteNotificationChannel(nextId)
@@ -434,7 +453,9 @@ internal object BalanceNotificationSounds {
             return "Канал отключён в Android"
         if (channel.importance < NotificationManager.IMPORTANCE_DEFAULT)
             return "Беззвучный канал Android"
-        val actual = channel.sound ?: return "Без звука в Android"
+        val actual = channel.sound ?: return if (selected(context, category) == "silent")
+            "Без звука (выбрано)" else "Без звука в Android (выбрана: " +
+            title(context, category) + ")"
         val key = selected(context, category)
         return when {
             matchesConfiguredSound(context, key, volume(context, category), actual) ->
@@ -458,8 +479,8 @@ internal object BalanceNotificationSounds {
 
     fun effectiveSummary(context: Context, category: String): String {
         val sound = effectiveSoundTitle(context, category)
-        val vibration = if (effectiveVibration(context, category))
-            vibrationModeTitle(context, category) else "Без вибрации"
+        val vibration = NotificationVibrationMode.effectiveLabel(
+            vibrationMode(context, category), effectiveVibration(context, category))
         return sound + " · " + vibration
     }
 
@@ -511,7 +532,9 @@ internal object BalanceNotificationSounds {
             (context.getSystemService(Context.NOTIFICATION_SERVICE)
                 as NotificationManager).getNotificationChannel(id)?.sound
         } else soundUri(context, selected(context, category), volume(context, category))
-        if (uri == null) return "Звук этого уведомления выключен"
+        if (uri == null) return "В Android у этого канала не выбран звук. " +
+            "Откройте системные настройки канала и включите звук; " +
+            "или выберите мелодию в настройках BalanceHub."
         return try {
             if (uri.authority == context.packageName + ".sounds") {
                 val readable = context.contentResolver.openFileDescriptor(uri, "r")?.use {
@@ -550,29 +573,61 @@ internal object BalanceNotificationSounds {
         previewPlayer = null
     }
 
-    fun preview(context: Context, key: String, category: String) {
+    /**
+     * Preview is independent from the OS notification channel: a user must be
+     * able to audition bundled WAV sounds without changing Android preferences.
+     * A preview does not claim that the system channel itself can play the tone.
+     * @return user-facing error, or null when playback was started.
+     */
+    fun preview(context: Context, key: String, category: String): String? {
         stopPreview()
-        val tone = tones.firstOrNull { it.key == key } ?: return
-        try {
-            val player = MediaPlayer()
+        if (key == "silent") return "Выбран режим без звука"
+        val gain = volume(context, category)
+        if (key != "system" && gain == 0)
+            return "Громкость этой мелодии — 0%. Увеличьте её в настройках."
+        var player: MediaPlayer? = null
+        return try {
+            player = MediaPlayer()
             player.setAudioAttributes(AudioAttributes.Builder()
-                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                .setUsage(AudioAttributes.USAGE_MEDIA)
                 .build())
-            context.resources.openRawResourceFd(tone.resource)?.use { fd ->
-                player.setDataSource(fd.fileDescriptor, fd.startOffset, fd.length)
-            } ?: return
+            if (key == "system") {
+                val systemUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+                    ?: return "Системная мелодия Android не выбрана"
+                player.setDataSource(context, systemUri)
+            } else {
+                val tone = tones.firstOrNull { it.key == key }
+                    ?: return "Неизвестная мелодия BalanceHub"
+                val descriptor = context.resources.openRawResourceFd(tone.resource)
+                    ?: return "Встроенная мелодия недоступна"
+                descriptor.use { fd ->
+                    player.setDataSource(fd.fileDescriptor, fd.startOffset, fd.length)
+                }
+            }
             player.prepare()
-            val gain = volume(context, category) / 100f
-            player.setVolume(gain, gain)
+            val level = if (key == "system") 1f else gain / 100f
+            player.setVolume(level, level)
             previewPlayer = player
-            player.setOnCompletionListener {
-                it.release()
-                if (previewPlayer === it) previewPlayer = null
+            player.setOnCompletionListener { finished ->
+                if (previewPlayer === finished) previewPlayer = null
+                finished.release()
+            }
+            player.setOnErrorListener { failed, _, _ ->
+                if (previewPlayer === failed) previewPlayer = null
+                failed.release()
+                true
             }
             player.start()
-        } catch (_: Exception) {
-            stopPreview()
+            null
+        } catch (error: Exception) {
+            android.util.Log.w("BalanceHubSound", "Preview playback failed", error)
+            "Прослушивание недоступно: " + error.javaClass.simpleName
+        }.also { failure ->
+            if (failure != null) {
+                try { player?.release() } catch (_: Exception) { }
+                if (previewPlayer === player) previewPlayer = null
+            }
         }
     }
 }
