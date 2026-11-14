@@ -2460,17 +2460,23 @@ class MainActivity : AppCompatActivity() {
                 })
             }
         }
+        rows.add(settingsRow("settings", "Проверить уведомление",
+            "Проверить реальные звук и вибрацию через Android") {
+            sendNotificationTest(category)
+        })
         settingsGroup(settingsPanel(*rows.toTypedArray()))
     }
 
-    private fun showChannelRepairDialog(category: String) {
+    private fun showChannelRepairDialog(category: String, testAfterRepair: Boolean = false) {
         themedDialogBuilder()
             .setTitle("Применить настройки: " + notificationTitle(category) + "?")
-            .setMessage("Android сохраняет отдельно звук и вибрацию системного канала. " +
-                "BalanceHub создаст новый канал с выбранной здесь мелодией и " +
-                "вибросигналом. Изменённые вручную параметры этого канала могут " +
-                "сброситься. Другие категории, платежи и события не изменятся. " +
-                "Если Android не примет настройки, текущий канал останется.")
+            .setMessage("Android отдельно хранит звук и вибрацию канала. " +
+                "По вашему подтверждению BalanceHub создаст новый канал с выбранными " +
+                "здесь сигналами. Настройки, заданные вручную в Android, могут " +
+                "сброситься только для этой категории. Платежи и события сохранятся. " +
+                "Если Android отклонит новый канал, прежний останется." +
+                (if (testAfterRepair) "\n\nПосле применения отправим тест уведомления."
+                 else ""))
             .setNegativeButton("Отмена", null)
             .setNeutralButton("Настройки Android") { _, _ ->
                 openAndroidNotificationSettings(category)
@@ -2487,9 +2493,25 @@ class MainActivity : AppCompatActivity() {
                             openAndroidNotificationSettings(category)
                         }.show()
                 } else {
-                    Toast.makeText(this,
-                        "Настройки переданы Android. Проверьте уведомление на телефоне.",
-                        Toast.LENGTH_LONG).show()
+                    val remaining = BalanceNotificationSounds.signalIssues(this, category)
+                    if (remaining.isNotEmpty()) {
+                        themedDialogBuilder()
+                            .setTitle("Проверьте канал Android")
+                            .setMessage(remaining.joinToString("\n") +
+                                "\n\nAndroid может переопределять параметры канала. " +
+                                "Проверьте звук и вибрацию в системных настройках.")
+                            .setNegativeButton("Закрыть", null)
+                            .setPositiveButton("Настройки Android") { _, _ ->
+                                openAndroidNotificationSettings(category)
+                            }.show()
+                    } else if (testAfterRepair) {
+                        postDiagnosticNotification(category,
+                            BalanceNotificationSounds.channelId(this, category))
+                    } else {
+                        Toast.makeText(this,
+                            "Новый канал применён. Проверьте звук и вибрацию на телефоне.",
+                            Toast.LENGTH_LONG).show()
+                    }
                 }
                 refreshSettingsWithoutJump()
             }.show()
@@ -5220,26 +5242,22 @@ class MainActivity : AppCompatActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = system.getNotificationChannel(channelId)
             if (channel != null) {
-                val issues = NotificationChannelSignalState.issues(
-                    wantsSound = BalanceNotificationSounds.selected(this, category) == "system" ||
-                        (BalanceNotificationSounds.selected(this, category) != "silent" &&
-                            BalanceNotificationSounds.volume(this, category) > 0),
-                    channelHasSound = channel.sound != null,
-                    wantsVibration = BalanceNotificationSounds.vibrationFor(this, category),
-                    channelHasVibration = channel.shouldVibrate())
+                val issues = BalanceNotificationSounds.signalIssues(this, category)
                 if (issues.isNotEmpty()) {
                     themedDialogBuilder()
-                        .setTitle("Уведомление будет без части сигналов")
+                        .setTitle("Настройки BalanceHub и Android различаются")
                         .setMessage(issues.joinToString("\n") +
-                            "\n\nНастройки в BalanceHub не заменяют системные " +
-                            "параметры канала. Откройте настройки Android либо " +
-                            "восстановите канал в настройках этой категории.")
-                        .setNegativeButton("Отмена", null)
-                        .setNeutralButton("Настройки Android") { _, _ ->
+                            "\n\nВосстановление создаст новый канал только с вашего " +
+                            "подтверждения. Можно отправить тест без исправления " +
+                            "либо открыть системные настройки канала.")
+                        .setNegativeButton("Настройки Android") { _, _ ->
                             openAndroidNotificationSettings(category)
                         }
-                        .setPositiveButton("Отправить тест") { _, _ ->
+                        .setNeutralButton("Отправить тест") { _, _ ->
                             postDiagnosticNotification(category, channelId)
+                        }
+                        .setPositiveButton("Восстановить") { _, _ ->
+                            showChannelRepairDialog(category, testAfterRepair = true)
                         }.show()
                     return
                 }
