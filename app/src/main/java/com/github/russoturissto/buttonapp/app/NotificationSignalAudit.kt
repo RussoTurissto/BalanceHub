@@ -67,14 +67,7 @@ internal object NotificationSignalAudit {
                     isCustom -> "фирменная мелодия BalanceHub"
                     else -> "системная мелодия/выбор Android"
                 })
-                val selected = BalanceNotificationSounds.selected(context, category)
-                val wantsSound = selected == "system" ||
-                    (selected != "silent" && BalanceNotificationSounds.volume(context, category) > 0)
-                val issues = NotificationChannelSignalState.issues(
-                    wantsSound = wantsSound,
-                    channelHasSound = sound != null,
-                    wantsVibration = BalanceNotificationSounds.vibrationFor(context, category),
-                    channelHasVibration = channel.shouldVibrate())
+                val issues = BalanceNotificationSounds.signalIssues(context, category)
                 issues.forEach { lines.add("Несоответствие: " + it) }
                 if (channel.importance >= NotificationManager.IMPORTANCE_DEFAULT &&
                     issues.isNotEmpty()) {
