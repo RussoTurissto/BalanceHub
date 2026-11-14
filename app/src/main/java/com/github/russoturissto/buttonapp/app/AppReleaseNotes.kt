@@ -2,17 +2,17 @@ package com.github.russoturissto.buttonapp.app
 
 internal data class ReleaseNote(val iconId: String, val title: String, val description: String)
 
-/** User-facing changes for the 1.1.4-rc1 notification settings build. */
+/** Owner-test notes for BalanceHub 1.1.4-rc3. */
 internal object AppReleaseNotes {
     val current: List<ReleaseNote> = listOf(
-        ReleaseNote("music", "Звук внутри BalanceHub",
-            "Выбирайте одну из 15 мелодий для платежей, событий и обновлений прямо в приложении."),
-        ReleaseNote("settings", "Пять вариантов вибрации",
-            "Выключено, по умолчанию, короткий, длинный и двойной вибросигнал для каждой категории."),
-        ReleaseNote("music", "Громкость каждой категории",
-            "Для встроенных мелодий можно отдельно настроить громкость. Выбор сразу сохраняется в канале уведомлений."),
-        ReleaseNote("check-circle", "Простые настройки",
-            "Обычное меню стало компактнее. Проверки каналов и восстановление перенесены в инженерный раздел."),
+        ReleaseNote("music", "Проверка звука Android",
+            "В каждой категории видно, какой звук действительно назначен системному каналу."),
+        ReleaseNote("settings", "Восстановление по подтверждению",
+            "Если звук или вибрация расходятся с выбором в приложении, их можно применить к новому каналу."),
+        ReleaseNote("check-circle", "Диагностика уведомлений",
+            "Перед тестом показывается предупреждение, когда Android отключил звук или вибрацию."),
+        ReleaseNote("music", "Системная громкость",
+            "Системная мелодия больше не зависит от ползунка громкости встроенных звуков BalanceHub."),
         ReleaseNote("check-circle", "Данные остаются на месте",
             "Платежи, события, настройки банков и оформления сохраняются при обновлении.")
     )
