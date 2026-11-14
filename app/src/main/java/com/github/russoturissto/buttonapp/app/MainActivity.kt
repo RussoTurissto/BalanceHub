@@ -5221,8 +5221,9 @@ class MainActivity : AppCompatActivity() {
             val channel = system.getNotificationChannel(channelId)
             if (channel != null) {
                 val issues = NotificationChannelSignalState.issues(
-                    wantsSound = BalanceNotificationSounds.selected(this, category) != "silent" &&
-                        BalanceNotificationSounds.volume(this, category) > 0,
+                    wantsSound = BalanceNotificationSounds.selected(this, category) == "system" ||
+                        (BalanceNotificationSounds.selected(this, category) != "silent" &&
+                            BalanceNotificationSounds.volume(this, category) > 0),
                     channelHasSound = channel.sound != null,
                     wantsVibration = BalanceNotificationSounds.vibrationFor(this, category),
                     channelHasVibration = channel.shouldVibrate())
