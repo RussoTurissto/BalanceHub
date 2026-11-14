@@ -177,13 +177,26 @@ jobs:
             --title "★ АКТУАЛЬНАЯ ТЕСТОВАЯ · BalanceHub $version (сборка $code)" \
             --notes-file "release/notes-$version.md" \
             --draft --prerelease --latest=false
-          # Retire previous draft title markers but retain all old APK assets.
+          # Retire older markers, preserving all previous draft APK files.
           gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" |
             jq -r --arg tag "$tag" '.[] |
               select(.draft == true and .prerelease == true and .tag_name != $tag
                 and (.name | startswith("★ АКТУАЛЬНАЯ ТЕСТОВАЯ · "))) |
-              [.id, .name] | @tsv' |
-            while IFS=
+              [.id, .name] | join("|")' |
+            while IFS='|' read -r id old_name; do
+              new_name="$(printf '%s' "$old_name" | sed 's/^★ АКТУАЛЬНАЯ ТЕСТОВАЯ · //')"
+              gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$id" \
+                -f name="$new_name" --jq '{tag_name,draft,prerelease,name}'
+            done
+          result="$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" |
+            jq -r --arg tag "$tag" '.[] |
+              select(.tag_name == $tag and .draft == true and .prerelease == true and
+                ([.assets[].name] | index("BalanceHub.apk") != null)) | .tag_name')"
+          if [[ "$result" != "$tag" ]]; then
+            echo "::error::Draft APK missing or draft status incorrect"
+            exit 1
+          fi
+          echo "Private draft $tag: https://github.com/$GITHUB_REPOSITORY/releases" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Notify build result in GitHub issue
         if: ${{ always() }}
