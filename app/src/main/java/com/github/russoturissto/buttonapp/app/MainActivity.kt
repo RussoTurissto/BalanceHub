@@ -88,6 +88,10 @@ class MainActivity : AppCompatActivity() {
     private var bankSettingsOpen = false
     private var engineeringMenuOpen = false
     private var engineeringChannelsOpen = false
+    private var engineeringBanksOpen = false
+    private var engineeringNotificationsOpen = false
+    private var engineeringDeliveryOpen = false
+    private var engineeringOtherBankId: String? = null
     private var engineeringTapCount = 0
     private var engineeringTapStartedAt = 0L
     private var operatorDetailsOpen = false
@@ -143,7 +147,8 @@ class MainActivity : AppCompatActivity() {
     private val bankUpdateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == SberPushNotificationListener.ACTION_BALANCE_UPDATED &&
-                (currentTab == 1 || (currentTab == 4 && bankSettingsOpen)) &&
+                (currentTab == 1 || (currentTab == 4 &&
+                    (bankSettingsOpen || engineeringOtherBankId != null))) &&
                 ::contentContainer.isInitialized) renderTab()
         }
     }
@@ -192,6 +197,10 @@ class MainActivity : AppCompatActivity() {
         bankSettingsOpen = false
         engineeringMenuOpen = false
         engineeringChannelsOpen = false
+        engineeringBanksOpen = false
+        engineeringNotificationsOpen = false
+        engineeringDeliveryOpen = false
+        engineeringOtherBankId = null
         operatorDetailsOpen = savedInstanceState?.getBoolean("operator_details_open") ?: false
         archiveOpen = savedInstanceState?.getBoolean("archive_open") ?: false
         expandedArchivePaymentId = savedInstanceState?.getString("expanded_archive_payment_id")
@@ -245,8 +254,25 @@ class MainActivity : AppCompatActivity() {
                         operatorDetailsOpen = false
                         renderTab()
                     }
+                    engineeringOtherBankId != null && engineeringMenuOpen &&
+                        currentTab == 4 -> {
+                        engineeringOtherBankId = null
+                        renderTab()
+                    }
                     bankSettingsOpen && engineeringMenuOpen && currentTab == 4 -> {
                         bankSettingsOpen = false
+                        renderTab()
+                    }
+                    engineeringBanksOpen && engineeringMenuOpen && currentTab == 4 -> {
+                        engineeringBanksOpen = false
+                        renderTab()
+                    }
+                    engineeringNotificationsOpen && engineeringMenuOpen && currentTab == 4 -> {
+                        engineeringNotificationsOpen = false
+                        renderTab()
+                    }
+                    engineeringDeliveryOpen && engineeringMenuOpen && currentTab == 4 -> {
+                        engineeringDeliveryOpen = false
                         renderTab()
                     }
                     engineeringChannelsOpen && engineeringMenuOpen && currentTab == 4 -> {
@@ -2258,6 +2284,10 @@ class MainActivity : AppCompatActivity() {
         if (engineeringMenuOpen) {
             when {
                 bankSettingsOpen -> renderBankSettings()
+                engineeringOtherBankId != null -> renderOtherBankEngineering()
+                engineeringBanksOpen -> renderEngineeringBanks()
+                engineeringNotificationsOpen -> renderEngineeringNotifications()
+                engineeringDeliveryOpen -> renderEngineeringDelivery()
                 engineeringChannelsOpen -> renderEngineeringChannels()
                 else -> renderEngineeringMenu()
             }
@@ -2452,18 +2482,6 @@ class MainActivity : AppCompatActivity() {
                         }.create()
                     dialog.setOnDismissListener { refreshSettingsWithoutJump() }
                     dialog.show()
-                },
-                settingsRow("settings", "Диагностика прямой вибрации",
-                    "Последний результат для платежей, событий и обновлений") {
-                    themedDialogBuilder()
-                        .setTitle("Прямые уведомления ColorOS")
-                        .setMessage(listOf(BalanceNotificationSounds.PAYMENT,
-                            BalanceNotificationSounds.EVENT, BalanceNotificationSounds.UPDATE)
-                            .joinToString("\n\n") { category ->
-                                notificationTitle(category) + ": " +
-                                    ColorOsDirectVibration.lastResult(this, category)
-                            })
-                        .setPositiveButton("Закрыть", null).show()
                 }
             ))
         }
@@ -2585,16 +2603,6 @@ class MainActivity : AppCompatActivity() {
                     refreshSettingsWithoutJump()
                 })
             }
-            if (automatic) rows.add(settingsRow("settings", "Диагностика звука",
-                PaymentAutomaticSound.lastResult(this, category)) {
-                themedDialogBuilder()
-                    .setTitle("Автоматический звук: " + notificationTitle(category))
-                    .setMessage("Последний результат: " +
-                        PaymentAutomaticSound.lastResult(this, category) +
-                        "\nПосле подтверждения проверьте настоящее уведомление с " +
-                        "выключенным экраном.")
-                    .setPositiveButton("Закрыть", null).show()
-            })
         }
         if (category == BalanceNotificationSounds.PAYMENT &&
             PaymentAutomaticSound.shouldOffer(this)) {
@@ -2631,14 +2639,6 @@ class MainActivity : AppCompatActivity() {
                     refreshSettingsWithoutJump()
                 })
             }
-            if (automatic) rows.add(settingsRow("settings", "Диагностика звука платежей",
-                PaymentAutomaticSound.lastResult(this)) {
-                themedDialogBuilder().setTitle("Автоматический звук платежей")
-                    .setMessage("Последний результат: " + PaymentAutomaticSound.lastResult(this) +
-                        "\nВ Android 17 фоновое воспроизведение требует foreground-службу. " +
-                        "Проверьте также напоминание с выключенным экраном.")
-                    .setPositiveButton("Закрыть", null).show()
-            })
         }
         rows.add(settingsRow("music", "Звук",
             BalanceNotificationSounds.title(this, category)) {
@@ -2674,51 +2674,6 @@ class MainActivity : AppCompatActivity() {
             "Проверить реальные звук и вибрацию через Android") {
             sendNotificationTest(category)
         })
-        if (category == BalanceNotificationSounds.PAYMENT) {
-            val power = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
-            val exact = ExactReminderAlarms.allowed(this)
-            val battery = power.isIgnoringBatteryOptimizations(packageName)
-            rows.add(settingsRow("settings", "Доставка платежей",
-                "Точные сигналы: " + (if (exact) "разрешены" else "нет разрешения") +
-                    " · Исключение из оптимизации: " + (if (battery) "да" else "нет")) {
-                showPaymentDeliverySettings()
-            })
-            rows.add(settingsRow("settings", "Журнал доставки платежей",
-                "Планирование, задержки и результат последнего напоминания") {
-                themedDialogBuilder().setTitle("Доставка платежей")
-                    .setMessage(PaymentDeliveryLog.report(this).joinToString("\n"))
-                    .setPositiveButton("Закрыть", null).show()
-            })
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val probeModes = listOf(
-                AndroidSignalProbe.Mode.SYSTEM, AndroidSignalProbe.Mode.SHORT,
-                AndroidSignalProbe.Mode.LONG, AndroidSignalProbe.Mode.DOUBLE,
-                AndroidSignalProbe.Mode.TONE
-            )
-            for (mode in probeModes) {
-                rows.add(settingsRow("settings", "Тест: " + mode.label,
-                    if (mode == AndroidSignalProbe.Mode.TONE)
-                        "Отдельный канал: встроенный WAV и длинный импульс"
-                    else "Отдельный постоянный системный канал Android") {
-                    runAndroidSignalProbe(mode)
-                })
-            }
-            for (mode in probeModes) {
-                if (AndroidSignalProbe.channelId(this, mode) != null) {
-                    rows.add(settingsRow("settings", "Результат: " + mode.label,
-                        "Звук, рисунок вибрации и настройки канала Android") {
-                        showAndroidSignalProbeState(mode)
-                    })
-                }
-            }
-            if (AndroidSignalProbe.channelId(this, AndroidSignalProbe.Mode.PATTERN) != null) {
-                rows.add(settingsRow("settings", "Результат старого теста rc6",
-                    "Сохранённый канал с двумя импульсами, без сброса") {
-                    showAndroidSignalProbeState(AndroidSignalProbe.Mode.PATTERN)
-                })
-            }
-        }
         settingsGroup(settingsPanel(*rows.toTypedArray()))
     }
 
@@ -3005,6 +2960,10 @@ class MainActivity : AppCompatActivity() {
         engineeringTapStartedAt = 0L
         bankSettingsOpen = false
         engineeringChannelsOpen = false
+        engineeringBanksOpen = false
+        engineeringNotificationsOpen = false
+        engineeringDeliveryOpen = false
+        engineeringOtherBankId = null
     }
 
     private fun renderEngineeringMenu() {
@@ -3018,31 +2977,94 @@ class MainActivity : AppCompatActivity() {
         contentContainer.addView(textLine(
             "Технические инструменты BalanceHub", 13f, muted))
         contentContainer.addView(verticalGap(16))
-        val banking = card()
-        banking.addView(sberHeading("Сбербанк   ›"))
-        banking.addView(verticalGap(6))
-        banking.addView(textLine(
-            "Подключение Push, доступ Android, состояние и диагностика", 13f, muted))
-        banking.setOnClickListener {
-            bankSettingsOpen = true
-            renderTab()
-        }
-        contentContainer.addView(banking)
-        contentContainer.addView(verticalGap(12))
-        val channels = card().apply {
-            isClickable = true
-            isFocusable = true
-            addView(textLine("Системные каналы   ›", 17f, ink, true))
-            addView(verticalGap(5))
-            addView(textLine("Платежи, события, обновления: звук, вибрация и права Android",
-                13f, muted))
-            setOnClickListener {
-                engineeringChannelsOpen = true
-                renderTab()
+
+        fun section(title: String, description: String, action: () -> Unit) {
+            val item = card().apply {
+                isClickable = true
+                isFocusable = true
+                addView(textLine(title + "   ›", 17f, ink, true))
+                addView(verticalGap(5))
+                addView(textLine(description, 13f, muted))
+                setOnClickListener {
+                    action()
+                    renderTab()
+                }
             }
+            contentContainer.addView(item)
+            contentContainer.addView(verticalGap(12))
         }
-        contentContainer.addView(channels)
-        contentContainer.addView(verticalGap(12))
+        section("Диагностика банков", "Сбербанк, ВТБ и Т-Банк: Push и распознавание") {
+            engineeringBanksOpen = true
+        }
+        section("Диагностика уведомлений", "Звук, вибромотор и проверочные каналы") {
+            engineeringNotificationsOpen = true
+        }
+        section("Системные каналы", "Состояние каналов и разрешения Android") {
+            engineeringChannelsOpen = true
+        }
+        section("Проверка доставки", "Отложенные тесты, журналы и питание") {
+            engineeringDeliveryOpen = true
+        }
+        contentContainer.addView(textLine("Техническая помощь", 16f, ink, true))
+        val adb = card()
+        adb.addView(textLine("Техническая помощь", 17f, ink, true))
+        adb.addView(verticalGap(6))
+        adb.addView(textLine("Настройка банковских Push через Termux / ADB",
+            13f, muted))
+        adb.addView(verticalGap(9))
+        adb.addView(secondaryButton("Открыть руководство") {
+            showBankPushHelp()
+        })
+        contentContainer.addView(adb)
+
+        contentContainer.addView(verticalGap(10))
+        contentContainer.addView(textLine(
+            "При выходе из инженерного меню доступ закрывается.", 12f, muted))
+    }
+
+    private fun renderEngineeringBanks() {
+        contentContainer.addView(secondaryButton("‹  Инженерное меню") {
+            engineeringBanksOpen = false
+            renderTab()
+        })
+        contentContainer.addView(verticalGap(14))
+        contentContainer.addView(textLine("Диагностика банков", 23f, ink, true))
+        contentContainer.addView(textLine(
+            "Технические сведения о банковских Push. Пользовательские настройки — в разделе «Банки».",
+            12f, muted))
+        contentContainer.addView(verticalGap(14))
+        for (bank in RussianBankCatalog.banks) {
+            val status = if (BankCardPreferences.enabled(this, bank.id))
+                "Получение Push включено" else "Получение Push отключено"
+            val item = card().apply {
+                isClickable = true
+                isFocusable = true
+                addView(textLine(
+                    if (bank.id == "tbank") "Т-Банк (Тинькофф)   ›"
+                    else bank.name + "   ›", 17f, ink, true))
+                addView(verticalGap(5))
+                addView(textLine(status, 13f, muted))
+                setOnClickListener {
+                    if (bank.id == "sber") bankSettingsOpen = true
+                    else engineeringOtherBankId = bank.id
+                    renderTab()
+                }
+            }
+            contentContainer.addView(item)
+            contentContainer.addView(verticalGap(12))
+        }
+    }
+
+    private fun renderEngineeringNotifications() {
+        contentContainer.addView(secondaryButton("‹  Инженерное меню") {
+            engineeringNotificationsOpen = false
+            renderTab()
+        })
+        contentContainer.addView(verticalGap(14))
+        contentContainer.addView(textLine("Диагностика уведомлений", 23f, ink, true))
+        contentContainer.addView(textLine(
+            "Проверки звука, вибрации и системных каналов Android", 12f, muted))
+        contentContainer.addView(verticalGap(14))
         val notifications = card()
         notifications.addView(textLine("Диагностика уведомлений", 17f, ink, true))
         notifications.addView(verticalGap(7))
@@ -3104,20 +3126,71 @@ class MainActivity : AppCompatActivity() {
             })
             notifications.addView(verticalGap(9))
         }
+
+        if (AndroidSignalProbe.channelId(this, AndroidSignalProbe.Mode.PATTERN) != null) {
+            notifications.addView(secondaryButton("Результат старого теста rc6") {
+                showAndroidSignalProbeState(AndroidSignalProbe.Mode.PATTERN)
+            })
+            notifications.addView(verticalGap(9))
+        }
+        notifications.addView(secondaryButton("Диагностика прямой вибрации ColorOS") {
+            themedDialogBuilder()
+                .setTitle("Прямые уведомления ColorOS")
+                .setMessage(listOf(BalanceNotificationSounds.PAYMENT,
+                    BalanceNotificationSounds.EVENT, BalanceNotificationSounds.UPDATE)
+                    .joinToString("\n\n") { category ->
+                        notificationTitle(category) + ": " +
+                            ColorOsDirectVibration.lastResult(this, category)
+                    })
+                .setPositiveButton("Закрыть", null).show()
+        })
         notifications.addView(verticalGap(9))
-        notifications.addView(secondaryButton("Тест платежа через 2 минуты") {
+        notifications.addView(secondaryButton("Диагностика автоматического звука") {
+            selectDiagnosticCategory { category ->
+                themedDialogBuilder()
+                    .setTitle("Автоматический звук: " + notificationTitle(category))
+                    .setMessage("Последний результат: " +
+                        PaymentAutomaticSound.lastResult(this, category))
+                    .setPositiveButton("Закрыть", null).show()
+            }
+        })
+        contentContainer.addView(notifications)
+    }
+
+    private fun renderEngineeringDelivery() {
+        contentContainer.addView(secondaryButton("‹  Инженерное меню") {
+            engineeringDeliveryOpen = false
+            renderTab()
+        })
+        contentContainer.addView(verticalGap(14))
+        contentContainer.addView(textLine("Проверка доставки", 23f, ink, true))
+        contentContainer.addView(textLine(
+            "Отложенные сигналы, условия питания и время доставки", 12f, muted))
+        contentContainer.addView(verticalGap(14))
+        val delivery = card()
+        delivery.addView(secondaryButton("Доставка платежей") {
+            showPaymentDeliverySettings()
+        })
+        delivery.addView(verticalGap(9))
+        delivery.addView(secondaryButton("Журнал доставки платежей") {
+            themedDialogBuilder().setTitle("Доставка платежей")
+                .setMessage(PaymentDeliveryLog.report(this).joinToString("\n"))
+                .setPositiveButton("Закрыть", null).show()
+        })
+        delivery.addView(verticalGap(9))
+        delivery.addView(secondaryButton("Тест платежа через 2 минуты") {
             scheduleDiagnosticReminder(BalanceNotificationSounds.PAYMENT)
         })
-        notifications.addView(verticalGap(8))
-        notifications.addView(secondaryButton("Тест события через 2 минуты") {
+        delivery.addView(verticalGap(8))
+        delivery.addView(secondaryButton("Тест события через 2 минуты") {
             scheduleDiagnosticReminder(BalanceNotificationSounds.EVENT)
         })
         val log = getSharedPreferences("balancehub_reminder_diagnostics", MODE_PRIVATE)
-        notifications.addView(verticalGap(8))
-        notifications.addView(secondaryButton("Настройки батареи Android") {
+        delivery.addView(verticalGap(8))
+        delivery.addView(secondaryButton("Настройки батареи Android") {
             openBatteryOptimizationSettings()
         })
-        notifications.addView(verticalGap(9))
+        delivery.addView(verticalGap(9))
         for ((key, title) in listOf("payment" to "Платёж", "event" to "Событие")) {
             val planned = log.getLong("${key}_planned", 0L)
             val delivered = log.getLong("${key}_delivered", 0L)
@@ -3126,7 +3199,7 @@ class MainActivity : AppCompatActivity() {
                 val delta = if (delivered >= planned) {
                     " · запуск +" + ((delivered - planned) / 1000L) + " сек"
                 } else " · ожидается"
-                notifications.addView(textLine("$title: " +
+                delivery.addView(textLine("$title: " +
                     DateFormat.getTimeInstance(DateFormat.MEDIUM).format(Date(planned)) +
                     delta, 12f, muted))
                 val method = when (log.getString("${key}_mode", "")) {
@@ -3135,7 +3208,7 @@ class MainActivity : AppCompatActivity() {
                     "expired" -> "время уже прошло"
                     else -> "неизвестен"
                 }
-                notifications.addView(textLine(
+                delivery.addView(textLine(
                     "Метод: $method · разрешение точных: " +
                         (if (log.getBoolean("${key}_exact_allowed", false))
                             "да" else "нет") +
@@ -3144,11 +3217,11 @@ class MainActivity : AppCompatActivity() {
                             "да" else "нет"),
                     12f, muted))
                 if (posted >= delivered && delivered > 0L)
-                    notifications.addView(textLine("Отправка в Android спустя " +
+                    delivery.addView(textLine("Отправка в Android спустя " +
                         ((posted - delivered) / 1000L) + " сек после запуска",
                         12f, muted))
                 if (key == "payment" && delivered >= planned && delivered > 0L) {
-                    notifications.addView(textLine(
+                    delivery.addView(textLine(
                         "При запуске: экран " +
                             (if (log.getBoolean("payment_fired_interactive", true))
                                 "включён" else "выключен") +
@@ -3160,22 +3233,143 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
-        contentContainer.addView(notifications)
-        contentContainer.addView(verticalGap(12))
-        val adb = card()
-        adb.addView(textLine("Техническая помощь", 17f, ink, true))
-        adb.addView(verticalGap(6))
-        adb.addView(textLine("Настройка банковских Push через Termux / ADB",
-            13f, muted))
-        adb.addView(verticalGap(9))
-        adb.addView(secondaryButton("Открыть руководство") {
-            showBankPushHelp()
+
+        contentContainer.addView(delivery)
+    }
+
+    private fun renderOtherBankEngineering() {
+        val bank = RussianBankCatalog.byId(engineeringOtherBankId.orEmpty())
+        if (bank == null || bank.id == "sber") {
+            engineeringOtherBankId = null
+            renderEngineeringBanks()
+            return
+        }
+        contentContainer.addView(secondaryButton("‹  Диагностика банков") {
+            engineeringOtherBankId = null
+            renderTab()
         })
-        contentContainer.addView(adb)
-        contentContainer.addView(verticalGap(12))
+        contentContainer.addView(verticalGap(14))
         contentContainer.addView(textLine(
-            "При выходе из инженерного меню доступ закрывается.",
+            if (bank.id == "tbank") "Т-Банк (Тинькофф)" else bank.name,
+            23f, ink, true))
+        contentContainer.addView(verticalGap(8))
+
+        val enabled = BankCardPreferences.enabled(this, bank.id)
+        val granted = SberBalanceStore.isAccessGranted(this)
+        val installed = RussianBankCatalog.installedPackage(this, bank)
+        val summary = card()
+        summary.addView(textLine(
+            if (enabled) "Получение Push включено" else "Получение Push отключено",
+            16f, ink, true))
+        summary.addView(verticalGap(8))
+        summary.addView(textLine(
+            "Доступ к уведомлениям: " +
+                (if (granted) "предоставлен" else "не предоставлен"), 13f, muted))
+        summary.addView(verticalGap(6))
+        summary.addView(textLine(
+            "Приложение-источник: " +
+                (if (installed != null) "обнаружено" else "не обнаружено"),
+            13f, muted))
+        summary.addView(textLine(
+            "Ожидаемый пакет: " + bank.packages.joinToString(), 12f, muted))
+        summary.addView(verticalGap(8))
+        summary.addView(secondaryButton("Настроить доступ Android") {
+            openSberListenerSettings()
+        })
+        contentContainer.addView(summary)
+        contentContainer.addView(verticalGap(12))
+
+        val events = if (enabled) RussianBankDiagnostics.recent(this, bank)
+            else emptyList()
+        val formatter = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
+        val diagnostics = card()
+        diagnostics.addView(textLine("Диагностика Push", 16f, ink, true))
+        diagnostics.addView(verticalGap(8))
+        val lastEvent = events.firstOrNull()
+        if (lastEvent == null) {
+            diagnostics.addView(textLine(
+                if (enabled) "Диагностических событий пока нет"
+                else "Получение Push отключено", 13f, muted))
+        } else {
+            diagnostics.addView(textLine(
+                "Последний Push: " + formatter.format(Date(lastEvent.receivedAt)),
+                13f, ink))
+            diagnostics.addView(verticalGap(6))
+            diagnostics.addView(textLine(
+                "Распознавание: " + lastEvent.status, 13f, muted))
+            val fields = SberNotificationText.Field.entries.filter {
+                (lastEvent.fieldsMask and it.mask) != 0
+            }
+            diagnostics.addView(verticalGap(6))
+            diagnostics.addView(textLine(
+                "Доступные поля: " +
+                    if (fields.isEmpty()) "нет" else fields.joinToString(", ") { it.label },
+                12f, muted))
+            for (field in fields) {
+                val size = lastEvent.fieldLengths.getOrNull(field.ordinal) ?: 0
+                val money = (lastEvent.rubleFieldsMask and field.mask) != 0
+                val cue = (lastEvent.cueFieldsMask and field.mask) != 0
+                val account = (lastEvent.accountFieldsMask and field.mask) != 0
+                diagnostics.addView(textLine(
+                    field.label + ": длина " + size + " · рубли " +
+                        (if (money) "да" else "нет") +
+                        " · остаток " + (if (cue) "да" else "нет") +
+                        " · маска счёта " + (if (account) "да" else "нет"),
+                    11f, muted))
+            }
+            diagnostics.addView(verticalGap(7))
+            val environment = when {
+                (lastEvent.deliveryState and
+                    SberPushNotificationListener.STATE_SCREEN_OFF) != 0 ->
+                    "экран выключен"
+                (lastEvent.deliveryState and
+                    SberPushNotificationListener.STATE_LOCKED) != 0 ->
+                    "экран заблокирован"
+                lastEvent.deliveryState < 0 -> "не определено"
+                else -> "экран активен"
+            }
+            diagnostics.addView(textLine("При получении: " + environment, 12f, muted))
+            diagnostics.addView(textLine(
+                "Скрыто системой: " +
+                    if (lastEvent.privacy == "SYSTEM_REDACTION") "да" else "нет",
+                12f, muted))
+            val success = RussianBankDiagnostics.lastSuccess(this, bank)
+            diagnostics.addView(textLine(
+                success?.let { "Последнее обновление: " + formatter.format(Date(it)) }
+                    ?: "Успешного обновления ещё не было", 12f, muted))
+            if (events.size > 1) {
+                diagnostics.addView(verticalGap(10))
+                diagnostics.addView(textLine("Последние события", 14f, ink, true))
+                events.take(6).forEach { event ->
+                    diagnostics.addView(textLine(
+                        formatter.format(Date(event.receivedAt)) + " — " + event.status,
+                        12f, muted))
+                }
+            }
+        }
+        diagnostics.addView(verticalGap(9))
+        diagnostics.addView(textLine(
+            "Хранятся только времена, признаки полей и результаты шести последних " +
+                "событий. Тексты Push, суммы и номера счетов не сохраняются.",
             12f, muted))
+        diagnostics.addView(verticalGap(10))
+        diagnostics.addView(secondaryButton("Проверить обработчик на примере") {
+            val positive = RussianBankPushParser.analyze(bank.packages.first(),
+                listOf("Остаток 40,89 ₽, карта ••9667"))
+            val negative = RussianBankPushParser.analyze(bank.packages.first(),
+                listOf("Перевод 10 ₽"))
+            val accepted = positive.result
+            val success = accepted?.kopecks == 4089L &&
+                accepted.lastFour == "9667" && negative.result == null
+            themedDialogBuilder().setTitle("Локальный тест распознавания")
+                .setMessage(if (success)
+                    "Тест пройден: остаток распознан, сумма перевода отвергнута. " +
+                        "Банковский баланс не изменён."
+                else "Тест не пройден. Причины: " + positive.reason + ", " +
+                    negative.reason + ". Банковский баланс не изменён.")
+                .setPositiveButton("Закрыть", null).show()
+        })
+        contentContainer.addView(diagnostics)
     }
 
     private fun renderEngineeringChannels() {

@@ -9,6 +9,13 @@ on:
       - ".github/workflows/notification-emulator-validation.yml"
       - "app/src/main/**"
       - "app/src/androidTest/**"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/notification-emulator-validation.yml"
+      - "app/src/main/**"
+      - "app/src/androidTest/**"
   workflow_dispatch:
 
 permissions:

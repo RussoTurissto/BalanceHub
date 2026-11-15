@@ -61,6 +61,9 @@ internal object BankCardPreferences {
         }
         if (RussianBankCatalog.byId(id) == null) return
         prefs(context).edit { putBoolean("push_$id", enabled) }
-        if (!enabled) RussianBankBalanceStore.clear(context, id)
+        if (!enabled) {
+            RussianBankBalanceStore.clear(context, id)
+            RussianBankDiagnostics.clear(context, id)
+        }
     }
 }
