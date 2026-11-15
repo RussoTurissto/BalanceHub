@@ -9,6 +9,7 @@ import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.edit
 
 /**
  * Experimental payments-only route for ColorOS channels that accept a WAV URI
@@ -29,11 +30,11 @@ internal object PaymentAutomaticSound {
         PLAYING, FINISHED, PLAYBACK_FAILED, PLAYBACK_TIMED_OUT
     }
 
-    fun enabled(context: Context): Boolean = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+    fun enabled(context: Context): Boolean = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(ENABLED, false)
 
     fun shouldOffer(context: Context): Boolean =
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
             BalanceNotificationSounds.colorOsCompatibility(context)
 
     internal fun playableUri(context: Context, key: String, gain: Int): Uri? = when {
@@ -44,10 +45,10 @@ internal object PaymentAutomaticSound {
     }
 
     internal fun record(context: Context, result: Result) {
-        context.getSharedPreferences(AUDIT, Context.MODE_PRIVATE).edit()
-            .putString("last", result.name)
-            .putLong("time", System.currentTimeMillis())
-            .apply()
+        context.getSharedPreferences(AUDIT, Context.MODE_PRIVATE).edit {
+            putString("last", result.name)
+            putLong("time", System.currentTimeMillis())
+        }
     }
 
     fun lastResult(context: Context): String =

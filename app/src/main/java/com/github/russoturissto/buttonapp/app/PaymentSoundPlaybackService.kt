@@ -59,7 +59,7 @@ class PaymentSoundPlaybackService : Service() {
             val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
             if (manager.getNotificationChannel(FGS_CHANNEL) == null) {
                 val channel = NotificationChannel(FGS_CHANNEL,
-                    "Воспроизведение звука платежей", NotificationManager.IMPORTANCE_MIN)
+                    "Воспроизведение звука платежей", NotificationManager.IMPORTANCE_LOW)
                 channel.setSound(null, null)
                 channel.enableVibration(false)
                 manager.createNotificationChannel(channel)
@@ -70,12 +70,16 @@ class PaymentSoundPlaybackService : Service() {
             .setContentTitle("BalanceHub · звук платежа")
             .setContentText("Воспроизводится выбранное уведомление")
             .setSilent(true)
-            .setPriority(NotificationCompat.PRIORITY_MIN)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)
             .build()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
         stopPlayback()
         try {
             startForeground(FGS_ID, foregroundNotification())

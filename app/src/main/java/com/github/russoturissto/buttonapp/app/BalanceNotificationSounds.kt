@@ -338,6 +338,9 @@ internal object BalanceNotificationSounds {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O)
             return "Совместимость доступна на Android 8 и новее"
         if (colorOsCompatibility(context) == enabled) return null
+        if (!enabled && PaymentAutomaticSound.enabled(context))
+            return "Сначала отключите автоматический звук в разделе «Платежи», " +
+                "иначе рабочая мелодия может перестать воспроизводиться."
         val prefs = preferences(context)
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE)
             as NotificationManager
