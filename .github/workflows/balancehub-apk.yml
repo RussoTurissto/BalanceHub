@@ -34,7 +34,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      BUILD_VERSION_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.rollback_rc13 && '1.1.4-rc13-rollback' || '1.1.4-rc19' }}
+      BUILD_VERSION_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.rollback_rc13 && '1.1.4-rc13-rollback' || '1.1.4-rc20' }}
     steps:
       - name: Checkout repository or pinned rc13 rollback sources
         uses: actions/checkout@v4
@@ -171,7 +171,7 @@ jobs:
           version="$BUILD_VERSION_NAME"
           code="$((GITHUB_RUN_NUMBER + 300))"
           tag="v$version-build$code"
-          notes="release/notes-1.1.4-rc19.md"
+          notes="release/notes-1.1.4-rc20.md"
           if [[ "$version" == "1.1.4-rc13-rollback" ]]; then
             notes="release/notes-1.1.4-rc13.md"
           fi
