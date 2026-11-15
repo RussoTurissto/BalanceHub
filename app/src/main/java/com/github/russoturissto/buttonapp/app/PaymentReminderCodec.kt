@@ -64,15 +64,18 @@ internal data class PaymentReminder(
 internal object PaymentReminderCodec {
     fun decode(record: JSONObject): PaymentReminder? {
         return try {
-        val id = record.getString("id").takeIf { it.isNotBlank() } ?: return null
-        val title = record.getString("title").takeIf { it.isNotBlank() } ?: return null
-        val dueAt = record.getLong("dueAt").takeIf { it > 0L } ?: return null
-        val lead = record.getInt("leadDays").takeIf { it in 0..365 } ?: return null
-        val recurrence = record.optString("recurrence", "once")
-            .takeIf { it in setOf("once", "weekly", "monthly") } ?: return null
-        PaymentReminder(id, title, record.getString("amount"),
-            record.getString("currency"), dueAt, lead, recurrence,
-            record.optString("icon").takeIf { IconRegistry.find(it) != null })
+            // Android JSONObject may stringify JSON null as "null".
+            if (listOf("id", "title", "amount", "currency", "dueAt", "leadDays")
+                    .any { !record.has(it) || record.isNull(it) }) return null
+            val id = record.getString("id").takeIf { it.isNotBlank() } ?: return null
+            val title = record.getString("title").takeIf { it.isNotBlank() } ?: return null
+            val dueAt = record.getLong("dueAt").takeIf { it > 0L } ?: return null
+            val lead = record.getInt("leadDays").takeIf { it in 0..365 } ?: return null
+            val recurrence = record.optString("recurrence", "once")
+                .takeIf { it in setOf("once", "weekly", "monthly") } ?: return null
+            PaymentReminder(id, title, record.getString("amount"),
+                record.getString("currency"), dueAt, lead, recurrence,
+                record.optString("icon").takeIf { IconRegistry.find(it) != null })
         } catch (_: Exception) {
             null
         }
