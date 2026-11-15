@@ -432,6 +432,10 @@ internal object BalanceNotificationSounds {
         val old = manager.getNotificationChannel(oldId)
             ?: return "Канал Android недоступен"
         val directVibration = colorOsCompatibility(context)
+        if (category == PAYMENT && PaymentAutomaticSound.enabled(context)) {
+            return "Включён автоматический звук платежей. Измените мелодию через " +
+                "раздел «Звук», чтобы проверить её без пересоздания канала."
+        }
         val selection = resolveChannelSound(context, category, key, percent, directVibration)
         if (selection.error != null) return selection.error
         // Never silently undo a channel that the user muted in Android.
@@ -584,7 +588,8 @@ internal object BalanceNotificationSounds {
             ?: return listOf("Android не создал канал уведомлений")
         val key = selected(context, category)
         val gain = volume(context, category)
-        val wantsSound = NotificationSignalPolicy.soundEnabled(key, gain)
+        val automatic = category == PAYMENT && PaymentAutomaticSound.enabled(context)
+        val wantsSound = !automatic && NotificationSignalPolicy.soundEnabled(key, gain)
         val directVibration = colorOsCompatibility(context)
         val wantsVibration = NotificationSignalPolicy.nativeVibrationEnabled(
             vibrationMode(context, category), directVibration)
@@ -595,7 +600,8 @@ internal object BalanceNotificationSounds {
             channelHasSound = channel.sound != null,
             wantsVibration = wantsVibration,
             channelHasVibration = channel.shouldVibrate(),
-            soundMatches = matchesConfiguredSound(context, category, key, gain, channel.sound),
+            soundMatches = if (automatic) channel.sound == null
+                else matchesConfiguredSound(context, category, key, gain, channel.sound),
             vibrationPatternMatches = pattern?.contentEquals(channel.vibrationPattern),
             channelCanAlert = channel.importance >= NotificationManager.IMPORTANCE_DEFAULT
         )
@@ -626,6 +632,10 @@ internal object BalanceNotificationSounds {
             return "Канал отключён в Android"
         if (channel.importance < NotificationManager.IMPORTANCE_DEFAULT)
             return "Беззвучный канал Android"
+        if (category == PAYMENT && PaymentAutomaticSound.enabled(context)) {
+            return if (channel.sound == null) title(context, category) + " · звук BalanceHub"
+                else "Автоматический звук: включён системный звук канала"
+        }
         val actual = channel.sound ?: return if (selected(context, category) == "silent")
             "Без звука (выбрано)" else "Без звука в Android (выбрана: " +
             title(context, category) + ")"

@@ -2536,6 +2536,30 @@ class MainActivity : AppCompatActivity() {
                 showPaymentSoundTrialDialog()
             })
         }
+        if (category == BalanceNotificationSounds.PAYMENT &&
+            PaymentAutomaticSound.shouldOffer(this)) {
+            val automatic = PaymentAutomaticSound.enabled(this)
+            rows.add(settingsRow("music",
+                if (automatic) "Вернуться к системному звуку платежей"
+                else "Испытать автоматический звук BalanceHub",
+                if (automatic) "Звук воспроизводит BalanceHub; можно вернуться к каналу Android"
+                else "Эксперимент ColorOS: без ручного выбора WAV в Android") {
+                val issue = PaymentToneChange.begin(this,
+                    BalanceNotificationSounds.selected(this, category),
+                    BalanceNotificationSounds.volume(this, category), automatic = !automatic)
+                if (issue != null) Toast.makeText(this, issue, Toast.LENGTH_LONG).show()
+                else showPaymentSoundTrialDialog()
+                refreshSettingsWithoutJump()
+            })
+            if (automatic) rows.add(settingsRow("settings", "Диагностика звука платежей",
+                PaymentAutomaticSound.lastResult(this)) {
+                themedDialogBuilder().setTitle("Автоматический звук платежей")
+                    .setMessage("Последний результат: " + PaymentAutomaticSound.lastResult(this) +
+                        "\nВ Android 17 фоновое воспроизведение требует foreground-службу. " +
+                        "Проверьте также напоминание с выключенным экраном.")
+                    .setPositiveButton("Закрыть", null).show()
+            })
+        }
         rows.add(settingsRow("music", "Звук",
             BalanceNotificationSounds.title(this, category)) {
             showSoundChooser(category, notificationTitle(category))
@@ -2679,7 +2703,7 @@ class MainActivity : AppCompatActivity() {
                 (if (testAfterRepair) "\n\nПосле применения отправим тест уведомления."
                  else ""))
             .setNegativeButton("Отмена", null)
-            .setNeutralButton("Настройки Android") { _, _ ->
+            .setNeutralButton("Канал Android") { _, _ ->
                 openAndroidNotificationSettings(category)
             }
             .setPositiveButton("Применить") { _, _ ->
@@ -3168,24 +3192,34 @@ class MainActivity : AppCompatActivity() {
                 ?.title ?: trial.key
         }
         val problem = PaymentToneChange.problem(this, trial)
-        val message = "Новая мелодия: " + label +
-            "\n\nДействующий канал платежей пока НЕ изменён. " +
-            "Проверьте пробное уведомление на слух. " +
-            "При необходимости выберите файл BalanceHub_" + trial.key +
-            "_" + trial.gain + ".wav в настройках Android именно пробного канала." +
-            (if (problem != null) "\n\nAndroid: " + problem else "") +
-            "\n\nПосле правильного звука подтвердите результат. Вибрация останется прежней."
+        val message = if (trial.automatic) {
+            "Новая мелодия: " + label + "\n\nПРОБНЫЙ автоматический звук BalanceHub. " +
+                "Он воспроизводится отдельной кратковременной службой. " +
+                "Действующий канал платежей пока НЕ изменён. " +
+                "На Android 17 после подтверждения обязательно проверьте " +
+                "настоящее напоминание при выключенном экране." +
+                (if (problem != null) "\n\nAndroid: " + problem else "") +
+                "\n\nПодтверждайте только после фактического звука и вибрации."
+        } else {
+            "Новая мелодия: " + label +
+                "\n\nДействующий канал платежей пока НЕ изменён. " +
+                "Проверьте пробное уведомление на слух. " +
+                "При необходимости выберите файл BalanceHub_" + trial.key +
+                "_" + trial.gain + ".wav в настройках Android именно пробного канала." +
+                (if (problem != null) "\n\nAndroid: " + problem else "") +
+                "\n\nПосле правильного звука подтвердите результат. Вибрация останется прежней."
+        }
         themedDialogBuilder()
             .setTitle("Проверка мелодии платежей")
             .setMessage(message)
-            .setNegativeButton("Отменить смену") { _, _ ->
+            .setNegativeButton("Отмена") { _, _ ->
                 PaymentToneChange.cancel(this)
                 refreshSettingsWithoutJump()
             }
             .setNeutralButton("Настройки Android") { _, _ ->
                 openPaymentTrialAndroidSettings()
             }
-            .setPositiveButton("Отправить тест") { _, _ ->
+            .setPositiveButton("Тест") { _, _ ->
                 sendPaymentSoundTrial()
             }.show()
     }
@@ -3228,6 +3262,17 @@ class MainActivity : AppCompatActivity() {
                 .notify(ReminderNoticeIds.test(), builder.build())
             ColorOsDirectVibration.afterNotification(
                 this, BalanceNotificationSounds.PAYMENT, trial.id)
+            if (trial.automatic) {
+                val result = PaymentAutomaticSound.afterNotification(this, trial.id,
+                    trial.key, trial.gain, trial = true)
+                val silent = trial.key == "silent" || (trial.key != "system" && trial.gain == 0)
+                if (result != PaymentAutomaticSound.Result.SERVICE_REQUESTED &&
+                    !(silent && result == PaymentAutomaticSound.Result.SILENT_SELECTION)) {
+                    Toast.makeText(this, "Автоматический звук не запущен: " + result,
+                        Toast.LENGTH_LONG).show()
+                    return
+                }
+            }
             if (!PaymentToneChange.markTested(this, trial.id)) {
                 Toast.makeText(this, "Не удалось записать результат теста",
                     Toast.LENGTH_LONG).show()
@@ -3240,18 +3285,24 @@ class MainActivity : AppCompatActivity() {
         }
         themedDialogBuilder()
             .setTitle("Новая мелодия воспроизвелась?")
-            .setMessage("Вы действительно услышали нужный звук на OnePlus? " +
-                "Проверка API сама по себе не доказывает воспроизведение.\n\n" +
-                "Если звука нет или он другой, оставьте прежний канал и " +
-                "выберите нужную мелодию в настройках пробного канала Android.")
-            .setNegativeButton("Нет, оставить старый") { _, _ ->
+            .setMessage(if (trial.automatic) {
+                "Прозвучала ли нужная мелодия BalanceHub с правильной вибрацией? " +
+                    "Ответ Android не доказывает физическое воспроизведение.\n\n" +
+                    "Если звук отсутствует, не подтверждайте и оставьте старый канал."
+            } else {
+                "Вы действительно услышали нужный звук на OnePlus? " +
+                    "Проверка API сама по себе не доказывает воспроизведение.\n\n" +
+                    "Если звука нет или он другой, оставьте прежний канал и " +
+                    "выберите нужную мелодию в настройках пробного канала Android."
+            })
+            .setNegativeButton("Нет") { _, _ ->
                 PaymentToneChange.cancel(this)
                 refreshSettingsWithoutJump()
             }
-            .setNeutralButton("Выбрать звук в Android") { _, _ ->
+            .setNeutralButton("Канал Android") { _, _ ->
                 openPaymentTrialAndroidSettings()
             }
-            .setPositiveButton("Да, звук правильный") { _, _ ->
+            .setPositiveButton("Да, правильно") { _, _ ->
                 val issue = PaymentToneChange.accept(this)
                 if (issue != null) {
                     themedDialogBuilder()

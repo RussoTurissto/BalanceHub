@@ -104,6 +104,9 @@ class PaymentReminderReceiver : BroadcastReceiver() {
             if (!test) PaymentDeliveryLog.posted(context)
             ColorOsDirectVibration.afterNotification(
                 context, BalanceNotificationSounds.PAYMENT, channelId)
+            // Only an explicitly accepted silent payment channel can play its
+            // own WAV. The original ColorOS channel never gets double audio.
+            PaymentAutomaticSound.afterNotification(context, channelId)
             reservation?.previousNotificationId?.takeIf { it != noticeId }?.let {
                 notifications.cancel(it)
             }
