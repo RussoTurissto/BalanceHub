@@ -62,7 +62,8 @@ internal data class PaymentReminder(
 
 /** Fault-isolated JSON codec: one bad legacy record cannot crash the activity. */
 internal object PaymentReminderCodec {
-    fun decode(record: JSONObject): PaymentReminder? = try {
+    fun decode(record: JSONObject): PaymentReminder? {
+        return try {
         val id = record.getString("id").takeIf { it.isNotBlank() } ?: return null
         val title = record.getString("title").takeIf { it.isNotBlank() } ?: return null
         val dueAt = record.getLong("dueAt").takeIf { it > 0L } ?: return null
@@ -72,8 +73,9 @@ internal object PaymentReminderCodec {
         PaymentReminder(id, title, record.getString("amount"),
             record.getString("currency"), dueAt, lead, recurrence,
             record.optString("icon").takeIf { IconRegistry.find(it) != null })
-    } catch (_: Exception) {
-        null
+        } catch (_: Exception) {
+            null
+        }
     }
 
     fun encode(payment: PaymentReminder): JSONObject = JSONObject()
