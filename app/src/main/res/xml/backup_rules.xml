@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Sensitive reminders, financial settings and notification diagnostics stay on device.
+     APK updates retain app data; uninstalling may remove it. -->
+<full-backup-content>
+    <exclude domain="root" path="." />
+    <exclude domain="external" path="." />
+</full-backup-content>
