@@ -6,6 +6,7 @@ import androidx.core.content.edit
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.security.MessageDigest
 
 /** Per-bank Push balances; Sber's existing balance store is intentionally untouched. */
 internal object RussianBankBalanceStore {
@@ -93,7 +94,8 @@ internal object RussianBankDiagnostics {
         val accountFieldsMask: Int,
         val fieldLengths: List<Int>,
         val deliveryState: Int,
-        val privacy: String
+        val privacy: String,
+        val fingerprint: String = ""
     )
 
     private fun prefs(context: Context) =
@@ -101,6 +103,7 @@ internal object RussianBankDiagnostics {
 
     private fun allowed(bank: RussianBank) = bank.id == "vtb" || bank.id == "tbank"
 
+    @Synchronized
     fun recent(context: Context, bank: RussianBank): List<Event> {
         if (!allowed(bank)) return emptyList()
         val raw = prefs(context).getString("events_" + bank.id, "[]") ?: "[]"
@@ -121,21 +124,32 @@ internal object RussianBankDiagnostics {
                     (0 until minOf(lengths.length(), SberNotificationText.Field.entries.size))
                         .map { lengths.optInt(it, 0).coerceIn(0, 8192) },
                 item.optInt("state", -1),
-                item.optString("privacy", "NONE")
+                item.optString("privacy", "NONE"),
+                item.optString("keyHash", "")
             )
         }
     }
 
+    @Synchronized
     fun record(
         context: Context,
         bank: RussianBank,
         status: String,
         payload: SberNotificationText.Payload? = null,
         privacy: SberNotificationPrivacy.Evidence? = null,
-        deliveryState: Int = -1
+        deliveryState: Int = -1,
+        postedAt: Long = 0L,
+        notificationKey: String? = null
     ) {
         if (!allowed(bank)) return
-        val now = System.currentTimeMillis()
+        // Hash Android's key without storing it, since tags can contain identifiers.
+        val fingerprint = if (notificationKey == null || postedAt <= 0L) ""
+            else MessageDigest.getInstance("SHA-256")
+                .digest((notificationKey + "#" + postedAt).toByteArray(Charsets.UTF_8))
+                .take(12).joinToString("") { "%02x".format(it.toInt() and 0xff) }
+        val previous = recent(context, bank)
+        if (fingerprint.isNotEmpty() && previous.any { it.fingerprint == fingerprint }) return
+        val now = postedAt.takeIf { it > 0L } ?: System.currentTimeMillis()
         val entry = JSONObject()
             .put("at", now)
             .put("status", status.take(100))
@@ -145,6 +159,7 @@ internal object RussianBankDiagnostics {
             .put("account", payload?.accountFieldsMask ?: 0)
             .put("state", deliveryState)
             .put("privacy", privacy?.name ?: "NONE")
+            .put("keyHash", fingerprint)
         val lengths = JSONArray()
         payload?.fieldLengths?.take(SberNotificationText.Field.entries.size)?.forEach {
             lengths.put(it.coerceIn(0, 8192))
@@ -152,7 +167,7 @@ internal object RussianBankDiagnostics {
         entry.put("lengths", lengths)
         val history = JSONArray().put(entry)
         // Keep at most six metadata records and preserve existing UI status keys.
-        recent(context, bank).take(5).forEach { item ->
+        previous.take(5).forEach { item ->
             val sizes = JSONArray()
             item.fieldLengths.forEach { sizes.put(it) }
             history.put(JSONObject()
@@ -164,6 +179,7 @@ internal object RussianBankDiagnostics {
                 .put("account", item.accountFieldsMask)
                 .put("state", item.deliveryState)
                 .put("privacy", item.privacy)
+                .put("keyHash", item.fingerprint)
                 .put("lengths", sizes))
         }
         prefs(context).edit {
@@ -174,6 +190,7 @@ internal object RussianBankDiagnostics {
         }
     }
 
+    @Synchronized
     fun clear(context: Context, id: String) {
         if (id != "vtb" && id != "tbank") return
         prefs(context).edit {
