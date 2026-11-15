@@ -13,6 +13,7 @@ import android.os.Build
  * channel, until a person hears a real notification and explicitly accepts it.
  * Existing payment reminders continue using the previously confirmed channel.
  */
+@android.annotation.SuppressLint("UseKtx")
 internal object PaymentToneChange {
     private const val NAME = "balancehub_notification_sounds"
     private const val PENDING_ID = "payment_sound_trial_id"
@@ -177,6 +178,7 @@ internal object PaymentToneChange {
     /** Cancel only the trial channel; never change active payment preferences. */
     @Synchronized
     fun cancel(context: Context) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val trial = pending(context) ?: return
         if (!clearPending(prefs(context).edit()).commit()) return
         if (trial.id != BalanceNotificationSounds.channelId(context, CATEGORY)) {

@@ -3191,6 +3191,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun openPaymentTrialAndroidSettings() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            openAndroidNotificationSettings(BalanceNotificationSounds.PAYMENT)
+            return
+        }
         val trial = PaymentToneChange.pending(this) ?: return
         val intent = Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS).apply {
             putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
