@@ -5809,8 +5809,13 @@ class MainActivity : AppCompatActivity() {
             val directReport = if (BalanceNotificationSounds.colorOsCompatibility(this))
                 "Прямая вибрация: " + compatibilityVibration.name + ". "
             else ""
+            val automaticReport = if (category == BalanceNotificationSounds.PAYMENT &&
+                PaymentAutomaticSound.enabled(this)) {
+                "Звук BalanceHub: " +
+                    PaymentAutomaticSound.afterNotification(this, channelId).name + ". "
+            } else ""
             Toast.makeText(this, "Уведомление передано Android. " + directReport +
-                "Фактическое воспроизведение зависит от настроек устройства.",
+                automaticReport + "Проверьте фактический звук на устройстве.",
                 Toast.LENGTH_LONG).show()
         } catch (_: SecurityException) {
             Toast.makeText(this, "Android отклонил отправку уведомления",

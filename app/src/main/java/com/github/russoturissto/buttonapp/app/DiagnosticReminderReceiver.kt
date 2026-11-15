@@ -41,6 +41,7 @@ class DiagnosticReminderReceiver : BroadcastReceiver() {
                 }
                 remove("${key}_delivered")
                 remove("${key}_posted")
+                remove("${key}_automatic_audio_result")
             }
         }
     }
@@ -82,9 +83,13 @@ class DiagnosticReminderReceiver : BroadcastReceiver() {
             NotificationManagerCompat.from(context)
                 .notify(ReminderNoticeIds.diagnostic(key, expected), notification)
             val vibration = ColorOsDirectVibration.afterNotification(context, category, channel)
+            val automaticAudio = if (category == BalanceNotificationSounds.PAYMENT)
+                PaymentAutomaticSound.afterNotification(context, channel) else null
             prefs.edit {
                 putLong("${key}_posted", System.currentTimeMillis())
                 putString("${key}_direct_vibration_result", vibration.name)
+                if (automaticAudio != null)
+                    putString("${key}_automatic_audio_result", automaticAudio.name)
             }
         } catch (_: SecurityException) { /* Android notification permission was denied. */ }
     }
