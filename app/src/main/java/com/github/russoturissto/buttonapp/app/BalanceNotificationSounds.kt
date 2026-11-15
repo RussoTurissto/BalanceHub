@@ -222,14 +222,14 @@ internal object BalanceNotificationSounds {
     private data class SoundSelection(val uri: Uri?, val error: String? = null)
 
     /**
-     * On ColorOS, newly created payment channels may accept the public
+     * On ColorOS, new channels in all three categories may accept the public
      * MediaStore form used by the OEM ringtone picker. No existing channel
      * is modified: Android owns its sound once it has been registered.
      */
     private fun resolveChannelSound(context: Context, category: String,
         key: String, gain: Int, directVibration: Boolean): SoundSelection {
         val original = resolveSound(context, key, gain)
-        if (category != PAYMENT || !directVibration || original.error != null ||
+        if (!directVibration || original.error != null ||
             key == "silent" || key == "system" || gain == 0) return original
         val uri = original.uri ?: return original
         return SoundSelection(BalanceSystemToneStore.pickerCompatibleUri(context, uri) ?: uri)
@@ -285,7 +285,7 @@ internal object BalanceNotificationSounds {
         channel.setSound(sound, if (sound == null) null else attributes)
         // ColorOS workaround: the OS plays audio while the app vibrates with
         // notification usage. Never ask the same channel to vibrate twice.
-        val vibrate = !directVibration && NotificationVibrationMode.enabled(mode)
+        val vibrate = NotificationSignalPolicy.nativeVibrationEnabled(mode, directVibration)
         if (vibrate) {
             NotificationChannelVibration.apply(channel, NotificationVibrationMode.pattern(mode))
         } else {
@@ -372,10 +372,8 @@ internal object BalanceNotificationSounds {
                 // suppress its sound/vibration settings while importance is low.
                 val activeAlert = old.importance >= NotificationManager.IMPORTANCE_DEFAULT
                 if (actual == null || actual.importance != old.importance ||
-                    (activeAlert && !(if (enabled && category == PAYMENT)
-                        NotificationToneIdentity.same(sound.uri?.toString(),
-                            actual.sound?.toString())
-                        else actual.sound == sound.uri)) ||
+                    (activeAlert && !NotificationSignalPolicy.sameSoundUri(
+                        sound.uri?.toString(), actual.sound?.toString())) ||
                     (activeAlert && actual.shouldVibrate() !=
                         (!enabled && NotificationVibrationMode.enabled(mode)))) {
                     throw IllegalStateException(
@@ -444,20 +442,19 @@ internal object BalanceNotificationSounds {
                 "канала и включите звуковые уведомления, затем выберите мелодию ещё раз."
         }
         val expectedSound = selection.uri
-        val expectedVibration = !directVibration && NotificationVibrationMode.enabled(mode)
+        val expectedVibration = NotificationSignalPolicy.nativeVibrationEnabled(mode, directVibration)
         val expectedPattern = if (directVibration) null else NotificationVibrationMode.pattern(mode)
         fun matches(channel: NotificationChannel): Boolean =
-            (if (category == PAYMENT && directVibration)
-                NotificationToneIdentity.same(expectedSound?.toString(),
-                    channel.sound?.toString())
-            else channel.sound == expectedSound) &&
+            NotificationSignalPolicy.sameSoundUri(expectedSound?.toString(),
+                channel.sound?.toString()) &&
                 channel.shouldVibrate() == expectedVibration &&
                 (expectedPattern == null ||
                     expectedPattern.contentEquals(channel.vibrationPattern))
         val save = {
             prefs.edit().putString(category, key)
                 .putString("vibration_mode_" + category, mode)
-                .putBoolean("vibration_" + category, expectedVibration)
+                // Persist the user's choice, not the disabled ColorOS channel motor.
+                .putBoolean("vibration_" + category, NotificationVibrationMode.enabled(mode))
                 .putInt("volume_" + category, percent)
         }
         // Switching from a custom waveform to the platform default also
@@ -487,7 +484,8 @@ internal object BalanceNotificationSounds {
                     actual == null -> "Android не создал канал уведомлений"
                     expectedSound != null && actual.sound == null ->
                         "Android оставил канал без звука. Откройте настройки канала и выберите мелодию."
-                    actual.sound != expectedSound ->
+                    !NotificationSignalPolicy.sameSoundUri(expectedSound?.toString(),
+                        actual.sound?.toString()) ->
                         "Android назначил другую мелодию. Проверьте звук в настройках канала."
                     actual.shouldVibrate() != expectedVibration ->
                         "Android не принял настройку вибрации канала"
@@ -501,8 +499,16 @@ internal object BalanceNotificationSounds {
                 manager.deleteNotificationChannel(nextId)
                 return "Не удалось сохранить настройки"
             }
-            manager.deleteNotificationChannel(oldId)
-            deleteUnusedChannels(context)
+            // Saving the new channel has already succeeded. Cleanup must never
+            // turn a successful settings change into a reported failure.
+            try { manager.deleteNotificationChannel(oldId) }
+            catch (error: Exception) {
+                android.util.Log.w("BalanceHubSound", "Cannot retire previous channel", error)
+            }
+            try { deleteUnusedChannels(context) }
+            catch (error: Exception) {
+                android.util.Log.w("BalanceHubSound", "Cannot clean old channels", error)
+            }
             null
         } catch (error: Exception) {
             android.util.Log.e("BalanceHubSound", "Notification configuration failed", error)
@@ -551,8 +557,7 @@ internal object BalanceNotificationSounds {
         return actual == soundUri(context, key, gain) ||
             actual == resourceUri(context, key) ||
             actual == cached ||
-            (category == PAYMENT && colorOsCompatibility(context) &&
-                NotificationToneIdentity.same(cached?.toString(), actual?.toString()))
+            NotificationSignalPolicy.sameSoundUri(cached?.toString(), actual?.toString())
     }
 
     /**
@@ -567,9 +572,10 @@ internal object BalanceNotificationSounds {
             ?: return listOf("Android не создал канал уведомлений")
         val key = selected(context, category)
         val gain = volume(context, category)
-        val wantsSound = key == "system" || (key != "silent" && gain > 0)
+        val wantsSound = NotificationSignalPolicy.soundEnabled(key, gain)
         val directVibration = colorOsCompatibility(context)
-        val wantsVibration = !directVibration && vibrationFor(context, category)
+        val wantsVibration = NotificationSignalPolicy.nativeVibrationEnabled(
+            vibrationMode(context, category), directVibration)
         val pattern = if (directVibration) null
             else NotificationVibrationMode.pattern(vibrationMode(context, category))
         return NotificationChannelSignalState.issues(

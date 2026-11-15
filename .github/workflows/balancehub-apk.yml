@@ -12,6 +12,12 @@ on:
       - "settings.gradle.kts"
       - ".github/workflows/balancehub-apk.yml"
   workflow_dispatch:
+    inputs:
+      rollback_rc13:
+        description: "Build original rc13 sources as a higher-version signed rollback APK"
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: write
@@ -20,16 +26,20 @@ permissions:
 # Cancel obsolete builds after a newer approved change; only the
 # latest branch revision should produce a user-facing installable APK.
 concurrency:
-  group: balancehub-apk-rc13-${{ github.ref }}
+  group: balancehub-apk-rc14-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      BUILD_VERSION_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.rollback_rc13 && '1.1.4-rc13-rollback' || '1.1.4-rc14' }}
     steps:
-      - name: Checkout repository
+      - name: Checkout repository or pinned rc13 rollback sources
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.rollback_rc13 && '2ea6f89b1c5688abef38fa25854cb52a5555a3ad' || github.sha }}
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -96,7 +106,7 @@ jobs:
             echo "Build attempt $attempt of 4"
             if ./gradlew --no-daemon --console=plain :app:assembleRelease \
               -PAPP_VERSION_CODE=$(( ${{ github.run_number }} + 300 )) \
-              -PAPP_VERSION_NAME=1.1.4-rc13 2>&1 | tee "$RUNNER_TEMP/balancehub-build.log"; then
+              -PAPP_VERSION_NAME="$BUILD_VERSION_NAME" 2>&1 | tee "$RUNNER_TEMP/balancehub-build.log"; then
               exit 0
             fi
             if grep -Eq "Compilation error|Unresolved reference|Too many arguments|e: file://" "$RUNNER_TEMP/balancehub-build.log"; then
@@ -132,7 +142,7 @@ jobs:
           "$BUILD_TOOLS/aapt" dump badging "$APK" > "$RUNNER_TEMP/balancehub-package-info.txt"
           grep -q "^package: name='com.github.russoturissto.buttonapp.app'" "$RUNNER_TEMP/balancehub-package-info.txt"
           grep -q "versionCode='$(( ${{ github.run_number }} + 300 ))'" "$RUNNER_TEMP/balancehub-package-info.txt"
-          grep -q "versionName='1.1.4-rc13'" "$RUNNER_TEMP/balancehub-package-info.txt"
+          grep -q "versionName='$BUILD_VERSION_NAME'" "$RUNNER_TEMP/balancehub-package-info.txt"
           APK_SHA="$(sed -n 's/^V2 Signer: certificate SHA-256 digest: //p' "$RUNNER_TEMP/balancehub-signature.txt" | tr -d '[:space:]:' | tr '[:upper:]' '[:lower:]')"
           keytool -list -v -keystore "$RUNNER_TEMP/balancehub-upload.jks" -alias "$KEY_ALIAS" -storepass "$KEYSTORE_PASSWORD" > "$RUNNER_TEMP/balancehub-keystore-info.txt"
           KEY_SHA="$(sed -n 's/.*SHA256: //p' "$RUNNER_TEMP/balancehub-keystore-info.txt" | tr -d '[:space:]:' | tr '[:upper:]' '[:lower:]')"
@@ -158,9 +168,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          version="1.1.4-rc13"
+          version="$BUILD_VERSION_NAME"
           code="$((GITHUB_RUN_NUMBER + 300))"
           tag="v$version-build$code"
+          notes="release/notes-1.1.4-rc14.md"
+          if [[ "$version" == "1.1.4-rc13-rollback" ]]; then
+            notes="release/notes-1.1.4-rc13.md"
+          fi
           apk="app/build/outputs/apk/release/BalanceHub.apk"
           [[ -s "$apk" ]] || { echo "::error::Missing signed APK"; exit 1; }
           existing="$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" |
@@ -169,9 +183,9 @@ jobs:
             echo "::error::Release already exists, refusing overwrite: $tag"; exit 1;
           }
           gh release create "$tag" "$apk#BalanceHub.apk" \
-            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --repo "$GITHUB_REPOSITORY" --target "$(git rev-parse HEAD)" \
             --title "★ АКТУАЛЬНАЯ ТЕСТОВАЯ · BalanceHub $version (сборка $code)" \
-            --notes-file "release/notes-$version.md" \
+            --notes-file "$notes" \
             --draft --prerelease --latest=false
           # Retire older markers, preserving all previous draft APK files.
           gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" |
