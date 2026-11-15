@@ -68,12 +68,14 @@ class SberPushNotificationListener : NotificationListenerService() {
         val notification = sbn.notification
         if ((notification.flags and Notification.FLAG_GROUP_SUMMARY) != 0) {
             RussianBankDiagnostics.record(this, bank, "Групповое уведомление",
-                deliveryState = state())
+                deliveryState = state(), postedAt = sbn.postTime,
+                notificationKey = sbn.key)
             return
         }
         if ((notification.flags and Notification.FLAG_ONGOING_EVENT) != 0) {
             RussianBankDiagnostics.record(this, bank, "Постоянное уведомление",
-                deliveryState = state())
+                deliveryState = state(), postedAt = sbn.postTime,
+                notificationKey = sbn.key)
             return
         }
         val payload = SberNotificationText.extract(notification)
@@ -84,7 +86,8 @@ class SberPushNotificationListener : NotificationListenerService() {
         )
         if (privacy == SberNotificationPrivacy.Evidence.SYSTEM_REDACTION) {
             RussianBankDiagnostics.record(this, bank, "Содержимое Push скрыто Android",
-                payload, privacy, state())
+                payload, privacy, state(), postedAt = sbn.postTime,
+                notificationKey = sbn.key)
             sendBroadcast(Intent(ACTION_BALANCE_UPDATED).setPackage(packageName))
             return
         }
@@ -97,7 +100,8 @@ class SberPushNotificationListener : NotificationListenerService() {
             else -> "Push без подтверждённого остатка"
         } else if (RussianBankBalanceStore.save(this, bank, result, sbn.postTime))
             "Баланс обновлён" else "Старый или повторный Push"
-        RussianBankDiagnostics.record(this, bank, status, payload, privacy, state())
+        RussianBankDiagnostics.record(this, bank, status, payload, privacy, state(),
+            postedAt = sbn.postTime, notificationKey = sbn.key)
         sendBroadcast(Intent(ACTION_BALANCE_UPDATED).setPackage(packageName))
     }
 
