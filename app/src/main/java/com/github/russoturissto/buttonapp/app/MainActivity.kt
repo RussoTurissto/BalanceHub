@@ -88,6 +88,7 @@ class MainActivity : AppCompatActivity() {
     private var bankSettingsOpen = false
     private var engineeringMenuOpen = false
     private var engineeringChannelsOpen = false
+    private var engineeringChannelCategory: String? = null
     private var engineeringBanksOpen = false
     private var engineeringNotificationsOpen = false
     private var engineeringDeliveryOpen = false
@@ -197,6 +198,7 @@ class MainActivity : AppCompatActivity() {
         bankSettingsOpen = false
         engineeringMenuOpen = false
         engineeringChannelsOpen = false
+        engineeringChannelCategory = null
         engineeringBanksOpen = false
         engineeringNotificationsOpen = false
         engineeringDeliveryOpen = false
@@ -273,6 +275,11 @@ class MainActivity : AppCompatActivity() {
                     }
                     engineeringDeliveryOpen && engineeringMenuOpen && currentTab == 4 -> {
                         engineeringDeliveryOpen = false
+                        renderTab()
+                    }
+                    engineeringChannelCategory != null && engineeringMenuOpen &&
+                        currentTab == 4 -> {
+                        engineeringChannelCategory = null
                         renderTab()
                     }
                     engineeringChannelsOpen && engineeringMenuOpen && currentTab == 4 -> {
@@ -2288,6 +2295,7 @@ class MainActivity : AppCompatActivity() {
                 engineeringBanksOpen -> renderEngineeringBanks()
                 engineeringNotificationsOpen -> renderEngineeringNotifications()
                 engineeringDeliveryOpen -> renderEngineeringDelivery()
+                engineeringChannelCategory != null -> renderEngineeringChannelCategory()
                 engineeringChannelsOpen -> renderEngineeringChannels()
                 else -> renderEngineeringMenu()
             }
@@ -2568,77 +2576,50 @@ class MainActivity : AppCompatActivity() {
                 showCategorySoundTrialDialog(category)
             })
         }
+        // Everyday settings retain safe restoration of a confirmed melody.
+        // Experimental sound switching is available in engineering channels.
         if (category != BalanceNotificationSounds.PAYMENT &&
-            PaymentAutomaticSound.shouldOffer(this)) {
-            val automatic = PaymentAutomaticSound.enabled(this, category)
-            if (automatic && CategoryToneChange.canRestorePrevious(this, category)) {
-                val previousTitle = CategoryToneChange.previousSoundTitle(this, category)
-                rows.add(settingsRow("music", "Вернуть прежнюю мелодию: " + previousTitle,
-                    "Восстановить ранее проверенный канал Android") {
-                    themedDialogBuilder()
-                        .setTitle("Вернуть прежний звук: " + notificationTitle(category) + "?")
-                        .setMessage("Восстановить «" + previousTitle +
-                            "»? Текущая вибрация останется прежней.")
-                        .setNegativeButton("Отмена", null)
-                        .setPositiveButton("Вернуть") { _, _ ->
-                            val error = CategoryToneChange.restorePrevious(this, category)
-                            Toast.makeText(this,
-                                error ?: "Предыдущая мелодия восстановлена",
-                                Toast.LENGTH_LONG).show()
-                            refreshSettingsWithoutJump()
-                        }.show()
-                })
-            } else {
-                rows.add(settingsRow("music",
-                    if (automatic) "Вернуться к системному звуку"
-                    else "Испытать автоматический звук BalanceHub",
-                    if (automatic) "Проверить новый канал перед возвратом"
-                    else "ColorOS: без ручного выбора WAV в Android") {
-                    val issue = CategoryToneChange.begin(this, category,
-                        BalanceNotificationSounds.selected(this, category),
-                        BalanceNotificationSounds.volume(this, category),
-                        automatic = !automatic)
-                    if (issue != null) Toast.makeText(this, issue, Toast.LENGTH_LONG).show()
-                    else showCategorySoundTrialDialog(category)
-                    refreshSettingsWithoutJump()
-                })
-            }
+            PaymentAutomaticSound.shouldOffer(this) &&
+            PaymentAutomaticSound.enabled(this, category) &&
+            CategoryToneChange.canRestorePrevious(this, category)) {
+            val previousTitle = CategoryToneChange.previousSoundTitle(this, category)
+            rows.add(settingsRow("music", "Вернуть прежнюю мелодию: " + previousTitle,
+                "Восстановить ранее проверенный канал Android") {
+                themedDialogBuilder()
+                    .setTitle("Вернуть прежний звук: " + notificationTitle(category) + "?")
+                    .setMessage("Восстановить «" + previousTitle +
+                        "»? Текущая вибрация останется прежней.")
+                    .setNegativeButton("Отмена", null)
+                    .setPositiveButton("Вернуть") { _, _ ->
+                        val error = CategoryToneChange.restorePrevious(this, category)
+                        Toast.makeText(this,
+                            error ?: "Предыдущая мелодия восстановлена",
+                            Toast.LENGTH_LONG).show()
+                        refreshSettingsWithoutJump()
+                    }.show()
+            })
         }
         if (category == BalanceNotificationSounds.PAYMENT &&
-            PaymentAutomaticSound.shouldOffer(this)) {
-            val automatic = PaymentAutomaticSound.enabled(this)
-            if (automatic && PaymentToneChange.canRestorePrevious(this)) {
-                val previousTitle = PaymentToneChange.previousSoundTitle(this)
-                rows.add(settingsRow("music", "Вернуть прежнюю мелодию: " + previousTitle,
-                    "Без нового канала: восстановить проверенный звук Android") {
-                    themedDialogBuilder()
-                        .setTitle("Вернуть подтверждённый звук платежей?")
-                        .setMessage("Вернуть «" + previousTitle + "» и сохранить " +
-                            "действующий режим вибрации? Автоматический звук BalanceHub " +
-                            "будет выключен. Прежний проверенный канал Android сохранён.")
-                        .setNegativeButton("Отмена", null)
-                        .setPositiveButton("Вернуть") { _, _ ->
-                            val error = PaymentToneChange.restorePrevious(this)
-                            Toast.makeText(this,
-                                error ?: "Предыдущий звук платежей восстановлен",
-                                Toast.LENGTH_LONG).show()
-                            refreshSettingsWithoutJump()
-                        }.show()
-                })
-            } else {
-                rows.add(settingsRow("music",
-                    if (automatic) "Вернуться к системному звуку платежей"
-                    else "Испытать автоматический звук BalanceHub",
-                    if (automatic) "Проверить новый канал Android перед возвратом"
-                    else "Эксперимент ColorOS: без ручного выбора WAV в Android") {
-                    val issue = PaymentToneChange.begin(this,
-                        BalanceNotificationSounds.selected(this, category),
-                        BalanceNotificationSounds.volume(this, category), automatic = !automatic)
-                    if (issue != null) Toast.makeText(this, issue, Toast.LENGTH_LONG).show()
-                    else showPaymentSoundTrialDialog()
-                    refreshSettingsWithoutJump()
-                })
-            }
+            PaymentAutomaticSound.shouldOffer(this) &&
+            PaymentAutomaticSound.enabled(this) &&
+            PaymentToneChange.canRestorePrevious(this)) {
+            val previousTitle = PaymentToneChange.previousSoundTitle(this)
+            rows.add(settingsRow("music", "Вернуть прежнюю мелодию: " + previousTitle,
+                "Без нового канала: восстановить проверенный звук Android") {
+                themedDialogBuilder()
+                    .setTitle("Вернуть подтверждённый звук платежей?")
+                    .setMessage("Вернуть «" + previousTitle + "» и сохранить " +
+                        "действующий режим вибрации? Автоматический звук BalanceHub " +
+                        "будет выключен. Прежний проверенный канал Android сохранён.")
+                    .setNegativeButton("Отмена", null)
+                    .setPositiveButton("Вернуть") { _, _ ->
+                        val error = PaymentToneChange.restorePrevious(this)
+                        Toast.makeText(this,
+                            error ?: "Предыдущий звук платежей восстановлен",
+                            Toast.LENGTH_LONG).show()
+                        refreshSettingsWithoutJump()
+                    }.show()
+            })
         }
         rows.add(settingsRow("music", "Звук",
             BalanceNotificationSounds.title(this, category)) {
@@ -2653,23 +2634,6 @@ class MainActivity : AppCompatActivity() {
             BalanceNotificationSounds.vibrationModeTitle(this, category)) {
             showVibrationChooser(category)
         })
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            rows.add(settingsRow("settings", "Канал уведомлений Android",
-                BalanceNotificationSounds.effectiveSummary(this, category)) {
-                openAndroidNotificationSettings(category)
-            })
-            if (BalanceNotificationSounds.needsRepair(this, category)) {
-                rows.add(settingsRow("settings", "Применить звук и вибрацию",
-                    "Выбранные настройки отличаются от канала Android") {
-                    showChannelRepairDialog(category)
-                })
-            } else {
-                rows.add(settingsRow("settings", "Повторно применить сигналы",
-                    "Только по подтверждению: новый канал, настройки Android могут сброситься") {
-                    showChannelRepairDialog(category)
-                })
-            }
-        }
         rows.add(settingsRow("settings", "Проверить уведомление",
             "Проверить реальные звук и вибрацию через Android") {
             sendNotificationTest(category)
@@ -2960,6 +2924,7 @@ class MainActivity : AppCompatActivity() {
         engineeringTapStartedAt = 0L
         bankSettingsOpen = false
         engineeringChannelsOpen = false
+        engineeringChannelCategory = null
         engineeringBanksOpen = false
         engineeringNotificationsOpen = false
         engineeringDeliveryOpen = false
@@ -3372,6 +3337,83 @@ class MainActivity : AppCompatActivity() {
         contentContainer.addView(diagnostics)
     }
 
+    /** Advanced channel controls stay behind the non-persistent engineering menu. */
+    private fun renderEngineeringChannelCategory() {
+        val category = engineeringChannelCategory?.takeIf {
+            it == BalanceNotificationSounds.PAYMENT ||
+                it == BalanceNotificationSounds.EVENT ||
+                it == BalanceNotificationSounds.UPDATE
+        }
+        if (!engineeringMenuOpen || !engineeringChannelsOpen || category == null) {
+            engineeringChannelCategory = null
+            renderEngineeringChannels()
+            return
+        }
+        contentContainer.addView(secondaryButton("‹  Системные каналы") {
+            engineeringChannelCategory = null
+            renderTab()
+        })
+        contentContainer.addView(verticalGap(13))
+        contentContainer.addView(textLine(notificationTitle(category), 23f, ink, true))
+        contentContainer.addView(verticalGap(5))
+        contentContainer.addView(textLine(
+            "Инженерные параметры канала уведомлений Android", 12f, muted))
+        contentContainer.addView(verticalGap(14))
+
+        val rows = mutableListOf<View>()
+        if (PaymentAutomaticSound.shouldOffer(this)) {
+            val automatic = PaymentAutomaticSound.enabled(this, category)
+            rows.add(settingsRow("music",
+                if (automatic) "Вернуться к системному звуку"
+                else "Испытать автоматический звук BalanceHub",
+                if (automatic) "Проверить новый канал перед возвратом"
+                else "ColorOS: проверка автоматического воспроизведения WAV") {
+                val key = BalanceNotificationSounds.selected(this, category)
+                val gain = BalanceNotificationSounds.volume(this, category)
+                val issue = if (category == BalanceNotificationSounds.PAYMENT)
+                    PaymentToneChange.begin(this, key, gain, automatic = !automatic)
+                else CategoryToneChange.begin(this, category, key, gain,
+                    automatic = !automatic)
+                if (issue != null) Toast.makeText(this, issue, Toast.LENGTH_LONG).show()
+                else if (category == BalanceNotificationSounds.PAYMENT)
+                    showPaymentSoundTrialDialog()
+                else showCategorySoundTrialDialog(category)
+                refreshSettingsWithoutJump()
+            })
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            rows.add(settingsRow("settings", "Канал уведомлений Android",
+                BalanceNotificationSounds.effectiveSummary(this, category)) {
+                openAndroidNotificationSettings(category)
+            })
+            val needsRepair = BalanceNotificationSounds.needsRepair(this, category)
+            rows.add(settingsRow("settings",
+                if (needsRepair) "Применить звук и вибрацию"
+                else "Повторно применить сигналы",
+                if (needsRepair) "Выбранные настройки отличаются от канала Android"
+                else "Только по подтверждению: новый канал, настройки Android могут сброситься") {
+                showChannelRepairDialog(category)
+            })
+        }
+        rows.add(settingsRow("settings", "Состояние звука и вибрации Android",
+            "Технический отчёт о текущем канале") {
+            themedDialogBuilder()
+                .setTitle("Канал: " + notificationTitle(category))
+                .setMessage(NotificationSignalAudit.report(this, category)
+                    .joinToString("\n"))
+                .setNegativeButton("Закрыть", null)
+                .setPositiveButton("Настройки Android") { _, _ ->
+                    openAndroidNotificationSettings(category)
+                }.show()
+        })
+        settingsGroup(settingsPanel(*rows.toTypedArray()))
+        contentContainer.addView(textLine(
+            "Применение сигналов может пересоздать канал Android. " +
+                "Данные платежей, событий и выбранные звуки сохраняются.",
+            12f, muted))
+    }
+
     private fun renderEngineeringChannels() {
         contentContainer.addView(secondaryButton("‹  Инженерное меню") {
             engineeringChannelsOpen = false
@@ -3391,14 +3433,8 @@ class MainActivity : AppCompatActivity() {
         ).map { category ->
             val status = BalanceNotificationSounds.effectiveSummary(this, category)
             settingsRow("settings", notificationTitle(category), status) {
-                themedDialogBuilder()
-                    .setTitle("Канал: " + notificationTitle(category))
-                    .setMessage(NotificationSignalAudit.report(this, category)
-                        .joinToString("\n"))
-                    .setNegativeButton("Закрыть", null)
-                    .setPositiveButton("Настройки Android") { _, _ ->
-                        openAndroidNotificationSettings(category)
-                    }.show()
+                engineeringChannelCategory = category
+                renderTab()
             }
         }.toTypedArray()))
         settingsGroup(settingsPanel(settingsRow("settings",
