@@ -159,6 +159,10 @@ internal object GithubUpdateEngine {
             NotificationManagerCompat.from(context).notify(13772, note)
             ColorOsDirectVibration.afterNotification(
                 context, BalanceNotificationSounds.UPDATE, channel)
+            PaymentAutomaticSound.afterNotification(context, channel,
+                BalanceNotificationSounds.selected(context, BalanceNotificationSounds.UPDATE),
+                BalanceNotificationSounds.volume(context, BalanceNotificationSounds.UPDATE),
+                category = BalanceNotificationSounds.UPDATE)
             prefs.edit { putLong("announced", release.code) }
         } catch (_: SecurityException) { /* user revoked notifications */ }
     }
