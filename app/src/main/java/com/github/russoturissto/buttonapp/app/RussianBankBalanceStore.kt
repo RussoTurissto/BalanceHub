@@ -174,6 +174,16 @@ internal object RussianBankDiagnostics {
         }
     }
 
+    fun clear(context: Context, id: String) {
+        if (id != "vtb" && id != "tbank") return
+        prefs(context).edit {
+            remove("status_" + id)
+            remove("time_" + id)
+            remove("events_" + id)
+            remove("success_" + id)
+        }
+    }
+
     fun last(context: Context, bank: RussianBank): String? =
         if (allowed(bank)) prefs(context).getString("status_" + bank.id, null) else null
 
