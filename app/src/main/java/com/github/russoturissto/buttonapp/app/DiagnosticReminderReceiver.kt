@@ -83,8 +83,10 @@ class DiagnosticReminderReceiver : BroadcastReceiver() {
             NotificationManagerCompat.from(context)
                 .notify(ReminderNoticeIds.diagnostic(key, expected), notification)
             val vibration = ColorOsDirectVibration.afterNotification(context, category, channel)
-            val automaticAudio = if (category == BalanceNotificationSounds.PAYMENT)
-                PaymentAutomaticSound.afterNotification(context, channel) else null
+            val automaticAudio = PaymentAutomaticSound.afterNotification(context, channel,
+                BalanceNotificationSounds.selected(context, category),
+                BalanceNotificationSounds.volume(context, category),
+                category = category)
             prefs.edit {
                 putLong("${key}_posted", System.currentTimeMillis())
                 putString("${key}_direct_vibration_result", vibration.name)
