@@ -3406,6 +3406,135 @@ class MainActivity : AppCompatActivity() {
             }.show()
     }
 
+    /**
+     * The event/update trial follows the proven payment flow without changing
+     * the currently confirmed channel or the corresponding payment settings.
+     */
+    private fun showCategorySoundTrialDialog(category: String) {
+        val trial = CategoryToneChange.pending(this, category) ?: return
+        val label = when (trial.key) {
+            "system" -> "Системный звук"
+            "silent" -> "Без звука"
+            else -> BalanceNotificationSounds.tones.firstOrNull { it.key == trial.key }
+                ?.title ?: trial.key
+        }
+        val problem = CategoryToneChange.problem(this, category, trial)
+        val description = if (trial.automatic)
+            "Пробный автоматический звук BalanceHub через кратковременную службу. " +
+                "Действующий канал пока НЕ изменён. После подтверждения " +
+                "проверьте настоящее уведомление с выключенным экраном."
+        else
+            "Действующий канал пока НЕ изменён. Проверьте звук в Android. " +
+                "При необходимости выберите WAV в настройках пробного канала."
+        themedDialogBuilder()
+            .setTitle("Проверка мелодии: " + notificationTitle(category))
+            .setMessage("Новая мелодия: " + label + "\n\n" + description +
+                (if (problem != null) "\n\nAndroid: " + problem else "") +
+                "\n\nПодтверждайте только после фактической проверки звука и вибрации.")
+            .setNegativeButton("Отмена") { _, _ ->
+                CategoryToneChange.cancel(this, category)
+                refreshSettingsWithoutJump()
+            }
+            .setNeutralButton("Настройки Android") { _, _ ->
+                openCategoryTrialAndroidSettings(category)
+            }
+            .setPositiveButton("Тест") { _, _ ->
+                sendCategorySoundTrial(category)
+            }.show()
+    }
+
+    private fun openCategoryTrialAndroidSettings(category: String) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            openAndroidNotificationSettings(category)
+            return
+        }
+        val trial = CategoryToneChange.pending(this, category) ?: return
+        val intent = Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS).apply {
+            putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+            putExtra(Settings.EXTRA_CHANNEL_ID, trial.id)
+        }
+        try { startActivity(intent) }
+        catch (_: Exception) { openAndroidNotificationSettings(category) }
+    }
+
+    private fun sendCategorySoundTrial(category: String) {
+        val trial = CategoryToneChange.pending(this, category) ?: return
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+                PackageManager.PERMISSION_GRANTED) {
+            requestNotificationPermissionIfNeeded()
+            return
+        }
+        if (!androidx.core.app.NotificationManagerCompat.from(this).areNotificationsEnabled()) {
+            Toast.makeText(this, "Разрешите уведомления BalanceHub в Android",
+                Toast.LENGTH_LONG).show()
+            return
+        }
+        val silent = trial.key == "silent" || (trial.key != "system" && trial.gain == 0)
+        try {
+            val notification = androidx.core.app.NotificationCompat.Builder(this, trial.id)
+                .setSmallIcon(applicationInfo.icon)
+                .setContentTitle("Проверка мелодии: " + notificationTitle(category))
+                .setContentText("Проверьте выбранный звук и вибрацию")
+                .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
+                .setAutoCancel(true)
+                .build()
+            androidx.core.app.NotificationManagerCompat.from(this)
+                .notify(ReminderNoticeIds.test(), notification)
+            ColorOsDirectVibration.afterNotification(this, category, trial.id)
+            if (trial.automatic) {
+                val result = PaymentAutomaticSound.afterNotification(this, trial.id,
+                    trial.key, trial.gain, trial = true, category = category)
+                if (result != PaymentAutomaticSound.Result.SERVICE_REQUESTED &&
+                    !(silent && result == PaymentAutomaticSound.Result.SILENT_SELECTION)) {
+                    Toast.makeText(this, "Автоматический звук не запущен: " + result,
+                        Toast.LENGTH_LONG).show()
+                    return
+                }
+            }
+            if (!CategoryToneChange.markTested(this, category, trial.id)) {
+                Toast.makeText(this, "Не удалось сохранить проверку",
+                    Toast.LENGTH_LONG).show()
+                return
+            }
+        } catch (error: Exception) {
+            Toast.makeText(this,
+                "Не удалось отправить тест: " + error.javaClass.simpleName,
+                Toast.LENGTH_LONG).show()
+            return
+        }
+        themedDialogBuilder()
+            .setTitle(if (silent) "Уведомление пришло без звука?"
+                else "Новая мелодия воспроизвелась?")
+            .setMessage(if (silent)
+                "Появилось ли уведомление без звука и с выбранной вибрацией?"
+                else "Прозвучала ли нужная мелодия с правильной вибрацией? " +
+                    "Если звук отсутствует или отличается, оставьте прежний канал.")
+            .setNegativeButton("Нет") { _, _ ->
+                CategoryToneChange.cancel(this, category)
+                refreshSettingsWithoutJump()
+            }
+            .setNeutralButton("Канал Android") { _, _ ->
+                openCategoryTrialAndroidSettings(category)
+            }
+            .setPositiveButton("Да, правильно") { _, _ ->
+                val issue = CategoryToneChange.accept(this, category)
+                if (issue != null) {
+                    themedDialogBuilder()
+                        .setTitle("Новая мелодия не применена")
+                        .setMessage(issue + "\nРабочий канал сохранён.")
+                        .setNegativeButton("Закрыть", null)
+                        .setPositiveButton("Канал Android") { _, _ ->
+                            openCategoryTrialAndroidSettings(category)
+                        }.show()
+                } else {
+                    Toast.makeText(this, "Мелодия подтверждена и сохранена",
+                        Toast.LENGTH_LONG).show()
+                }
+                refreshSettingsWithoutJump()
+            }.show()
+    }
+
     private fun showSoundChooser(category: String, title: String) {
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
