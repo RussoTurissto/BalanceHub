@@ -23,6 +23,19 @@ internal object PaymentAutomaticSound {
     private const val AUDIT = "balancehub_payment_automatic_audio"
     private const val CATEGORY = BalanceNotificationSounds.PAYMENT
 
+    /** Payment keys remain unchanged so verified installs keep their settings. */
+    fun enabledKey(category: String): String =
+        if (category == CATEGORY) ENABLED else "automatic_sound_" + category
+
+    private fun auditPreferences(context: Context, category: String) =
+        context.getSharedPreferences(
+            if (category == CATEGORY) AUDIT else "balancehub_automatic_audio_" + category,
+            Context.MODE_PRIVATE)
+
+    private fun supported(category: String): Boolean =
+        category == CATEGORY || category == BalanceNotificationSounds.EVENT ||
+            category == BalanceNotificationSounds.UPDATE
+
     enum class Result {
         INACTIVE, SILENT_SELECTION, NOTIFICATIONS_BLOCKED, CHANNEL_BLOCKED,
         CHANNEL_HAS_SYSTEM_SOUND, RINGER_SILENT, RINGER_VIBRATE, DND,
@@ -30,8 +43,10 @@ internal object PaymentAutomaticSound {
         PLAYING, FINISHED, PLAYBACK_FAILED, PLAYBACK_TIMED_OUT
     }
 
-    fun enabled(context: Context): Boolean = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(ENABLED, false)
+    fun enabled(context: Context, category: String = CATEGORY): Boolean =
+        supported(category) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getBoolean(enabledKey(category), false)
 
     fun shouldOffer(context: Context): Boolean =
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
@@ -44,22 +59,23 @@ internal object PaymentAutomaticSound {
         else -> BalanceSystemToneStore.uri(context, key, gain)
     }
 
-    internal fun record(context: Context, result: Result) {
-        context.getSharedPreferences(AUDIT, Context.MODE_PRIVATE).edit {
+    internal fun record(context: Context, result: Result, category: String = CATEGORY) {
+        auditPreferences(context, category).edit {
             putString("last", result.name)
             putLong("time", System.currentTimeMillis())
         }
     }
 
-    fun lastResult(context: Context): String =
-        context.getSharedPreferences(AUDIT, Context.MODE_PRIVATE)
+    fun lastResult(context: Context, category: String = CATEGORY): String =
+        auditPreferences(context, category)
             .getString("last", "Нет попыток воспроизведения") ?: "Нет данных"
 
     fun afterNotification(context: Context, channelId: String,
         key: String = BalanceNotificationSounds.selected(context, CATEGORY),
         gain: Int = BalanceNotificationSounds.volume(context, CATEGORY),
-        trial: Boolean = false): Result {
-        if ((!trial && !enabled(context)) || !shouldOffer(context))
+        trial: Boolean = false, category: String = CATEGORY): Result {
+        if (!supported(category) || ((!trial && !enabled(context, category)) ||
+                !shouldOffer(context)))
             return Result.INACTIVE
         if (key == "silent" || (key != "system" && gain == 0))
             return Result.SILENT_SELECTION
@@ -89,14 +105,15 @@ internal object PaymentAutomaticSound {
                 .putExtra(PaymentSoundPlaybackService.KEY, key)
                 .putExtra(PaymentSoundPlaybackService.GAIN, gain)
                 .putExtra(PaymentSoundPlaybackService.CHANNEL_ID, channelId)
+                .putExtra(PaymentSoundPlaybackService.CATEGORY, category)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
                 context.startForegroundService(intent)
             else context.startService(intent)
-            record(context, Result.SERVICE_REQUESTED)
+            record(context, Result.SERVICE_REQUESTED, category)
             Result.SERVICE_REQUESTED
         } catch (error: RuntimeException) {
             android.util.Log.w("BalanceHubPaymentAudio", "FGS launch rejected", error)
-            record(context, Result.SERVICE_REJECTED)
+            record(context, Result.SERVICE_REJECTED, category)
             Result.SERVICE_REJECTED
         }
     }
