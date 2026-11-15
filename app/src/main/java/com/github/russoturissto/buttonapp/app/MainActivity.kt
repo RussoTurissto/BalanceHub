@@ -3388,8 +3388,12 @@ class MainActivity : AppCompatActivity() {
             row.setOnClickListener {
                 if (category == BalanceNotificationSounds.PAYMENT &&
                     Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    // On supported ColorOS, always test a new payment tone through
+                    // BalanceHub playback, even before automatic audio is enabled.
+                    // The active channel and saved selection change only on confirmation.
                     val issue = PaymentToneChange.begin(this, key,
-                        BalanceNotificationSounds.volume(this, category))
+                        BalanceNotificationSounds.volume(this, category),
+                        automatic = PaymentAutomaticSound.shouldOffer(this))
                     if (issue != null) Toast.makeText(this, issue, Toast.LENGTH_LONG).show()
                     else {
                         dialog.dismiss()
