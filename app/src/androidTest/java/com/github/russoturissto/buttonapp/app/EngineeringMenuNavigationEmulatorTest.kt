@@ -12,6 +12,7 @@ import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
 import androidx.test.espresso.matcher.ViewMatchers.withContentDescription
 import androidx.test.espresso.matcher.ViewMatchers.withText
 import androidx.test.espresso.action.ViewActions.click
+import androidx.test.espresso.action.ViewActions.scrollTo
 import org.hamcrest.Matchers.allOf
 import org.hamcrest.Matchers.anyOf
 import org.junit.Rule
@@ -34,22 +35,25 @@ class EngineeringMenuNavigationEmulatorTest {
         repeat(5) {
             onView(withContentDescription("Настройки")).perform(click())
         }
-        onView(withText("Системные каналы   ›")).perform(click())
+        onView(withText("Системные каналы   ›")).perform(scrollTo(), click())
         for (category in listOf("Платежи", "События", "Обновления")) {
-            onView(settingsLabel(category)).perform(click())
-            onView(withText("Канал уведомлений Android")).check(matches(isDisplayed()))
+            onView(settingsLabel(category)).perform(scrollTo(), click())
+            onView(withText("Канал уведомлений Android")).perform(scrollTo())
+                .check(matches(isDisplayed()))
             onView(anyOf(withText("Повторно применить сигналы"),
-                withText("Применить звук и вибрацию"))).check(matches(isDisplayed()))
+                withText("Применить звук и вибрацию"))).perform(scrollTo())
+                .check(matches(isDisplayed()))
             onView(withText("‹  Системные каналы")).perform(click())
         }
         onView(withText("‹  Инженерное меню")).perform(click())
         onView(withText("‹  Назад в настройки")).perform(click())
-        onView(settingsLabel("Уведомления")).perform(click())
+        onView(settingsLabel("Уведомления")).perform(scrollTo(), click())
         for (category in listOf("Платежи", "События", "Обновления")) {
-            onView(settingsLabel(category)).perform(click())
+            onView(settingsLabel(category)).perform(scrollTo(), click())
             onView(withText("Звук")).check(matches(isDisplayed()))
             onView(withText("Вибросигнал")).check(matches(isDisplayed()))
-            onView(withText("Проверить уведомление")).check(matches(isDisplayed()))
+            onView(withText("Проверить уведомление")).perform(scrollTo())
+                .check(matches(isDisplayed()))
             onView(withText("Вернуться к системному звуку")).check(doesNotExist())
             onView(withText("Канал уведомлений Android")).check(doesNotExist())
             onView(withText("Повторно применить сигналы")).check(doesNotExist())
