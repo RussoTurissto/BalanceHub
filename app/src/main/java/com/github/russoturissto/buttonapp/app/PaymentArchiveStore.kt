@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.Calendar
 
 /**
  * Active and archived payment records are kept in one SharedPreferences transaction.
@@ -68,6 +69,61 @@ internal object PaymentArchiveStore {
             }
         }
         return records.sortedByDescending { it.archivedAt }
+    }
+
+    /** Read active entries without dropping malformed rows or rewriting stored JSON. */
+    @Synchronized
+    fun activeSnapshot(context: Context): JSONArray? {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        return readArray(prefs.getString(ACTIVE, "[]"))
+    }
+
+    /**
+     * Merge only user edits against the latest on-disk list. The same monitor
+     * protects archive, restoration and deletion transactions. Unknown rows
+     * are preserved; archived IDs cannot be resurrected by a stale UI.
+     */
+    @Synchronized
+    fun saveUiChanges(context: Context, baseline: Map<String, String>,
+        desired: JSONArray): Boolean {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val current = readArray(prefs.getString(ACTIVE, "[]")) ?: return false
+        val history = readArray(prefs.getString(ARCHIVE, "[]")) ?: return false
+        val merged = PaymentActiveMergePolicy.merge(current, history, baseline, desired)
+            ?: return false
+        return prefs.edit().putString(ACTIVE, merged.toString()).commit()
+    }
+
+    /** Reboot rescheduling also uses the archive transaction monitor. */
+    @Synchronized
+    fun advanceRepeatingForBoot(context: Context, now: Long): JSONArray? {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val items = readArray(prefs.getString(ACTIVE, "[]")) ?: return null
+        var advanced = false
+        for (i in 0 until items.length()) {
+            val payment = items.optJSONObject(i) ?: continue
+            try {
+                val recurrence = payment.optString("recurrence", "once")
+                if (recurrence != "weekly" && recurrence != "monthly") continue
+                val due = Calendar.getInstance().apply {
+                    timeInMillis = payment.getLong("dueAt")
+                }
+                var iterations = 0
+                while (due.timeInMillis <= now &&
+                    now - due.timeInMillis >= PaymentDeliveryPolicy.LATE_GRACE_MS &&
+                    iterations++ < 10_000) {
+                    if (recurrence == "weekly") due.add(Calendar.DAY_OF_YEAR, 7)
+                    else due.add(Calendar.MONTH, 1)
+                    advanced = true
+                }
+                payment.put("dueAt", due.timeInMillis)
+            } catch (_: Exception) {
+                // Preserve malformed rows for recovery, continue valid reminders.
+            }
+        }
+        if (advanced && !prefs.edit().putString(ACTIVE, items.toString()).commit())
+            return null
+        return items
     }
 
     /** Atomic archive transaction; expectedDue prevents stale alarms archiving edited payments. */
