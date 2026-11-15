@@ -70,7 +70,7 @@ internal object PaymentToneChange {
     /** Never touches the active channel or its saved selected sound. */
     @Synchronized
     fun begin(context: Context, key: String, gain: Int,
-        automatic: Boolean = PaymentAutomaticSound.enabled(context)): String? {
+        automatic: Boolean = PaymentAutomaticSound.shouldOffer(context)): String? {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O)
             return "Проверка канала доступна на Android 8 и новее"
         if (automatic && !PaymentAutomaticSound.shouldOffer(context))
