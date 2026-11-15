@@ -3337,6 +3337,83 @@ class MainActivity : AppCompatActivity() {
         contentContainer.addView(diagnostics)
     }
 
+    /** Advanced channel controls stay behind the non-persistent engineering menu. */
+    private fun renderEngineeringChannelCategory() {
+        val category = engineeringChannelCategory?.takeIf {
+            it == BalanceNotificationSounds.PAYMENT ||
+                it == BalanceNotificationSounds.EVENT ||
+                it == BalanceNotificationSounds.UPDATE
+        }
+        if (!engineeringMenuOpen || !engineeringChannelsOpen || category == null) {
+            engineeringChannelCategory = null
+            renderEngineeringChannels()
+            return
+        }
+        contentContainer.addView(secondaryButton("‹  Системные каналы") {
+            engineeringChannelCategory = null
+            renderTab()
+        })
+        contentContainer.addView(verticalGap(13))
+        contentContainer.addView(textLine(notificationTitle(category), 23f, ink, true))
+        contentContainer.addView(verticalGap(5))
+        contentContainer.addView(textLine(
+            "Инженерные параметры канала уведомлений Android", 12f, muted))
+        contentContainer.addView(verticalGap(14))
+
+        val rows = mutableListOf<View>()
+        if (PaymentAutomaticSound.shouldOffer(this)) {
+            val automatic = PaymentAutomaticSound.enabled(this, category)
+            rows.add(settingsRow("music",
+                if (automatic) "Вернуться к системному звуку"
+                else "Испытать автоматический звук BalanceHub",
+                if (automatic) "Проверить новый канал перед возвратом"
+                else "ColorOS: проверка автоматического воспроизведения WAV") {
+                val key = BalanceNotificationSounds.selected(this, category)
+                val gain = BalanceNotificationSounds.volume(this, category)
+                val issue = if (category == BalanceNotificationSounds.PAYMENT)
+                    PaymentToneChange.begin(this, key, gain, automatic = !automatic)
+                else CategoryToneChange.begin(this, category, key, gain,
+                    automatic = !automatic)
+                if (issue != null) Toast.makeText(this, issue, Toast.LENGTH_LONG).show()
+                else if (category == BalanceNotificationSounds.PAYMENT)
+                    showPaymentSoundTrialDialog()
+                else showCategorySoundTrialDialog(category)
+                refreshSettingsWithoutJump()
+            })
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            rows.add(settingsRow("settings", "Канал уведомлений Android",
+                BalanceNotificationSounds.effectiveSummary(this, category)) {
+                openAndroidNotificationSettings(category)
+            })
+            val needsRepair = BalanceNotificationSounds.needsRepair(this, category)
+            rows.add(settingsRow("settings",
+                if (needsRepair) "Применить звук и вибрацию"
+                else "Повторно применить сигналы",
+                if (needsRepair) "Выбранные настройки отличаются от канала Android"
+                else "Только по подтверждению: новый канал, настройки Android могут сброситься") {
+                showChannelRepairDialog(category)
+            })
+        }
+        rows.add(settingsRow("settings", "Состояние звука и вибрации Android",
+            "Технический отчёт о текущем канале") {
+            themedDialogBuilder()
+                .setTitle("Канал: " + notificationTitle(category))
+                .setMessage(NotificationSignalAudit.report(this, category)
+                    .joinToString("\n"))
+                .setNegativeButton("Закрыть", null)
+                .setPositiveButton("Настройки Android") { _, _ ->
+                    openAndroidNotificationSettings(category)
+                }.show()
+        })
+        settingsGroup(settingsPanel(*rows.toTypedArray()))
+        contentContainer.addView(textLine(
+            "Применение сигналов может пересоздать канал Android. " +
+                "Данные платежей, событий и выбранные звуки сохраняются.",
+            12f, muted))
+    }
+
     private fun renderEngineeringChannels() {
         contentContainer.addView(secondaryButton("‹  Инженерное меню") {
             engineeringChannelsOpen = false
