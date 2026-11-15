@@ -23,6 +23,9 @@ internal object PaymentToneChange {
     private const val PENDING_TESTED = "payment_sound_trial_tested"
     private const val PENDING_AUTOMATIC = "payment_sound_trial_automatic"
     private const val PREVIOUS_ID = "payment_previous_working_channel_id"
+    private const val PREVIOUS_KEY = "payment_previous_working_sound_key"
+    private const val PREVIOUS_GAIN = "payment_previous_working_sound_gain"
+    private const val PREVIOUS_AUTOMATIC = "payment_previous_working_automatic"
     private const val CATEGORY = BalanceNotificationSounds.PAYMENT
 
     data class Trial(val id: String, val key: String, val gain: Int, val tested: Boolean,
@@ -199,11 +202,66 @@ internal object PaymentToneChange {
             .putString(CATEGORY, trial.key)
             .putInt("volume_" + CATEGORY, trial.gain)
             .putBoolean(PaymentAutomaticSound.ENABLED, trial.automatic)
-        if (oldId != trial.id) editor.putString(PREVIOUS_ID, oldId)
+        if (oldId != trial.id) {
+            editor.putString(PREVIOUS_ID, oldId)
+                .putString(PREVIOUS_KEY, BalanceNotificationSounds.selected(context, CATEGORY))
+                .putInt(PREVIOUS_GAIN, BalanceNotificationSounds.volume(context, CATEGORY))
+                .putBoolean(PREVIOUS_AUTOMATIC, PaymentAutomaticSound.enabled(context))
+        }
         val saved = editor.commit()
         // Deliberately retain the former working payment channel for rollback.
         // Unused-channel cleanup excludes that channel; events/updates untouched.
         return if (saved) null else "Не удалось применить подтверждённую мелодию"
+    }
+
+    /** The previously heard Android channel can be restored without creating one. */
+    fun canRestorePrevious(context: Context): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||
+            !PaymentAutomaticSound.enabled(context)) return false
+        val stored = prefs(context)
+        if (stored.getBoolean(PREVIOUS_AUTOMATIC, true)) return false
+        val id = previousWorkingId(context) ?: return false
+        val channel = manager(context).getNotificationChannel(id) ?: return false
+        return channel.importance >= NotificationManager.IMPORTANCE_DEFAULT &&
+            channel.sound != null &&
+            stored.getString(PREVIOUS_KEY, null) != null
+    }
+
+    fun previousSoundTitle(context: Context): String {
+        val key = prefs(context).getString(PREVIOUS_KEY, null)
+        return when (key) {
+            "system" -> "Системный звук"
+            "silent" -> "Без звука"
+            else -> BalanceNotificationSounds.tones.firstOrNull { it.key == key }
+                ?.title ?: "Предыдущая мелодия"
+        }
+    }
+
+    /** Roll back a real Android sound channel after a failed background audio test. */
+    @Synchronized
+    fun restorePrevious(context: Context): String? {
+        if (!canRestorePrevious(context))
+            return "Прежний рабочий канал Android недоступен. Текущий звук не изменён."
+        val stored = prefs(context)
+        val previous = previousWorkingId(context) ?: return "Канал не найден"
+        val key = stored.getString(PREVIOUS_KEY, null) ?: return "Неизвестна мелодия"
+        val gain = stored.getInt(PREVIOUS_GAIN, 100).coerceIn(0, 100)
+        // Cancel only a pending experimental candidate; the active channel stays.
+        cancel(context)
+        val current = BalanceNotificationSounds.channelId(context, CATEGORY)
+        val currentKey = BalanceNotificationSounds.selected(context, CATEGORY)
+        val currentGain = BalanceNotificationSounds.volume(context, CATEGORY)
+        val saved = stored.edit()
+            .putString("channel_active_id_" + CATEGORY, previous)
+            .putString(CATEGORY, key)
+            .putInt("volume_" + CATEGORY, gain)
+            .putBoolean(PaymentAutomaticSound.ENABLED, false)
+            .putString(PREVIOUS_ID, current)
+            .putString(PREVIOUS_KEY, currentKey)
+            .putInt(PREVIOUS_GAIN, currentGain)
+            .putBoolean(PREVIOUS_AUTOMATIC, true)
+            .commit()
+        return if (saved) null else "Не удалось вернуть прежний канал"
     }
 
     /** Cancel only the trial channel; never change active payment preferences. */

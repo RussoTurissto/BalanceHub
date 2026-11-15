@@ -61,10 +61,14 @@ class PaymentAutomaticSoundEmulatorTest {
         val names = listOf("coloros_direct_vibration", PaymentAutomaticSound.ENABLED,
             "channel_active_id_" + BalanceNotificationSounds.PAYMENT,
             "channel_revision_" + BalanceNotificationSounds.PAYMENT,
-            "payment_previous_working_channel_id", BalanceNotificationSounds.PAYMENT,
+            "payment_previous_working_channel_id", "payment_previous_working_sound_key",
+            "payment_previous_working_sound_gain", "payment_previous_working_automatic",
+            BalanceNotificationSounds.PAYMENT,
             "volume_" + BalanceNotificationSounds.PAYMENT)
         val snapshot = prefs.all.filterKeys { it in names }
         val originalId = BalanceNotificationSounds.ensureChannel(
+            context, BalanceNotificationSounds.PAYMENT)
+        val originalKey = BalanceNotificationSounds.selected(
             context, BalanceNotificationSounds.PAYMENT)
         var newId: String? = null
         try {
@@ -91,6 +95,14 @@ class PaymentAutomaticSoundEmulatorTest {
             assertEquals(trial.id, BalanceNotificationSounds.channelId(
                 context, BalanceNotificationSounds.PAYMENT))
             assertEquals("drop", BalanceNotificationSounds.selected(
+                context, BalanceNotificationSounds.PAYMENT))
+            assertTrue(PaymentToneChange.canRestorePrevious(context))
+            assertEquals(originalId, PaymentToneChange.previousWorkingId(context))
+            assertNull(PaymentToneChange.restorePrevious(context))
+            assertFalse(PaymentAutomaticSound.enabled(context))
+            assertEquals(originalId, BalanceNotificationSounds.channelId(
+                context, BalanceNotificationSounds.PAYMENT))
+            assertEquals(originalKey, BalanceNotificationSounds.selected(
                 context, BalanceNotificationSounds.PAYMENT))
         } finally {
             PaymentToneChange.cancel(context)

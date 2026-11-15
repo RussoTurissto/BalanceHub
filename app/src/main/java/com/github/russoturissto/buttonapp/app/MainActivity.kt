@@ -2539,18 +2539,38 @@ class MainActivity : AppCompatActivity() {
         if (category == BalanceNotificationSounds.PAYMENT &&
             PaymentAutomaticSound.shouldOffer(this)) {
             val automatic = PaymentAutomaticSound.enabled(this)
-            rows.add(settingsRow("music",
-                if (automatic) "Вернуться к системному звуку платежей"
-                else "Испытать автоматический звук BalanceHub",
-                if (automatic) "Звук воспроизводит BalanceHub; можно вернуться к каналу Android"
-                else "Эксперимент ColorOS: без ручного выбора WAV в Android") {
-                val issue = PaymentToneChange.begin(this,
-                    BalanceNotificationSounds.selected(this, category),
-                    BalanceNotificationSounds.volume(this, category), automatic = !automatic)
-                if (issue != null) Toast.makeText(this, issue, Toast.LENGTH_LONG).show()
-                else showPaymentSoundTrialDialog()
-                refreshSettingsWithoutJump()
-            })
+            if (automatic && PaymentToneChange.canRestorePrevious(this)) {
+                val previousTitle = PaymentToneChange.previousSoundTitle(this)
+                rows.add(settingsRow("music", "Вернуть прежнюю мелодию: " + previousTitle,
+                    "Без нового канала: восстановить проверенный звук Android") {
+                    themedDialogBuilder()
+                        .setTitle("Вернуть подтверждённый звук платежей?")
+                        .setMessage("Вернуть «" + previousTitle + "» и сохранить " +
+                            "действующий режим вибрации? Автоматический звук BalanceHub " +
+                            "будет выключен. Прежний проверенный канал Android сохранён.")
+                        .setNegativeButton("Отмена", null)
+                        .setPositiveButton("Вернуть") { _, _ ->
+                            val error = PaymentToneChange.restorePrevious(this)
+                            Toast.makeText(this,
+                                error ?: "Предыдущий звук платежей восстановлен",
+                                Toast.LENGTH_LONG).show()
+                            refreshSettingsWithoutJump()
+                        }.show()
+                })
+            } else {
+                rows.add(settingsRow("music",
+                    if (automatic) "Вернуться к системному звуку платежей"
+                    else "Испытать автоматический звук BalanceHub",
+                    if (automatic) "Проверить новый канал Android перед возвратом"
+                    else "Эксперимент ColorOS: без ручного выбора WAV в Android") {
+                    val issue = PaymentToneChange.begin(this,
+                        BalanceNotificationSounds.selected(this, category),
+                        BalanceNotificationSounds.volume(this, category), automatic = !automatic)
+                    if (issue != null) Toast.makeText(this, issue, Toast.LENGTH_LONG).show()
+                    else showPaymentSoundTrialDialog()
+                    refreshSettingsWithoutJump()
+                })
+            }
             if (automatic) rows.add(settingsRow("settings", "Диагностика звука платежей",
                 PaymentAutomaticSound.lastResult(this)) {
                 themedDialogBuilder().setTitle("Автоматический звук платежей")
