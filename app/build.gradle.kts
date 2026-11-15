@@ -71,6 +71,9 @@ android {
         warningsAsErrors = true
         abortOnError = true
         disable.add("GradleDependency")
+        // Pin the tested Gradle/AGP toolchain; newer majors require separate migration QA.
+        // Version availability is not a source correctness or security failure.
+        disable.add("AndroidGradlePluginVersion")
         // API 36 remains the tested target; upgrade only after behavioral QA for newer targets.
         disable.add("OldTargetApi")
         // Unreferenced resources and legacy raster launchers are inherited from the template.
