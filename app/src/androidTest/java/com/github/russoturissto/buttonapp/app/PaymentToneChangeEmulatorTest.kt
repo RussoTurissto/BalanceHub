@@ -53,7 +53,10 @@ class PaymentToneChangeEmulatorTest {
                 val candidate = manager.getNotificationChannel(trial!!.id)
                 assertNotNull(candidate)
                 assertFalse("ColorOS trial must use direct motor", candidate!!.shouldVibrate())
-                assertEquals(sound != "silent", candidate.sound != null)
+                // The confirmed automatic ColorOS route plays WAV separately.
+                // The candidate notification channel must stay silent to avoid double audio.
+                assertNull("Automatic ColorOS trial channel must be silent",
+                    candidate.sound)
                 assertFalse(trial.tested)
                 assertEquals("Active channel replaced before confirmation", activeId,
                     BalanceNotificationSounds.channelId(
