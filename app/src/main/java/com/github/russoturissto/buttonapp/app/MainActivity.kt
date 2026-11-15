@@ -3038,7 +3038,9 @@ class MainActivity : AppCompatActivity() {
             val item = card().apply {
                 isClickable = true
                 isFocusable = true
-                addView(textLine(bank.name + "   ›", 17f, ink, true))
+                addView(textLine(
+                    if (bank.id == "tbank") "Т-Банк (Тинькофф)   ›"
+                    else bank.name + "   ›", 17f, ink, true))
                 addView(verticalGap(5))
                 addView(textLine(status, 13f, muted))
                 setOnClickListener {
@@ -3246,7 +3248,9 @@ class MainActivity : AppCompatActivity() {
             renderTab()
         })
         contentContainer.addView(verticalGap(14))
-        contentContainer.addView(textLine(bank.name, 23f, ink, true))
+        contentContainer.addView(textLine(
+            if (bank.id == "tbank") "Т-Банк (Тинькофф)" else bank.name,
+            23f, ink, true))
         contentContainer.addView(verticalGap(8))
 
         val enabled = BankCardPreferences.enabled(this, bank.id)
@@ -3353,8 +3357,9 @@ class MainActivity : AppCompatActivity() {
                 listOf("Остаток 40,89 ₽, карта ••9667"))
             val negative = RussianBankPushParser.analyze(bank.packages.first(),
                 listOf("Перевод 10 ₽"))
-            val success = positive.result?.kopecks == 4089L &&
-                positive.result.lastFour == "9667" && negative.result == null
+            val accepted = positive.result
+            val success = accepted?.kopecks == 4089L &&
+                accepted.lastFour == "9667" && negative.result == null
             themedDialogBuilder().setTitle("Локальный тест распознавания")
                 .setMessage(if (success)
                     "Тест пройден: остаток распознан, сумма перевода отвергнута. " +
