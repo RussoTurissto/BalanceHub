@@ -1105,8 +1105,7 @@ class MainActivity : AppCompatActivity() {
                 addView(verticalGap(3))
                 addView(textLine(DateFormat.getDateInstance(DateFormat.MEDIUM)
                     .format(Date(nearest.dueAt)) + " · " +
-                    PaymentCurrencyFormatter.amountWithCurrency(
-                        nearest.amount, nearest.currency), 11f, muted))
+                    PaymentCurrencyFormatter.amountForList(nearest.amount), 11f, muted))
             }
         }
         nearestRow.addView(info, LinearLayout.LayoutParams(0, -2, 1f))
@@ -1179,8 +1178,7 @@ class MainActivity : AppCompatActivity() {
                     addView(View(this@MainActivity),
                         LinearLayout.LayoutParams(dp(7), 1))
                     addView(textLine(payment.title + " · " +
-                        PaymentCurrencyFormatter.amountWithCurrency(
-                            payment.amount, payment.currency), 12f, ink))
+                        PaymentCurrencyFormatter.amountForList(payment.amount), 12f, ink))
                 })
             }
             if (selectedEvents.isNotEmpty()) {
@@ -2103,7 +2101,7 @@ class MainActivity : AppCompatActivity() {
         form.addView(verticalGap(12))
         form.addView(textLine("Напомнить за сколько дней", 13f, muted))
         form.addView(leadDaysInput)
-        val dialog = themedDialogBuilder().setTitle("Новое напоминание")
+        val dialog = themedDialogBuilder().setTitle("Новый платёж")
             .setView(android.widget.ScrollView(this).apply {
                 isFillViewport = false
                 addView(form)
@@ -4182,9 +4180,7 @@ class MainActivity : AppCompatActivity() {
                     orientation = LinearLayout.VERTICAL
                     gravity = Gravity.END
                     addView(textLine(
-                        PaymentCurrencyFormatter.amountWithCurrency(
-                            payment.amount, payment.currency
-                        ), 14f, ink, true
+                        PaymentCurrencyFormatter.amountForList(payment.amount), 14f, ink, true
                     ).apply { gravity = Gravity.END })
                     addView(verticalGap(2))
                     addView(iconTile(if (expanded)
@@ -4317,8 +4313,7 @@ class MainActivity : AppCompatActivity() {
         val rows = mutableListOf<View>()
         for (entry in entries) {
             val expanded = expandedArchivePaymentId == entry.id
-            val amount = PaymentCurrencyFormatter.amountWithCurrency(
-                entry.amount, entry.currency)
+            val amount = PaymentCurrencyFormatter.amountForList(entry.amount)
             val dueLabel = DateFormat.getDateInstance(DateFormat.MEDIUM)
                 .format(Date(entry.dueAt))
             val status = if (entry.reason == PaymentArchiveStore.COMPLETED)
