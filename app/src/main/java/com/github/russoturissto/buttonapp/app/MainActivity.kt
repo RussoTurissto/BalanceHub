@@ -2510,13 +2510,19 @@ class MainActivity : AppCompatActivity() {
                     override fun onStartTrackingTouch(bar: SeekBar?) = Unit
                     override fun onStopTrackingTouch(bar: SeekBar?) {
                         val gain = (bar?.progress ?: current).coerceIn(0, 100)
-                        if (category == BalanceNotificationSounds.PAYMENT &&
-                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                            val issue = PaymentToneChange.begin(this@MainActivity,
-                                BalanceNotificationSounds.selected(this@MainActivity, category), gain)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            val issue = if (category == BalanceNotificationSounds.PAYMENT)
+                                PaymentToneChange.begin(this@MainActivity,
+                                    BalanceNotificationSounds.selected(this@MainActivity, category),
+                                    gain)
+                            else CategoryToneChange.begin(this@MainActivity, category,
+                                BalanceNotificationSounds.selected(this@MainActivity, category),
+                                gain)
                             if (issue != null) Toast.makeText(this@MainActivity,
                                 issue, Toast.LENGTH_LONG).show()
-                            else showPaymentSoundTrialDialog()
+                            else if (category == BalanceNotificationSounds.PAYMENT)
+                                showPaymentSoundTrialDialog()
+                            else showCategorySoundTrialDialog(category)
                         } else {
                             val error = BalanceNotificationSounds.applyVolumeChoice(
                                 this@MainActivity, category, gain)
@@ -2534,6 +2540,60 @@ class MainActivity : AppCompatActivity() {
             rows.add(settingsRow("music", "Проверить новую мелодию платежей",
                 "Рабочий канал сохранён; подтвердите звук после теста") {
                 showPaymentSoundTrialDialog()
+            })
+        }
+        if (category != BalanceNotificationSounds.PAYMENT &&
+            CategoryToneChange.pending(this, category) != null) {
+            rows.add(settingsRow("music",
+                "Проверить новую мелодию " + notificationTitle(category).lowercase(),
+                "Рабочий канал сохранён; подтвердите звук после теста") {
+                showCategorySoundTrialDialog(category)
+            })
+        }
+        if (category != BalanceNotificationSounds.PAYMENT &&
+            PaymentAutomaticSound.shouldOffer(this)) {
+            val automatic = PaymentAutomaticSound.enabled(this, category)
+            if (automatic && CategoryToneChange.canRestorePrevious(this, category)) {
+                val previousTitle = CategoryToneChange.previousSoundTitle(this, category)
+                rows.add(settingsRow("music", "Вернуть прежнюю мелодию: " + previousTitle,
+                    "Восстановить ранее проверенный канал Android") {
+                    themedDialogBuilder()
+                        .setTitle("Вернуть прежний звук: " + notificationTitle(category) + "?")
+                        .setMessage("Восстановить «" + previousTitle +
+                            "»? Текущая вибрация останется прежней.")
+                        .setNegativeButton("Отмена", null)
+                        .setPositiveButton("Вернуть") { _, _ ->
+                            val error = CategoryToneChange.restorePrevious(this, category)
+                            Toast.makeText(this,
+                                error ?: "Предыдущая мелодия восстановлена",
+                                Toast.LENGTH_LONG).show()
+                            refreshSettingsWithoutJump()
+                        }.show()
+                })
+            } else {
+                rows.add(settingsRow("music",
+                    if (automatic) "Вернуться к системному звуку"
+                    else "Испытать автоматический звук BalanceHub",
+                    if (automatic) "Проверить новый канал перед возвратом"
+                    else "ColorOS: без ручного выбора WAV в Android") {
+                    val issue = CategoryToneChange.begin(this, category,
+                        BalanceNotificationSounds.selected(this, category),
+                        BalanceNotificationSounds.volume(this, category),
+                        automatic = !automatic)
+                    if (issue != null) Toast.makeText(this, issue, Toast.LENGTH_LONG).show()
+                    else showCategorySoundTrialDialog(category)
+                    refreshSettingsWithoutJump()
+                })
+            }
+            if (automatic) rows.add(settingsRow("settings", "Диагностика звука",
+                PaymentAutomaticSound.lastResult(this, category)) {
+                themedDialogBuilder()
+                    .setTitle("Автоматический звук: " + notificationTitle(category))
+                    .setMessage("Последний результат: " +
+                        PaymentAutomaticSound.lastResult(this, category) +
+                        "\nПосле подтверждения проверьте настоящее уведомление с " +
+                        "выключенным экраном.")
+                    .setPositiveButton("Закрыть", null).show()
             })
         }
         if (category == BalanceNotificationSounds.PAYMENT &&
@@ -2704,13 +2764,18 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showChannelRepairDialog(category: String, testAfterRepair: Boolean = false) {
-        if (category == BalanceNotificationSounds.PAYMENT &&
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val issue = PaymentToneChange.begin(this,
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val issue = if (category == BalanceNotificationSounds.PAYMENT)
+                PaymentToneChange.begin(this,
+                    BalanceNotificationSounds.selected(this, category),
+                    BalanceNotificationSounds.volume(this, category))
+            else CategoryToneChange.begin(this, category,
                 BalanceNotificationSounds.selected(this, category),
                 BalanceNotificationSounds.volume(this, category))
             if (issue != null) Toast.makeText(this, issue, Toast.LENGTH_LONG).show()
-            else showPaymentSoundTrialDialog()
+            else if (category == BalanceNotificationSounds.PAYMENT)
+                showPaymentSoundTrialDialog()
+            else showCategorySoundTrialDialog(category)
             return
         }
         themedDialogBuilder()
@@ -3399,6 +3464,18 @@ class MainActivity : AppCompatActivity() {
                         dialog.dismiss()
                         refreshSettingsWithoutJump()
                         showPaymentSoundTrialDialog()
+                    }
+                    return@setOnClickListener
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    val issue = CategoryToneChange.begin(this, category, key,
+                        BalanceNotificationSounds.volume(this, category),
+                        automatic = PaymentAutomaticSound.shouldOffer(this))
+                    if (issue != null) Toast.makeText(this, issue, Toast.LENGTH_LONG).show()
+                    else {
+                        dialog.dismiss()
+                        refreshSettingsWithoutJump()
+                        showCategorySoundTrialDialog(category)
                     }
                     return@setOnClickListener
                 }
@@ -5833,10 +5910,12 @@ class MainActivity : AppCompatActivity() {
             val directReport = if (BalanceNotificationSounds.colorOsCompatibility(this))
                 "Прямая вибрация: " + compatibilityVibration.name + ". "
             else ""
-            val automaticReport = if (category == BalanceNotificationSounds.PAYMENT &&
-                PaymentAutomaticSound.enabled(this)) {
+            val automaticReport = if (PaymentAutomaticSound.enabled(this, category)) {
                 "Звук BalanceHub: " +
-                    PaymentAutomaticSound.afterNotification(this, channelId).name + ". "
+                    PaymentAutomaticSound.afterNotification(this, channelId,
+                        BalanceNotificationSounds.selected(this, category),
+                        BalanceNotificationSounds.volume(this, category),
+                        category = category).name + ". "
             } else ""
             Toast.makeText(this, "Уведомление передано Android. " + directReport +
                 automaticReport + "Проверьте фактический звук на устройстве.",
