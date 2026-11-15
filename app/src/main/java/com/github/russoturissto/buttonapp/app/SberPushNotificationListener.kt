@@ -66,9 +66,16 @@ class SberPushNotificationListener : NotificationListenerService() {
     private fun processOtherBankNotification(sbn: StatusBarNotification, bank: RussianBank) {
         if (!BankCardPreferences.enabled(this, bank.id)) return
         val notification = sbn.notification
-        if ((notification.flags and
-                (Notification.FLAG_GROUP_SUMMARY or Notification.FLAG_ONGOING_EVENT)) != 0)
+        if ((notification.flags and Notification.FLAG_GROUP_SUMMARY) != 0) {
+            RussianBankDiagnostics.record(this, bank, "Групповое уведомление",
+                deliveryState = state())
             return
+        }
+        if ((notification.flags and Notification.FLAG_ONGOING_EVENT) != 0) {
+            RussianBankDiagnostics.record(this, bank, "Постоянное уведомление",
+                deliveryState = state())
+            return
+        }
         val payload = SberNotificationText.extract(notification)
         val privacy = SberNotificationPrivacy.detect(
             payload.titles, payload.bodies, payload.rubleFieldsMask,
@@ -76,7 +83,8 @@ class SberPushNotificationListener : NotificationListenerService() {
             SberNotificationPrivacy.localizedSystemMessage()
         )
         if (privacy == SberNotificationPrivacy.Evidence.SYSTEM_REDACTION) {
-            RussianBankDiagnostics.record(this, bank, "Содержимое Push скрыто Android")
+            RussianBankDiagnostics.record(this, bank, "Содержимое Push скрыто Android",
+                payload, privacy, state())
             sendBroadcast(Intent(ACTION_BALANCE_UPDATED).setPackage(packageName))
             return
         }
@@ -89,7 +97,7 @@ class SberPushNotificationListener : NotificationListenerService() {
             else -> "Push без подтверждённого остатка"
         } else if (RussianBankBalanceStore.save(this, bank, result, sbn.postTime))
             "Баланс обновлён" else "Старый или повторный Push"
-        RussianBankDiagnostics.record(this, bank, status)
+        RussianBankDiagnostics.record(this, bank, status, payload, privacy, state())
         sendBroadcast(Intent(ACTION_BALANCE_UPDATED).setPackage(packageName))
     }
 
