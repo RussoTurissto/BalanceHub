@@ -147,7 +147,8 @@ class MainActivity : AppCompatActivity() {
     private val bankUpdateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == SberPushNotificationListener.ACTION_BALANCE_UPDATED &&
-                (currentTab == 1 || (currentTab == 4 && bankSettingsOpen)) &&
+                (currentTab == 1 || (currentTab == 4 &&
+                    (bankSettingsOpen || engineeringOtherBankId != null))) &&
                 ::contentContainer.isInitialized) renderTab()
         }
     }
