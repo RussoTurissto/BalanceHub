@@ -535,9 +535,21 @@ internal object BalanceNotificationSounds {
             if (vibrate) NotificationVibrationMode.DEFAULT else NotificationVibrationMode.OFF)
 
     fun applyVibrationModeChoice(context: Context, category: String,
-        mode: String): String? =
-        applySettings(context, category, selected(context, category), mode,
+        mode: String): String? {
+        if (!NotificationVibrationMode.valid(mode)) return "Неизвестный вибросигнал"
+        // The OnePlus payment channel sound has been confirmed by the user.
+        // Direct haptics do not belong to the Android channel: never replace a
+        // working payment sound merely because its waveform selection changed.
+        if (category == PAYMENT && colorOsCompatibility(context)) {
+            val saved = preferences(context).edit()
+                .putString("vibration_mode_" + category, mode)
+                .putBoolean("vibration_" + category, NotificationVibrationMode.enabled(mode))
+                .commit()
+            return if (saved) null else "Не удалось сохранить вибросигнал"
+        }
+        return applySettings(context, category, selected(context, category), mode,
             volume(context, category))
+    }
 
     fun applyVolumeChoice(context: Context, category: String, gain: Int): String? =
         applySettings(context, category, selected(context, category),
@@ -662,8 +674,11 @@ internal object BalanceNotificationSounds {
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE)
             as NotificationManager
         val current = listOf(PAYMENT, EVENT, UPDATE).map { channelId(context, it) }.toSet()
+        val protectedPayments = setOfNotNull(
+            PaymentToneChange.pending(context)?.id,
+            PaymentToneChange.previousWorkingId(context))
         return manager.notificationChannels.map { it.id }
-            .filter { it !in current &&
+            .filter { it !in current && it !in protectedPayments &&
                 (StableNotificationChannels.isRetired(it) ||
                     StableNotificationChannels.isManaged(it)) }
     }
