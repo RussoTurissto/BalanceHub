@@ -23,7 +23,7 @@ class PaymentActiveMergePolicyTest {
         val a = payment("a")
         val b = payment("b")
         val result = PaymentActiveMergePolicy.merge(
-            JSONArray(), JSONArray().put(a), baseline(a, b),
+            JSONArray().put(b), JSONArray().put(a), baseline(a, b),
             JSONArray().put(a).put(b))
         assertNotNull(result)
         assertEquals(1, result!!.length())
