@@ -338,9 +338,11 @@ internal object BalanceNotificationSounds {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O)
             return "Совместимость доступна на Android 8 и новее"
         if (colorOsCompatibility(context) == enabled) return null
-        if (!enabled && PaymentAutomaticSound.enabled(context))
-            return "Сначала отключите автоматический звук в разделе «Платежи», " +
-                "иначе рабочая мелодия может перестать воспроизводиться."
+        if (!enabled && listOf(PAYMENT, EVENT, UPDATE).any {
+                PaymentAutomaticSound.enabled(context, it)
+            })
+            return "Сначала отключите автоматический звук во всех категориях, " +
+                "иначе подтверждённые мелодии могут перестать воспроизводиться."
         val prefs = preferences(context)
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE)
             as NotificationManager
@@ -435,8 +437,8 @@ internal object BalanceNotificationSounds {
         val old = manager.getNotificationChannel(oldId)
             ?: return "Канал Android недоступен"
         val directVibration = colorOsCompatibility(context)
-        if (category == PAYMENT && PaymentAutomaticSound.enabled(context)) {
-            return "Включён автоматический звук платежей. Измените мелодию через " +
+        if (PaymentAutomaticSound.enabled(context, category)) {
+            return "Включён автоматический звук категории. Измените мелодию через " +
                 "раздел «Звук», чтобы проверить её без пересоздания канала."
         }
         val selection = resolveChannelSound(context, category, key, percent, directVibration)
@@ -547,7 +549,7 @@ internal object BalanceNotificationSounds {
         // The OnePlus payment channel sound has been confirmed by the user.
         // Direct haptics do not belong to the Android channel: never replace a
         // working payment sound merely because its waveform selection changed.
-        if (category == PAYMENT && colorOsCompatibility(context)) {
+        if (colorOsCompatibility(context)) {
             val saved = preferences(context).edit()
                 .putString("vibration_mode_" + category, mode)
                 .putBoolean("vibration_" + category, NotificationVibrationMode.enabled(mode))
@@ -591,7 +593,7 @@ internal object BalanceNotificationSounds {
             ?: return listOf("Android не создал канал уведомлений")
         val key = selected(context, category)
         val gain = volume(context, category)
-        val automatic = category == PAYMENT && PaymentAutomaticSound.enabled(context)
+        val automatic = PaymentAutomaticSound.enabled(context, category)
         val wantsSound = !automatic && NotificationSignalPolicy.soundEnabled(key, gain)
         val directVibration = colorOsCompatibility(context)
         val wantsVibration = NotificationSignalPolicy.nativeVibrationEnabled(
@@ -635,7 +637,7 @@ internal object BalanceNotificationSounds {
             return "Канал отключён в Android"
         if (channel.importance < NotificationManager.IMPORTANCE_DEFAULT)
             return "Беззвучный канал Android"
-        if (category == PAYMENT && PaymentAutomaticSound.enabled(context)) {
+        if (PaymentAutomaticSound.enabled(context, category)) {
             return if (channel.sound == null) title(context, category) + " · звук BalanceHub"
                 else "Автоматический звук: включён системный звук канала"
         }
@@ -687,11 +689,15 @@ internal object BalanceNotificationSounds {
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE)
             as NotificationManager
         val current = listOf(PAYMENT, EVENT, UPDATE).map { channelId(context, it) }.toSet()
-        val protectedPayments = setOfNotNull(
+        val protectedChannels = setOfNotNull(
             PaymentToneChange.pending(context)?.id,
-            PaymentToneChange.previousWorkingId(context))
+            PaymentToneChange.previousWorkingId(context),
+            CategoryToneChange.pending(context, EVENT)?.id,
+            CategoryToneChange.previousWorkingId(context, EVENT),
+            CategoryToneChange.pending(context, UPDATE)?.id,
+            CategoryToneChange.previousWorkingId(context, UPDATE))
         return manager.notificationChannels.map { it.id }
-            .filter { it !in current && it !in protectedPayments &&
+            .filter { it !in current && it !in protectedChannels &&
                 (StableNotificationChannels.isRetired(it) ||
                     StableNotificationChannels.isManaged(it)) }
     }
