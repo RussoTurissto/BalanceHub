@@ -3,6 +3,7 @@ name: Validate notification sound and vibration on Android emulators
 on:
   push:
     branches:
+      - main
       - feature/balancehub-foundation
     paths:
       - ".github/workflows/notification-emulator-validation.yml"

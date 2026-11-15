@@ -1,10 +1,12 @@
-# BalanceHub — architecture and integration plan
+# BalanceHub — original architecture and integration plan (historical)
+
+This document records the **initial product plan**; current build and QA status are documented in the repository README and `docs/QA_BUILD_701.md`.
 
 ## Product goal
 BalanceHub is an Android-first personal dashboard for mobile balances (MTS, Tele2 and extensible providers), bank account balances across multiple banks, and payment reminders. Expense/income ledger is intentionally out of scope.
 
 ## Existing repository audit
-- Repository: RussoTurissto/ButtonApp, default branch main, Kotlin Android Gradle project.
+- Repository: RussoTurissto/BalanceHub (originally derived from ButtonApp), default branch main, Kotlin Android Gradle project.
 - Android app display name and Gradle root project name: BalanceHub.
 - Main application module: app/, package/application ID: com.github.russoturissto.buttonapp.app (preserved).
 - Build: Gradle Kotlin DSL, Kotlin 2.4.21, AGP 8.13.2, compile/target SDK 36, min SDK 23, Java 17.

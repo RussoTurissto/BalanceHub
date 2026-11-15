@@ -1,3 +1,5 @@
+> Historical investigation for rc5. Later builds use additional category-specific automatic WAV playback and confirmation flows. For current verification, see [QA_BUILD_701.md](QA_BUILD_701.md).
+
 # Android notification channels in BalanceHub 1.1.4-rc5
 
 Android 8+ owns sound, vibration and importance of an existing notification

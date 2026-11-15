@@ -23,22 +23,26 @@ Changing melody, vibration or importance for an existing Android channel must ha
 
 Reminder scheduling uses AlarmManager. Exact-alarm permission improves timing; without it, Android may delay a reminder. Recently completed events can still deliver their previously scheduled notifications within a bounded three-hour catch-up window. Completed or deleted events cannot generate notifications indefinitely.
 
-## Build and release process
+## Building and testing
 
-- Kotlin, Android SDK, Gradle Kotlin DSL, Java 17.
-- Main project: app. Build locally with ./gradlew :app:assembleDebug.
-- Canonical CI workflow: .github/workflows/balancehub-apk.yml.
-- CI checks compilation, lint, JVM unit tests, signed release APK, package name, Android version and signer certificate.
-- The four BALANCEHUB_* signing secrets remain private in GitHub Actions. Never commit a keystore or password.
-- Approved prereleases use a temporary, explicitly authorized GitHub Actions publishing workflow added only after the source commit has passed CI; it is removed after publication. This avoids granting broad workflow permissions to the automated release token.
-- After the owner authorizes a successful CI run, prepare release notes in release/notes.md. The one-time publisher must verify the exact CI run, APK signature and version, create a GitHub prerelease without replacing stable latest, and then be removed.
+- Android source: `app/`; auxiliary `library-*` modules are required Gradle dependencies.
+- Java 17, Android SDK, Gradle Kotlin DSL; local debug build: `./gradlew :app:assembleDebug`.
+- Canonical signed APK workflow: `.github/workflows/balancehub-apk.yml`. It builds on pushes to the development branch and supports manual runs from the default branch.
+- Emulator tests: `.github/workflows/notification-emulator-validation.yml` (API 29, 35 and 36).
+- CI checks compilation, Android lint, JVM tests, signing certificate and APK package/version metadata. Successful CI does not replace physical OnePlus/ColorOS testing.
+- Four `BALANCEHUB_*` signing secrets remain stored only in GitHub Actions. Never commit keystores, passwords or real account credentials.
 
-## Installing on Android
+## Installing an update
 
-Download BalanceHub.apk directly from an approved GitHub prerelease/release page. Open it and update the app without uninstalling. A newer monotonically increasing versionCode and the existing signing certificate preserve update compatibility.
+Install the signed `BalanceHub.apk` **over** the existing Android app. Do not uninstall it: the application ID (`com.github.russoturissto.buttonapp.app`) and release signing key must stay unchanged, and the new `versionCode` must be greater than the installed one.
 
-## Repository maintenance
+The owner-approved builds are stored as GitHub **draft prereleases**. Drafts are not public downloads. The current verified test baseline is **1.1.4-rc17 / build 701**; its historical source commit is `4749759a73a95461bc729ae04bd9ab9d233dd98a`.
 
-The active Android application is the root app module. Obsolete ButtonApp-only and inactive Maven publishing workflows were removed from the GitHub Actions configuration. Historical Git commits, releases and tags are retained for safe rollback.
+## Repository and QA
 
-See docs/BALANCEHUB_ARCHITECTURE.md for architectural background.
+- Maintenance, protected checkpoints and release rules: [docs/REPOSITORY_MAINTENANCE.md](docs/REPOSITORY_MAINTENANCE.md)
+- Manually confirmed build 701 checks and pending tests: [docs/QA_BUILD_701.md](docs/QA_BUILD_701.md)
+- Architecture and provider approach: [docs/BALANCEHUB_ARCHITECTURE.md](docs/BALANCEHUB_ARCHITECTURE.md)
+- Notification/channel history: [docs/android-notification-channels.md](docs/android-notification-channels.md)
+- Troubleshooting: [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
+- Historical release notes remain in `release/notes-*.md`; older releases, tags and rollback branches are retained for traceability.

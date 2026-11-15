@@ -26,7 +26,7 @@ permissions:
 # Cancel obsolete builds after a newer approved change; only the
 # latest branch revision should produce a user-facing installable APK.
 concurrency:
-  group: balancehub-apk-rc16-${{ github.ref }}
+  group: balancehub-apk-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
