@@ -17,6 +17,33 @@ class RussianBankPushParserTest {
         assertEquals(1245030L, a.result?.kopecks)
         assertEquals("1111", a.result?.lastFour)
     }
+    @Test fun splitTitleAndBodyCanConfirmBalance() {
+        val result = RussianBankPushParser.analyze(
+            "ru.vtb24.mobilebanking.android",
+            bodies = listOf("12 450,30 ₽, карта ••1111"),
+            titles = listOf("Остаток на карте")
+        )
+        assertEquals(1_245_030L, result.result?.kopecks)
+        assertEquals("1111", result.result?.lastFour)
+    }
+
+    @Test fun splitTitleMustNotMistakeTransactionForBalance() {
+        val bank = "com.idamob.tinkoff.android"
+        assertNull(RussianBankPushParser.analyze(bank,
+            listOf("Покупка 350 ₽"), listOf("Баланс карты")).result)
+        assertNull(RussianBankPushParser.analyze(bank,
+            listOf("Перевод 120 ₽"), listOf("Остаток")).result)
+        assertNull(RussianBankPushParser.analyze(bank,
+            listOf("Доступно 1 000 ₽"), listOf("Кредитный лимит")).result)
+    }
+
+    @Test fun splitTitleRejectsMultipleAmountsWithoutExplicitBalance() {
+        val result = RussianBankPushParser.analyze(
+            "com.idamob.tinkoff.android",
+            listOf("350 ₽, 120 ₽"), listOf("Остаток на карте"))
+        assertNull(result.result)
+    }
+
     @Test fun noLabelIsNotBalance() {
         val a = RussianBankPushParser.analyze("com.idamob.tinkoff.android",
             listOf("Покупка: 350 ₽. Спасибо за оплату!"))
