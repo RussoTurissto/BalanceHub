@@ -1,0 +1,278 @@
+package com.github.russoturissto.buttonapp.app
+
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.content.Context
+import android.media.AudioAttributes
+import android.media.RingtoneManager
+import android.net.Uri
+import android.os.Build
+
+/**
+ * Payments only. A new Android sound channel is a candidate, never the active
+ * channel, until a person hears a real notification and explicitly accepts it.
+ * Existing payment reminders continue using the previously confirmed channel.
+ */
+@android.annotation.SuppressLint("UseKtx")
+internal object PaymentToneChange {
+    private const val NAME = "balancehub_notification_sounds"
+    private const val PENDING_ID = "payment_sound_trial_id"
+    private const val PENDING_KEY = "payment_sound_trial_key"
+    private const val PENDING_GAIN = "payment_sound_trial_gain"
+    private const val PENDING_REVISION = "payment_sound_trial_revision"
+    private const val PENDING_TESTED = "payment_sound_trial_tested"
+    private const val PENDING_AUTOMATIC = "payment_sound_trial_automatic"
+    private const val PREVIOUS_ID = "payment_previous_working_channel_id"
+    private const val PREVIOUS_KEY = "payment_previous_working_sound_key"
+    private const val PREVIOUS_GAIN = "payment_previous_working_sound_gain"
+    private const val PREVIOUS_AUTOMATIC = "payment_previous_working_automatic"
+    private const val CATEGORY = BalanceNotificationSounds.PAYMENT
+
+    data class Trial(val id: String, val key: String, val gain: Int, val tested: Boolean,
+        val automatic: Boolean)
+
+    private fun prefs(context: Context) =
+        context.getSharedPreferences(NAME, Context.MODE_PRIVATE)
+
+    private fun manager(context: Context) =
+        context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+    fun previousWorkingId(context: Context): String? =
+        prefs(context).getString(PREVIOUS_ID, null)
+            ?.takeIf { StableNotificationChannels.belongsToCategory(it, CATEGORY) }
+
+    fun pending(context: Context): Trial? {
+        val prefs = prefs(context)
+        val id = prefs.getString(PENDING_ID, null) ?: return null
+        if (!StableNotificationChannels.belongsToCategory(id, CATEGORY)) return null
+        val key = prefs.getString(PENDING_KEY, null) ?: return null
+        if (key != "system" && key != "silent" &&
+            BalanceNotificationSounds.tones.none { it.key == key }) return null
+        return Trial(id, key, prefs.getInt(PENDING_GAIN, 100).coerceIn(0, 100),
+            prefs.getBoolean(PENDING_TESTED, false),
+            prefs.getBoolean(PENDING_AUTOMATIC, false))
+    }
+
+    private fun selectedUri(context: Context, key: String, gain: Int): Uri? {
+        if (key == "silent" || (key != "system" && gain == 0)) return null
+        if (key == "system")
+            return RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+        val original = BalanceSystemToneStore.uri(context, key, gain) ?: return null
+        return if (BalanceNotificationSounds.colorOsCompatibility(context))
+            BalanceSystemToneStore.pickerCompatibleUri(context, original) ?: original
+        else original
+    }
+
+    private fun clearPending(editor: android.content.SharedPreferences.Editor) = editor
+        .remove(PENDING_ID).remove(PENDING_KEY).remove(PENDING_GAIN)
+        .remove(PENDING_REVISION).remove(PENDING_TESTED).remove(PENDING_AUTOMATIC)
+
+    /** Never touches the active channel or its saved selected sound. */
+    @Synchronized
+    fun begin(context: Context, key: String, gain: Int,
+        automatic: Boolean = PaymentAutomaticSound.shouldOffer(context)): String? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O)
+            return "Проверка канала доступна на Android 8 и новее"
+        if (automatic && !PaymentAutomaticSound.shouldOffer(context))
+            return "Автоматический звук доступен только с включённой совместимостью ColorOS"
+        if (key != "silent" && key != "system" &&
+            BalanceNotificationSounds.tones.none { it.key == key })
+            return "Неизвестная мелодия платежей"
+        val level = gain.coerceIn(0, 100)
+        val currentId = BalanceNotificationSounds.ensureChannel(context, CATEGORY)
+        val old = manager(context).getNotificationChannel(currentId)
+            ?: return "Действующий канал платежей недоступен"
+        if (old.importance < NotificationManager.IMPORTANCE_DEFAULT)
+            return "Канал платежей отключён в Android. Сначала разрешите звуковые уведомления."
+        val desired = if (automatic) PaymentAutomaticSound.playableUri(context, key, level)
+            else selectedUri(context, key, level)
+        if (key != "silent" && (key == "system" || level > 0) && desired == null)
+            return "Не удалось открыть новую мелодию платежей"
+        if (desired != null && key != "system") {
+            val issue = BalanceNotificationSounds.audioProbe(context, desired)
+            if (issue != null) return "Мелодия недоступна: " + issue
+        }
+        // An already-confirmed silent channel can be used for all subsequent
+        // automatic sound changes. Its sound never needs to be recreated.
+        val reuse = automatic && PaymentAutomaticSound.enabled(context) &&
+            old.sound == null && !old.shouldVibrate()
+        val revision = prefs(context).getInt("channel_revision_" + CATEGORY, 0)
+            .coerceAtLeast(0) + (if (reuse) 0 else 1)
+        val id = if (reuse) currentId else StableNotificationChannels.freshId(CATEGORY, revision)
+        return try {
+            if (!reuse) {
+                val candidate = NotificationChannel(id,
+                    if (automatic) "Платежи · автоматический звук"
+                    else "Платежи · проверка нового звука", old.importance)
+                val channelSound = if (automatic) null else desired
+                candidate.setSound(channelSound,
+                    if (channelSound == null) null else AudioAttributes.Builder()
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .setUsage(AudioAttributes.USAGE_NOTIFICATION).build())
+                val mode = BalanceNotificationSounds.vibrationMode(context, CATEGORY)
+                if (BalanceNotificationSounds.colorOsCompatibility(context) ||
+                    !NotificationVibrationMode.enabled(mode)) candidate.enableVibration(false)
+                else NotificationChannelVibration.apply(candidate,
+                    NotificationVibrationMode.pattern(mode))
+                manager(context).createNotificationChannel(candidate)
+            }
+            if (manager(context).getNotificationChannel(id) == null)
+                return "Android не создал пробный канал платежей"
+            // Do not remove the previous trial until the replacement is durable.
+            val previous = pending(context)
+            val saved = prefs(context).edit()
+                .putString(PENDING_ID, id).putString(PENDING_KEY, key)
+                .putInt(PENDING_GAIN, level).putInt(PENDING_REVISION, revision)
+                .putBoolean(PENDING_TESTED, false)
+                .putBoolean(PENDING_AUTOMATIC, automatic).commit()
+            if (!saved) {
+                if (!reuse) manager(context).deleteNotificationChannel(id)
+                return "Не удалось запомнить пробный канал"
+            }
+            if (previous != null && previous.id != id && previous.id != currentId) {
+                try { manager(context).deleteNotificationChannel(previous.id) }
+                catch (_: Exception) { /* The active channel is unaffected. */ }
+            }
+            null
+        } catch (error: Exception) {
+            if (!reuse) {
+                try { manager(context).deleteNotificationChannel(id) } catch (_: Exception) { }
+            }
+            "Не удалось подготовить проверку: " + error.javaClass.simpleName
+        }
+    }
+
+    /** The test must be sent from the exact prospective channel, not the active one. */
+    @Synchronized
+    fun markTested(context: Context, id: String): Boolean {
+        val trial = pending(context) ?: return false
+        return trial.id == id && prefs(context).edit().putBoolean(PENDING_TESTED, true).commit()
+    }
+
+    /** Validate the current OS state again after the user visited ColorOS settings. */
+    fun problem(context: Context, trial: Trial): String? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O)
+            return "Системные каналы недоступны"
+        val channel = manager(context).getNotificationChannel(trial.id)
+            ?: return "Пробный канал больше не существует"
+        if (channel.importance < NotificationManager.IMPORTANCE_DEFAULT)
+            return "ColorOS отключила звуковые уведомления пробного канала"
+        if (trial.automatic) {
+            if (channel.sound != null)
+                return "В пробном канале Android включён системный звук — возможен двойной сигнал"
+            if (channel.shouldVibrate())
+                return "Отключите системную вибрацию пробного канала, чтобы сохранить прямую вибрацию"
+            if (trial.key != "silent" &&
+                (trial.key == "system" || trial.gain > 0) &&
+                PaymentAutomaticSound.playableUri(context, trial.key, trial.gain) == null)
+                return "Не удалось открыть мелодию для собственного воспроизведения"
+            return null
+        }
+        val expected = selectedUri(context, trial.key, trial.gain)
+        val actual = channel.sound
+        if (!NotificationToneIdentity.same(expected?.toString(), actual?.toString()))
+            return "ColorOS назначила другой звук. Выберите нужную мелодию в настройках пробного канала Android."
+        if (actual != null && trial.key != "system") {
+            val issue = BalanceNotificationSounds.audioProbe(context, actual)
+            if (issue != null) return "Android не читает выбранный WAV: " + issue
+        }
+        // In direct vibration mode Android channel vibration would suppress the
+        // known-good ColorOS motor route and may replace LONG with default.
+        if (BalanceNotificationSounds.colorOsCompatibility(context) &&
+            channel.shouldVibrate())
+            return "Отключите вибрацию пробного системного канала: BalanceHub запускает выбранный длинный или другой рисунок отдельно."
+        return null
+    }
+
+    /**
+     * An explicit user confirmation is necessary: API sound metadata does not
+     * prove that the OnePlus speaker really played the chosen ringtone.
+     */
+    @Synchronized
+    fun accept(context: Context): String? {
+        val trial = pending(context) ?: return "Нет неподтверждённой мелодии"
+        if (!trial.tested) return "Сначала отправьте реальное тестовое уведомление"
+        problem(context, trial)?.let { return it }
+        val oldId = BalanceNotificationSounds.channelId(context, CATEGORY)
+        val revision = prefs(context).getInt(PENDING_REVISION, 0)
+        if (revision <= 0) return "Не удалось проверить поколение канала"
+        val editor = clearPending(prefs(context).edit())
+            .putString("channel_active_id_" + CATEGORY, trial.id)
+            .putInt("channel_revision_" + CATEGORY, revision)
+            .putString(CATEGORY, trial.key)
+            .putInt("volume_" + CATEGORY, trial.gain)
+            .putBoolean(PaymentAutomaticSound.ENABLED, trial.automatic)
+        if (oldId != trial.id) {
+            editor.putString(PREVIOUS_ID, oldId)
+                .putString(PREVIOUS_KEY, BalanceNotificationSounds.selected(context, CATEGORY))
+                .putInt(PREVIOUS_GAIN, BalanceNotificationSounds.volume(context, CATEGORY))
+                .putBoolean(PREVIOUS_AUTOMATIC, PaymentAutomaticSound.enabled(context))
+        }
+        val saved = editor.commit()
+        // Deliberately retain the former working payment channel for rollback.
+        // Unused-channel cleanup excludes that channel; events/updates untouched.
+        return if (saved) null else "Не удалось применить подтверждённую мелодию"
+    }
+
+    /** The previously heard Android channel can be restored without creating one. */
+    fun canRestorePrevious(context: Context): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||
+            !PaymentAutomaticSound.enabled(context)) return false
+        val stored = prefs(context)
+        if (stored.getBoolean(PREVIOUS_AUTOMATIC, true)) return false
+        val id = previousWorkingId(context) ?: return false
+        val channel = manager(context).getNotificationChannel(id) ?: return false
+        return channel.importance >= NotificationManager.IMPORTANCE_DEFAULT &&
+            channel.sound != null &&
+            stored.getString(PREVIOUS_KEY, null) != null
+    }
+
+    fun previousSoundTitle(context: Context): String {
+        val key = prefs(context).getString(PREVIOUS_KEY, null)
+        return when (key) {
+            "system" -> "Системный звук"
+            "silent" -> "Без звука"
+            else -> BalanceNotificationSounds.tones.firstOrNull { it.key == key }
+                ?.title ?: "Предыдущая мелодия"
+        }
+    }
+
+    /** Roll back a real Android sound channel after a failed background audio test. */
+    @Synchronized
+    fun restorePrevious(context: Context): String? {
+        if (!canRestorePrevious(context))
+            return "Прежний рабочий канал Android недоступен. Текущий звук не изменён."
+        val stored = prefs(context)
+        val previous = previousWorkingId(context) ?: return "Канал не найден"
+        val key = stored.getString(PREVIOUS_KEY, null) ?: return "Неизвестна мелодия"
+        val gain = stored.getInt(PREVIOUS_GAIN, 100).coerceIn(0, 100)
+        // Cancel only a pending experimental candidate; the active channel stays.
+        cancel(context)
+        val current = BalanceNotificationSounds.channelId(context, CATEGORY)
+        val currentKey = BalanceNotificationSounds.selected(context, CATEGORY)
+        val currentGain = BalanceNotificationSounds.volume(context, CATEGORY)
+        val saved = stored.edit()
+            .putString("channel_active_id_" + CATEGORY, previous)
+            .putString(CATEGORY, key)
+            .putInt("volume_" + CATEGORY, gain)
+            .putBoolean(PaymentAutomaticSound.ENABLED, false)
+            .putString(PREVIOUS_ID, current)
+            .putString(PREVIOUS_KEY, currentKey)
+            .putInt(PREVIOUS_GAIN, currentGain)
+            .putBoolean(PREVIOUS_AUTOMATIC, true)
+            .commit()
+        return if (saved) null else "Не удалось вернуть прежний канал"
+    }
+
+    /** Cancel only the trial channel; never change active payment preferences. */
+    @Synchronized
+    fun cancel(context: Context) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val trial = pending(context) ?: return
+        if (!clearPending(prefs(context).edit()).commit()) return
+        if (trial.id != BalanceNotificationSounds.channelId(context, CATEGORY)) {
+            try { manager(context).deleteNotificationChannel(trial.id) }
+            catch (_: Exception) { }
+        }
+    }
+}

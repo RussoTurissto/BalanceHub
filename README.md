@@ -1,110 +1,48 @@
-# buttonapp
+# BalanceHub
 
-![Build](https://github.com/RussoTurissto/ButtonApp/workflows/Pre%20Merge%20Checks/badge.svg)
+BalanceHub is an Android app for mobile balances, banking Push balance cards, payment reminders and calendar events. The Android package ID and signing certificate stay unchanged between APK updates.
 
-This is your new Kotlin Android Project! Happy hacking!
+## Features
 
-## Template ToDo list 👣
+- Local payment reminders and recurring calendar events with reminders and archives.
+- At most one reminder per item and local calendar day.
+- Mobile phone balance information where supported, and read-only banking Push balance cards.
+- Light, dark and system theme; engineer-only diagnostics.
 
-- [x] Create a new template project.
-- [ ] Choose a [LICENSE](https://github.com/RussoTurissto/ButtonApp/community/license/new?branch=main).
-- [ ] Set your `ORG_GRADLE_PROJECT_NEXUS_USERNAME`, `ORG_GRADLE_PROJECT_NEXUS_PASSWORD`, `ORG_GRADLE_PROJECT_SIGNING_KEY` and `ORG_GRADLE_PROJECT_SIGNING_PWD` secrets in [Settings](https://github.com/RussoTurissto/ButtonApp/settings/secrets/actions).
-- [ ] Code some cool apps and libraries 🚀.
+## Android notifications
 
-## Features 🎨
+On Android 8 and newer, BalanceHub maintains exactly three permanent system channels:
 
-- **100% Kotlin-only template**.
-- 4 Sample modules (Android app, Android library, Kotlin library, Jetpack Compose Activity).
-- Jetpack Compose setup ready to use. 
-- Sample Espresso, Instrumentation & JUnit tests.
-- 100% Gradle Kotlin DSL setup.
-- CI Setup with GitHub Actions.
-- Publish to **Maven Central** with Github Actions.
-- Dependency versions managed via `buildSrc`.
-- Kotlin Static Analysis via `detekt` and `ktlint`.
-- Issues Template (bug report + feature request).
-- Pull Request Template.
+| Category | System channel ID |
+| --- | --- |
+| Payments | balancehub.channel.payment |
+| Events | balancehub.channel.event |
+| Updates | balancehub.channel.update |
 
-## Troubleshooting
+Changing melody, vibration or importance for an existing Android channel must happen in its Android settings. BalanceHub displays the actual setting and opens that screen. It does not override a user-muted channel, Do Not Disturb or system sound modes. The first upgrade migrates from previously generated tone/volume channel variants, deleting only old BalanceHub variants. Saved events and payments are not modified by channel migration.
 
-For help with issues which you might encounter when using this template, please refer to [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
+Reminder scheduling uses AlarmManager. Exact-alarm permission improves timing; without it, Android may delay a reminder. Recently completed events can still deliver their previously scheduled notifications within a bounded three-hour catch-up window. Completed or deleted events cannot generate notifications indefinitely.
 
-## Gradle Setup 🐘
+## Building and testing
 
-This template is using [**Gradle Kotlin DSL**](https://docs.gradle.org/current/userguide/kotlin_dsl.html) as well as the [Plugin DSL](https://docs.gradle.org/current/userguide/plugins.html#sec:plugins_block) to setup the build.
+- Android source: `app/`; auxiliary `library-*` modules are required Gradle dependencies.
+- Java 17, Android SDK, Gradle Kotlin DSL; local debug build: `./gradlew :app:assembleDebug`.
+- Canonical signed APK workflow: `.github/workflows/balancehub-apk.yml`. It builds on pushes to the development branch and supports manual runs from the default branch.
+- Emulator tests: `.github/workflows/notification-emulator-validation.yml` (API 29, 35 and 36).
+- CI checks compilation, Android lint, JVM tests, signing certificate and APK package/version metadata. Successful CI does not replace physical OnePlus/ColorOS testing.
+- Four `BALANCEHUB_*` signing secrets remain stored only in GitHub Actions. Never commit keystores, passwords or real account credentials.
 
-Dependencies are centralized inside the Gradle Version Catalog in the [libs.versions.toml](gradle/libs.versions.toml) file in the `gradle` folder.
+## Installing an update
 
-## Static Analysis 🔍
+Install the signed `BalanceHub.apk` **over** the existing Android app. Do not uninstall it: the application ID (`com.github.russoturissto.buttonapp.app`) and release signing key must stay unchanged, and the new `versionCode` must be greater than the installed one.
 
-This template is using [**detekt**](https://github.com/detekt/detekt) to analyze the source code, with the configuration that is stored in the [detekt.yml](config/detekt/detekt.yml) file (the file has been generated with the `detektGenerateConfig` task). It also uses the **detekt-formatting** plugin which includes the ktlint rules (see https://detekt.dev/docs/rules/formatting/).
+The owner-approved builds are stored as GitHub **draft prereleases**. Drafts are not public downloads. The current verified test baseline is **1.1.4-rc17 / build 701**; its historical source commit is `4749759a73a95461bc729ae04bd9ab9d233dd98a`.
 
-## CI ⚙️
+## Repository and QA
 
-This template is using [**GitHub Actions**](https://github.com/cortinico/kotlin-android-template/actions) as CI. You don't need to setup any external service and you should have a running CI once you start using this template, just make sure that you turn on the "Read and Write permissions" on the Action Settings of your repository.
-
-There are currently the following workflows available:
-- [Validate Gradle Wrapper](.github/workflows/gradle-wrapper-validation.yml) - Will check that the gradle wrapper has a valid checksum
-- [Pre Merge Checks](.github/workflows/pre-merge.yaml) - Will run the `build`, `check` and `publishToMavenLocal` tasks.
-- [Publish Snapshot](.github/workflows/publish-snapshot.yaml) - Will publish a `-SNAPSHOT` of the libraries to Sonatype.
-- [Publish Release](.github/workflows/publish-release.yaml) - Will publish a new release version of the libraries to Maven Central on tag pushes.
-
-## Publishing 🚀
-
-The template is setup to be **ready to publish** a library/artifact on a Maven Repository.
-
-For every module you want to publish you simply have to add the `publish` plugin:
-
-```
-plugins {
-    publish
-}
-```
-
-### To Maven Central
-
-In order to use this template to publish on Maven Central, you need to configure some secrets on your repository:
-
-| Secret name | Value |
-| --- | --- | 
-| `ORG_GRADLE_PROJECT_NEXUS_USERNAME` | The username you use to access Sonatype's services (such as [Nexus](https://oss.sonatype.org/) and [Jira](https://issues.sonatype.org/)) |
-| `ORG_GRADLE_PROJECT_NEXUS_PASSWORD` | The password you use to access Sonatype's services (such as [Nexus](https://oss.sonatype.org/) and [Jira](https://issues.sonatype.org/)) |
-| `ORG_GRADLE_PROJECT_SIGNING_KEY` | The GPG Private key to sign your artifacts. You can obtain it with `gpg --armor --export-secret-keys <your@email.here>` or you can create one key online on [pgpkeygen.com](https://pgpkeygen.com). The key starts with a `-----BEGIN PGP PRIVATE KEY BLOCK-----`. |
-| `ORG_GRADLE_PROJECT_SIGNING_PWD` | The passphrase to unlock your private key (you picked it when creating the key). |
-
-The template already attaches `-sources.jar` to your publications via the new AGP publishing DSL.
-
-Once set up, the following workflows will take care of publishing:
-
-- [Publish Snapshot](.github/workflows/publish-snapshot.yaml) - To publish `-SNAPSHOT` versions to Sonatype. The workflow is setup to run either manually (with `workflow_dispatch`) or on every merge.
-- [Publish Release](.github/workflows/publish-release.yaml) - Will publish a new release version of the libraries to Maven Central on tag pushes. You can trigger the workflow also manually if needed.
-
-### To Jitpack
-
-If you're using [JitPack](https://jitpack.io/), you don't need any further configuration and you can just configure the repo on JitPack.
-
-You probably want to disable the [Publish Snapshot] and [Publish Release](.github/workflows/publish-release.yaml) workflows (delete the files), as Jitpack will take care of that for you.
-
-## Project Structure
-
-The project includes three sub-projects, each in their own subdirectories:
-
-- **`app`:** The source for the final Android application.
-- **`library-android`:** The source for an Android library including UI.
-- **`library-kotlin`:** The source for a UI-less Kotlin library.
-- **`library-compose`:** The source for a UI library with Jetpack Compose library.
-
-The following additional top-level directories configure & support building the app & projects:
-
-- **`buildSrc`:** Contains shared Gradle logic as [precompiled script plugins](https://docs.gradle.org/current/userguide/custom_plugins.html#sec:precompiled_plugins)
-- **`config`:** Contains the [Detekt configuration file](https://detekt.dev/docs/introduction/configurations/).
-- **`gradle`:** Contains Gradle Configuration files such as the Gradle Version Catalog and the [Gradle Wrapper](https://docs.gradle.org/current/userguide/gradle_wrapper.html).
-
-Finally, the following hidden top-level directories provide functionality for specific development systems:
-
-- **`.github`:** Defines the [Github Actions](https://github.com/features/actions) CI tasks and templates for new pull requests, issues, etc.
-- **`.idea`:** Sets common initial project settings when the project is opened in [Android Studio](https://developer.android.com/studio) or [IntelliJ IDEA](https://www.jetbrains.com/idea/).
-
-## Contributing 🤝
-
-Feel free to open a issue or submit a pull request for any bugs/improvements.
+- Maintenance, protected checkpoints and release rules: [docs/REPOSITORY_MAINTENANCE.md](docs/REPOSITORY_MAINTENANCE.md)
+- Manually confirmed build 701 checks and pending tests: [docs/QA_BUILD_701.md](docs/QA_BUILD_701.md)
+- Architecture and provider approach: [docs/BALANCEHUB_ARCHITECTURE.md](docs/BALANCEHUB_ARCHITECTURE.md)
+- Notification/channel history: [docs/android-notification-channels.md](docs/android-notification-channels.md)
+- Troubleshooting: [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
+- Historical release notes remain in `release/notes-*.md`; older releases, tags and rollback branches are retained for traceability.
