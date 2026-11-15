@@ -56,6 +56,18 @@ class RussianBankDiagnosticsEmulatorTest {
             assertFalse(stored.contains("Private example title"))
             assertFalse(stored.contains("Secret transaction"))
             assertFalse(stored.contains("9876 RUB"))
+            val sourceKey = "private-card-tag-9876"
+            val postedAt = System.currentTimeMillis() - 120_000L
+            RussianBankDiagnostics.record(context, vtb, "Баланс обновлён",
+                payload, postedAt = postedAt, notificationKey = sourceKey)
+            val afterFirst = RussianBankDiagnostics.recent(context, vtb)
+            assertEquals(6, afterFirst.size)
+            assertEquals(postedAt, afterFirst.first().receivedAt)
+            assertEquals(24, afterFirst.first().fingerprint.length)
+            RussianBankDiagnostics.record(context, vtb, "Баланс обновлён",
+                payload, postedAt = postedAt, notificationKey = sourceKey)
+            assertEquals(afterFirst, RussianBankDiagnostics.recent(context, vtb))
+            assertFalse(prefs.getString("events_vtb", "")!!.contains(sourceKey))
 
             RussianBankDiagnostics.clear(context, "vtb")
             assertTrue(RussianBankDiagnostics.recent(context, vtb).isEmpty())
