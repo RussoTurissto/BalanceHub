@@ -3,8 +3,10 @@
 set -euo pipefail
 bash -n scripts/prepare-release-version.sh
 bash -n scripts/publish-verified-release.sh
+bash -n scripts/require-app-changes.sh
 bash -n scripts/test-release-versioning.sh
 
+repo_root="$(pwd)"
 temp="$(mktemp -d)"
 trap 'rm -rf "$temp"' EXIT
 mkdir -p "$temp/bin" "$temp/scripts" "$temp/release"
@@ -56,12 +58,15 @@ run_scenario() {
 first="$(run_scenario first false "")"
 [[ "$first" == *"BUILD_VERSION_NAME=1.2.1-rc1"* ]]
 [[ "$first" == *"RELEASE_CHANNEL=rc"* ]]
+[[ "$first" == *"PREVIOUS_RELEASE_TAG=v1.2.0"* ]]
 next="$(run_scenario next false "")"
 [[ "$next" == *"BUILD_VERSION_NAME=1.2.1-rc3"* ]]
 [[ "$next" == *"RELEASE_TAG=v1.2.1-rc3"* ]]
+[[ "$next" == *"PREVIOUS_RELEASE_TAG=v1.2.1-rc2"* ]]
 stable="$(run_scenario next true 1.2.1)"
 [[ "$stable" == *"BUILD_VERSION_NAME=1.2.1"* ]]
 [[ "$stable" == *"RELEASE_CHANNEL=stable"* ]]
+[[ "$stable" == *"PREVIOUS_RELEASE_TAG=v1.2.0"* ]]
 
 if (
   cd "$temp"
@@ -77,3 +82,52 @@ if (
 fi
 
 echo "Release versioning smoke tests passed: rc1, rc3, manual stable, mismatch rejection"
+
+# Test the release guard with an actual local Git history (no network).
+fixture="$temp/source-check"
+mkdir -p "$fixture/app/src/main" "$fixture/scripts"
+git init -q "$fixture"
+git -C "$fixture" config user.email "tests@example.invalid"
+git -C "$fixture" config user.name "BalanceHub CI"
+printf 'original app\n' > "$fixture/app/src/main/Screen.kt"
+git -C "$fixture" add .
+git -C "$fixture" commit -qm "Original app"
+git -C "$fixture" tag v1.2.0
+git clone -q --bare "$fixture" "$temp/source-origin.git"
+git -C "$fixture" remote add origin "$temp/source-origin.git"
+
+run_guard() {
+  local sha="$1"
+  (
+    cd "$fixture"
+    RELEASE_CHANNEL=rc PREVIOUS_RELEASE_TAG=v1.2.0 \
+    GITHUB_REF=refs/heads/main GITHUB_SHA="$sha" \
+    bash "$repo_root/scripts/require-app-changes.sh"
+  )
+}
+
+printf 'changed workflow only\n' > "$fixture/scripts/ci.sh"
+git -C "$fixture" add .
+git -C "$fixture" commit -qm "Only infrastructure changed"
+infra_sha="$(git -C "$fixture" rev-parse HEAD)"
+if run_guard "$infra_sha" >/dev/null 2>&1; then
+  echo "RC incorrectly allowed after infrastructure-only changes" >&2
+  exit 1
+fi
+
+printf 'new app behavior\n' >> "$fixture/app/src/main/Screen.kt"
+git -C "$fixture" add .
+git -C "$fixture" commit -qm "Application changed"
+app_sha="$(git -C "$fixture" rev-parse HEAD)"
+run_guard "$app_sha" >/dev/null
+
+printf 'original app\n' > "$fixture/app/src/main/Screen.kt"
+git -C "$fixture" add .
+git -C "$fixture" commit -qm "Application reverted"
+reverted_sha="$(git -C "$fixture" rev-parse HEAD)"
+if run_guard "$reverted_sha" >/dev/null 2>&1; then
+  echo "RC incorrectly allowed when application source was reverted" >&2
+  exit 1
+fi
+
+echo "Release-source gate tests passed: infrastructure-only rejected, app change accepted, reverted app rejected"
