@@ -560,9 +560,59 @@ internal object BalanceNotificationSounds {
             volume(context, category))
     }
 
-    fun applyVolumeChoice(context: Context, category: String, gain: Int): String? =
-        applySettings(context, category, selected(context, category),
-            vibrationMode(context, category), gain)
+    /**
+     * A released volume slider is a complete user choice, not a new ringtone
+     * selection. Never open a sound trial or require a second confirmation.
+     *
+     * Automatic ColorOS playback reads the gain at notification time, so its
+     * already-confirmed Android channel must remain intact. For native Android
+     * playback, the WAV gain is part of the immutable channel sound URI:
+     * applySettings creates and validates a replacement channel atomically.
+     */
+    @Synchronized
+    fun applyVolumeChoice(context: Context, category: String, gain: Int): String? {
+        val key = selected(context, category)
+        if (tones.none { it.key == key })
+            return "Громкость системной мелодии регулируется в Android"
+        val percent = gain.coerceIn(0, 100)
+        if (volume(context, category) == percent) return null
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            PaymentAutomaticSound.enabled(context, category)) {
+            if (!PaymentAutomaticSound.shouldOffer(context))
+                return "Автоматический звук недоступен в текущем режиме"
+            val id = ensureChannel(context, category)
+            val manager = context.getSystemService(Context.NOTIFICATION_SERVICE)
+                as NotificationManager
+            val channel = manager.getNotificationChannel(id)
+                ?: return "Канал Android недоступен"
+            if (channel.importance < NotificationManager.IMPORTANCE_DEFAULT)
+                return "Разрешите звуковые уведомления категории в Android"
+            if (channel.sound != null || channel.shouldVibrate())
+                return "Системный канал изменён: проверьте настройки уведомлений Android"
+
+            // Check the actual future playback WAV before persisting the gain.
+            // Zero is a valid silent choice and intentionally has no URI.
+            if (percent > 0) {
+                val uri = PaymentAutomaticSound.playableUri(context, key, percent)
+                    ?: return "Не удалось подготовить звук с выбранной громкостью"
+                audioProbe(context, uri)?.let { return "Мелодия недоступна: " + it }
+            }
+            if (!preferences(context).edit()
+                    .putInt("volume_" + category, percent).commit())
+                return "Не удалось сохранить громкость"
+        } else {
+            val error = applySettings(context, category, key,
+                vibrationMode(context, category), percent)
+            if (error != null) return error
+        }
+
+        // A stale trial may otherwise later overwrite the newly applied gain.
+        if (category == PAYMENT) PaymentToneChange.cancel(context)
+        else if (category == EVENT || category == UPDATE)
+            CategoryToneChange.cancel(context, category)
+        return null
+    }
 
     /** Only engineering tools may explicitly request repair of a bad channel. */
     fun repairChannel(context: Context, category: String): String? =
