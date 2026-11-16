@@ -27,7 +27,7 @@ Reminder scheduling uses AlarmManager. Exact-alarm permission improves timing; w
 
 - Android source: `app/`; auxiliary `library-*` modules are required Gradle dependencies.
 - Java 17, Android SDK, Gradle Kotlin DSL; local debug build: `./gradlew :app:assembleDebug`.
-- Canonical signed APK workflow: `.github/workflows/balancehub-apk.yml`. It builds on pushes to `main` and supports manual runs from that branch.
+- Canonical signed APK workflow: `.github/workflows/balancehub-apk.yml`. It builds on pushes to `main` only when runtime app sources change; manual RC attempts are also blocked if the app has not changed since the last published release. A separate fast workflow checks release infrastructure without producing an APK.
 - Emulator tests: `.github/workflows/notification-emulator-validation.yml` (API 29, 35 and 36).
 - CI checks compilation, Android lint, JVM tests, signing certificate and APK package/version metadata. Successful CI does not replace physical OnePlus/ColorOS testing.
 - Four `BALANCEHUB_*` signing secrets remain stored only in GitHub Actions. Never commit keystores, passwords or real account credentials.
