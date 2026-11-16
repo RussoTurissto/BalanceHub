@@ -1663,7 +1663,7 @@ class MainActivity : AppCompatActivity() {
             if (accounts.isNotEmpty()) {
                 entry.addView(verticalGap(9))
                 entry.addView(textLine("Карты и счета", 14f, ink, true))
-                accounts.forEach { item ->
+                for (item in accounts) {
                     entry.addView(verticalGap(5))
                     entry.addView(SwitchCompat(this).apply {
                         text = BankAccountRows.label(item.lastFour)
