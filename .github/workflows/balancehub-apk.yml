@@ -5,15 +5,11 @@ on:
     branches:
       - main
     paths:
-      - "app/**"
-      - "scripts/prepare-release-version.sh"
-      - "scripts/publish-verified-release.sh"
-      - "release/notes-*.md"
-      - "gradle/**"
-      - "gradle.properties"
-      - "build.gradle.kts"
-      - "settings.gradle.kts"
-      - ".github/workflows/balancehub-apk.yml"
+      # Only runtime application source changes trigger a new APK.
+      - "app/src/main/**"
+      - "library-android/src/main/**"
+      - "library-compose/src/main/**"
+      - "library-kotlin/src/main/**"
   workflow_dispatch:
     inputs:
       rollback_rc13:
@@ -62,6 +58,12 @@ jobs:
           INPUT_PUBLISH_STABLE: ${{ inputs.publish_stable }}
           INPUT_APPROVED_VERSION: ${{ inputs.approved_version }}
         run: bash scripts/prepare-release-version.sh
+
+      # Also reject manually triggered RCs without real application changes.
+      - name: Require application source changes for RC
+        if: ${{ !inputs.rollback_rc13 && env.RELEASE_CHANNEL == 'rc' }}
+        shell: bash
+        run: bash scripts/require-app-changes.sh
 
       - name: Set up signed private rollback (legacy)
         if: ${{ inputs.rollback_rc13 }}
