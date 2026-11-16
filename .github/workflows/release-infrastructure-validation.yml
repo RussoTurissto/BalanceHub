@@ -1,0 +1,44 @@
+name: Validate BalanceHub release infrastructure
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/balancehub-apk.yml"
+      - ".github/workflows/notification-emulator-validation.yml"
+      - ".github/workflows/release-infrastructure-validation.yml"
+      - "scripts/prepare-release-version.sh"
+      - "scripts/publish-verified-release.sh"
+      - "scripts/require-app-changes.sh"
+      - "scripts/test-release-versioning.sh"
+      - "gradle.properties"
+      - "release/notes-*.md"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/balancehub-apk.yml"
+      - ".github/workflows/notification-emulator-validation.yml"
+      - ".github/workflows/release-infrastructure-validation.yml"
+      - "scripts/prepare-release-version.sh"
+      - "scripts/publish-verified-release.sh"
+      - "scripts/require-app-changes.sh"
+      - "scripts/test-release-versioning.sh"
+      - "gradle.properties"
+      - "release/notes-*.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  infrastructure:
+    name: Release scripts and no-app-change gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Verify release numbering and app-change policy
+        run: bash scripts/test-release-versioning.sh
