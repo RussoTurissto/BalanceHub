@@ -55,21 +55,21 @@ class EngineeringMenuNavigationEmulatorTest {
             onView(anyOf(withText("Повторно применить сигналы"),
                 withText("Применить звук и вибрацию"))).perform(scrollTo())
                 .check(matches(isDisplayed()))
-            onView(withText("‹  Системные каналы")).perform(click())
+            onView(withText("‹  Системные каналы")).perform(scrollTo(), click())
         }
-        onView(withText("‹  Инженерное меню")).perform(click())
-        onView(withText("‹  Назад в настройки")).perform(click())
+        onView(withText("‹  Инженерное меню")).perform(scrollTo(), click())
+        onView(withText("‹  Назад в настройки")).perform(scrollTo(), click())
         onView(settingsLabel("Уведомления")).perform(scrollTo(), click())
         for (category in listOf("Платежи", "События", "Обновления")) {
             onView(settingsLabel(category)).perform(scrollTo(), click())
-            onView(withText("Звук")).check(matches(isDisplayed()))
-            onView(withText("Вибросигнал")).check(matches(isDisplayed()))
+            onView(withText("Звук")).perform(scrollTo()).check(matches(isDisplayed()))
+            onView(withText("Вибросигнал")).perform(scrollTo()).check(matches(isDisplayed()))
             onView(withText("Проверить уведомление")).perform(scrollTo())
                 .check(matches(isDisplayed()))
             onView(withText("Вернуться к системному звуку")).check(doesNotExist())
             onView(withText("Канал уведомлений Android")).check(doesNotExist())
             onView(withText("Повторно применить сигналы")).check(doesNotExist())
-            onView(withContentDescription("Назад")).perform(click())
+            onView(withContentDescription("Назад")).perform(scrollTo(), click())
         }
     }
 }
