@@ -15,6 +15,7 @@ import androidx.test.espresso.action.ViewActions.click
 import androidx.test.espresso.action.ViewActions.scrollTo
 import org.hamcrest.Matchers.allOf
 import org.hamcrest.Matchers.anyOf
+import org.hamcrest.Matchers.startsWith
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -29,11 +30,22 @@ class EngineeringMenuNavigationEmulatorTest {
         isDescendantOfA(isAssignableFrom(ScrollView::class.java))
     )
 
+    private fun bottomSettingsTab() = allOf(
+        withContentDescription(startsWith("Настройки")),
+        isDescendantOfA(isAssignableFrom(BalanceBottomNavigation::class.java))
+    )
+
+    private fun engineerUnlockHeader() = allOf(
+        withContentDescription("Настройки"),
+        isDescendantOfA(isAssignableFrom(ScrollView::class.java))
+    )
+
     @Test fun channelActionsAreInEngineeringCategoriesButNotInOrdinarySettings() {
-        // Bottom settings icon is the only view with this exact description on Home.
-        onView(withContentDescription("Настройки")).perform(click())
+        // The tab and unlock heading both announce "Настройки". Scope them
+        // to their containers so Espresso never clicks the wrong view.
+        onView(bottomSettingsTab()).perform(click())
         repeat(5) {
-            onView(withContentDescription("Настройки")).perform(click())
+            onView(engineerUnlockHeader()).perform(click())
         }
         onView(withText("Системные каналы   ›")).perform(scrollTo(), click())
         for (category in listOf("Платежи", "События", "Обновления")) {
