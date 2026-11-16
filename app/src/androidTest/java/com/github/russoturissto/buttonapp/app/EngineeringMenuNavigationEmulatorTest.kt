@@ -63,7 +63,7 @@ class EngineeringMenuNavigationEmulatorTest {
         // Enter via bottom navigation, then perform all five unlock taps on
         // the Settings heading belonging to this Activity.
         onView(bottomSettingsTab()).perform(click())
-        scenario.scenario.onActivity(::unlockEngineeringInActiveActivity)
+        scenario.scenario.onActivity { activity -> unlockEngineeringInActiveActivity(activity) }
         onView(withText("Системные каналы   ›")).perform(scrollTo(), click())
         for (category in listOf("Платежи", "События", "Обновления")) {
             onView(settingsLabel(category)).perform(scrollTo(), click())
