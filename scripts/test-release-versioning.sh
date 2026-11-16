@@ -97,10 +97,10 @@ git clone -q --bare "$fixture" "$temp/source-origin.git"
 git -C "$fixture" remote add origin "$temp/source-origin.git"
 
 run_guard() {
-  local sha="$1"
+  local sha="$1" channel="${2:-rc}"
   (
     cd "$fixture"
-    RELEASE_CHANNEL=rc PREVIOUS_RELEASE_TAG=v1.2.0 \
+    RELEASE_CHANNEL="$channel" PREVIOUS_RELEASE_TAG=v1.2.0 \
     GITHUB_REF=refs/heads/main GITHUB_SHA="$sha" \
     bash "$repo_root/scripts/require-app-changes.sh"
   )
@@ -114,12 +114,17 @@ if run_guard "$infra_sha" >/dev/null 2>&1; then
   echo "RC incorrectly allowed after infrastructure-only changes" >&2
   exit 1
 fi
+if run_guard "$infra_sha" stable >/dev/null 2>&1; then
+  echo "Stable incorrectly allowed after infrastructure-only changes" >&2
+  exit 1
+fi
 
 printf 'new app behavior\n' >> "$fixture/app/src/main/Screen.kt"
 git -C "$fixture" add .
 git -C "$fixture" commit -qm "Application changed"
 app_sha="$(git -C "$fixture" rev-parse HEAD)"
 run_guard "$app_sha" >/dev/null
+run_guard "$app_sha" stable >/dev/null
 
 printf 'original app\n' > "$fixture/app/src/main/Screen.kt"
 git -C "$fixture" add .
@@ -130,4 +135,4 @@ if run_guard "$reverted_sha" >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "Release-source gate tests passed: infrastructure-only rejected, app change accepted, reverted app rejected"
+echo "Release-source gate tests passed: infra-only RC/stable rejected, app change RC/stable accepted, reverted app rejected"
