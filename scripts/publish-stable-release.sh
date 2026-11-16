@@ -27,7 +27,93 @@ notes="release/notes-1.2.0.md"
 existing="$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" |
   jq -r --arg tag "$tag" '.[] | select(.tag_name == $tag) | .id' | head -1)"
 if [[ -n "$existing" ]]; then
-  echo "::notice::Stable release $tag already exists; not overwriting assets or notes."
+  # Recover the already signed and fully emulator-tested 1.2.0 / build 711.
+  # The first publishing attempt created a valid private draft, then stopped
+  # because GitHub uses temporary "untagged-..." asset URLs for drafts.
+  # Promote ONLY this pinned, authenticated binary; never replace its bytes.
+  previous_sha="ace9fd179d88d12b44edc253de8089cfd80af26b"
+  previous_code="711"
+  previous_digest="sha256:5c1c4d501c61579ff9240cbcf1e7415062b83f979322235eae4f25474d23c99a"
+  previous_size=10217983
+  draft="$(gh api "repos/$GITHUB_REPOSITORY/releases/$existing")"
+  if printf '%s' "$draft" | jq -e '.draft == false and .prerelease == false' >/dev/null; then
+    echo "::notice::Already published stable release $tag; refusing to overwrite."
+    exit 0
+  fi
+  printf '%s' "$draft" | jq -e \
+    --arg tag "$tag" --arg sha "$previous_sha" --arg code "$previous_code" \
+    --arg digest "$previous_digest" --argjson size "$previous_size" \
+    '.tag_name == $tag and .draft == true and .prerelease == false and
+     .target_commitish == $sha and
+     (.body | contains("<!-- BalanceHub-VersionCode: " + $code + " -->")) and
+     ([.assets[] | select(.name == "BalanceHub.apk" and
+        .digest == $digest and .size == $size)] | length) == 1' >/dev/null || {
+    echo "::error::Existing stable draft differs from pinned verified build 711."
+    exit 1
+  }
+
+  # The same APK must be present in the CI-signed private draft created before
+  # stable publishing. Both assets have identical size and SHA-256.
+  signed_draft="$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" |
+    jq -c '[.[] | select(.tag_name == "v1.2.0-build711")] | first // empty')"
+  [[ -n "$signed_draft" ]] || {
+    echo "::error::Private signed build 711 is missing"; exit 1;
+  }
+  printf '%s' "$signed_draft" | jq -e \
+    --arg sha "$previous_sha" --arg digest "$previous_digest" \
+    --argjson size "$previous_size" \
+    '.draft == true and .prerelease == true and
+     .target_commitish == $sha and
+     ([.assets[] | select(.name == "BalanceHub.apk" and
+       .digest == $digest and .size == $size)] | length) == 1' >/dev/null || {
+    echo "::error::Signed build checksum/commit does not match stable draft"; exit 1;
+  }
+
+  # The original signed build successfully compiled, passed its JVM checks
+  # and verified the signing certificate, while only publication failed.
+  original_jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/43851659591/jobs?per_page=100")"
+  for step in "Run automated checks before release build" \
+              "Build signed release APK (retry transient Maven errors)" \
+              "Verify signed APK and signing certificate"; do
+    printf '%s' "$original_jobs" | jq -e --arg name "$step" \
+      'any(.jobs[].steps[]; .name == $name and .conclusion == "success")' \
+      >/dev/null || {
+      echo "::error::Original signed build check missing: $step"; exit 1;
+    }
+  done
+
+  validation="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/43851659620")"
+  printf '%s' "$validation" | jq -e --arg sha "$previous_sha" \
+    '.head_sha == $sha and .status == "completed" and .conclusion == "success"' \
+    >/dev/null || {
+    echo "::error::Emulator validation did not pass for original APK sources"; exit 1;
+  }
+  validation_jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/43851659620/jobs?per_page=100")"
+  for api in 29 35 36; do
+    printf '%s' "$validation_jobs" | jq -e --arg name "Android API $api" \
+      'any(.jobs[]; .name == $name and .conclusion == "success")' \
+      >/dev/null || {
+      echo "::error::Missing successful Android API $api validation"; exit 1;
+    }
+  done
+
+  # Verify size/hash *before* publication, canonical URL *after*: GitHub
+  # generates a temporary untagged URL while a release is still a draft.
+  gh release edit "$tag" --repo "$GITHUB_REPOSITORY" \
+    --draft=false --prerelease=false --latest
+  latest="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest")"
+  printf '%s' "$latest" | jq -e \
+    --arg tag "$tag" --arg code "$previous_code" \
+    --arg digest "$previous_digest" --argjson size "$previous_size" \
+    --arg url "https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/BalanceHub.apk" \
+    '.tag_name == $tag and .draft == false and .prerelease == false and
+     (.body | contains("<!-- BalanceHub-VersionCode: " + $code + " -->")) and
+     (any(.assets[]; .name == "BalanceHub.apk" and .size == $size and
+         .digest == $digest and .browser_download_url == $url))' >/dev/null || {
+    echo "::error::Public stable release metadata verification failed"; exit 1;
+  }
+  echo "Published verified BalanceHub 1.2.0 / build 711 without rebuilding or replacing the APK."
+  echo "Stable 1.2.0: https://github.com/$GITHUB_REPOSITORY/releases/tag/$tag" >> "$GITHUB_STEP_SUMMARY"
   exit 0
 fi
 
@@ -102,8 +188,7 @@ asset="$(printf '%s' "$draft" | jq -c '[.assets[] | select(.name == "BalanceHub.
 printf '%s' "$asset" | jq -e \
   --arg digest "sha256:$actual_sha256" \
   --argjson size "$actual_size" \
-  --arg url "https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/BalanceHub.apk" \
-  '.digest == $digest and .size == $size and .browser_download_url == $url' >/dev/null || {
+  '.digest == $digest and .size == $size' >/dev/null || {
   echo "::error::GitHub APK size, digest, or download URL mismatch"; exit 1;
 }
 
@@ -113,9 +198,11 @@ gh release edit "$tag" --repo "$GITHUB_REPOSITORY" \
 latest="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest")"
 printf '%s' "$latest" | jq -e \
   --arg tag "$tag" --arg code "$code" --arg digest "sha256:$actual_sha256" \
+  --arg url "https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/BalanceHub.apk" \
   '.tag_name == $tag and .draft == false and .prerelease == false and
    (.body | contains("<!-- BalanceHub-VersionCode: " + $code + " -->")) and
-   (any(.assets[]; .name == "BalanceHub.apk" and .digest == $digest))' >/dev/null || {
+   (any(.assets[]; .name == "BalanceHub.apk" and .digest == $digest and
+       .browser_download_url == $url))' >/dev/null || {
   echo "::error::Stable release not available as GitHub latest, or metadata failed"; exit 1;
 }
 echo "Verified public stable release $tag, Android versionCode $code, SHA-256 $actual_sha256"
