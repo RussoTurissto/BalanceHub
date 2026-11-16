@@ -95,9 +95,24 @@ class ReleaseHistoryNavigationEmulatorTest {
                     androidx.test.espresso.matcher.ViewMatchers.isDisplayed()))
                 onView(withText("Версия 1.2.1-rc3")).check(doesNotExist())
                 onView(withText("Версия 1.2.1-rc4")).check(doesNotExist())
-                // Click the row that owns the listener, not its non-clickable label.
-                onView(withContentDescription(startsWith("Версия 1.2.0,")))
-                    .perform(scrollTo(), click())
+                // The nested scroll view can intercept a synthetic Espresso tap
+                // on API 29. Invoke the actual clickable row's listener directly.
+                scenario.onActivity { activity ->
+                    fun findReleaseRow(view: android.view.View): android.view.View? {
+                        if (view.isClickable &&
+                            view.contentDescription?.startsWith("Версия 1.2.0,") == true)
+                            return view
+                        if (view is android.view.ViewGroup)
+                            for (i in 0 until view.childCount) {
+                                findReleaseRow(view.getChildAt(i))?.let { return it }
+                            }
+                        return null
+                    }
+                    assertTrue(checkNotNull(findReleaseRow(activity.window.decorView))
+                        .performClick())
+                }
+                onView(withContentDescription(startsWith("Версия 1.2.0, Свернуть изменения")))
+                    .check(matches(androidx.test.espresso.matcher.ViewMatchers.isDisplayed()))
                 onView(withText("• Улучшены банковские балансы."))
                     .check(matches(androidx.test.espresso.matcher.ViewMatchers.isDisplayed()))
                 pressBackUnconditionally()
