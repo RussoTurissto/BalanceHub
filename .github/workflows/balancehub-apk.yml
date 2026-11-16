@@ -7,6 +7,7 @@ on:
     paths:
       - "app/**"
       - "scripts/upload-private-drive-apk.sh"
+      - "scripts/publish-stable-release.sh"
       - "gradle/**"
       - "gradle.properties"
       - "build.gradle.kts"
@@ -21,6 +22,7 @@ on:
         default: false
 
 permissions:
+  actions: read
   contents: write
   issues: write
 
@@ -33,9 +35,9 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 55
     env:
-      BUILD_VERSION_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.rollback_rc13 && '1.1.4-rc13-rollback' || '1.1.4-rc21' }}
+      BUILD_VERSION_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.rollback_rc13 && '1.1.4-rc13-rollback' || '1.2.0' }}
     steps:
       - name: Checkout repository or pinned rc13 rollback sources
         uses: actions/checkout@v4
@@ -172,7 +174,7 @@ jobs:
           version="$BUILD_VERSION_NAME"
           code="$((GITHUB_RUN_NUMBER + 300))"
           tag="v$version-build$code"
-          notes="release/notes-1.1.4-rc21.md"
+          notes="release/notes-1.2.0.md"
           if [[ "$version" == "1.1.4-rc13-rollback" ]]; then
             notes="release/notes-1.1.4-rc13.md"
           fi
@@ -217,6 +219,17 @@ jobs:
         env:
           PRIVATE_DRIVE_RCLONE_CONFIG_B64: ${{ secrets.BALANCEHUB_DRIVE_RCLONE_CONFIG_B64 }}
         run: bash scripts/upload-private-drive-apk.sh
+
+      # Public stable release is a separate, explicitly approved operation.
+      # Requires same-commit Android emulators API 29, 35, and 36 to pass.
+      # The script verifies the signed asset hash while still a Draft, then
+      # publishes the single immutable v1.2.0 tag for the in-app updater.
+      - name: Publish verified stable BalanceHub 1.2.0
+        if: ${{ github.ref == 'refs/heads/main' && env.BUILD_VERSION_NAME == '1.2.0' && !inputs.rollback_rc13 }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/publish-stable-release.sh
 
       - name: Notify build result in GitHub issue
         if: ${{ always() }}
