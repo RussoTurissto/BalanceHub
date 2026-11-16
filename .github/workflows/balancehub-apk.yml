@@ -201,6 +201,20 @@ jobs:
           INPUT_APPROVED_VERSION: ${{ inputs.approved_version }}
         run: bash scripts/publish-verified-release.sh
 
+      # The exact already-published public APK can also be transferred into
+      # a ChatGPT conversation as a verified binary (Actions artifact ZIP).
+      # Never expose an APK via artifact before public release validation.
+      - name: Attach published signed APK for in-chat delivery
+        if: ${{ success() && !inputs.rollback_rc13 && (env.RELEASE_CHANNEL == 'rc' || env.RELEASE_CHANNEL == 'stable') }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: BalanceHub-${{ env.BUILD_VERSION_NAME }}-run${{ github.run_number }}
+          path: app/build/outputs/apk/release/BalanceHub.apk
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
       # Historical rollback stays private and is never offered as a public RC.
       - name: Create private signed rollback draft
         if: ${{ inputs.rollback_rc13 }}
