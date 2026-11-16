@@ -43,6 +43,35 @@ class PaymentActiveMergePolicyTest {
         assertEquals(bNew.getLong("dueAt"), result.getJSONObject(1).getLong("dueAt"))
     }
 
+    @Test fun editingAmountDoesNotRollBackBackgroundDueDateOnSamePayment() {
+        val baseline = payment("a")
+        val background = payment("a", 1_900_000_000_000L)
+            .put("backgroundField", "keep me")
+        val edited = payment("a").put("amount", "250")
+        val result = PaymentActiveMergePolicy.merge(
+            JSONArray().put(background), JSONArray(), baseline(baseline),
+            JSONArray().put(edited))
+        assertNotNull(result)
+        val saved = result!!.getJSONObject(0)
+        assertEquals("250", saved.getString("amount"))
+        assertEquals(1_900_000_000_000L, saved.getLong("dueAt"))
+        assertEquals("keep me", saved.getString("backgroundField"))
+    }
+
+    @Test fun staleUiCannotRestoreRemovedRecordOrOverwriteConcurrentAddition() {
+        val original = payment("a")
+        val edited = payment("a").put("amount", "300")
+        val withoutRecord = PaymentActiveMergePolicy.merge(
+            JSONArray(), JSONArray(), baseline(original),
+            JSONArray().put(edited))
+        assertNotNull(withoutRecord)
+        assertEquals(0, withoutRecord!!.length())
+        val concurrentAddition = PaymentActiveMergePolicy.merge(
+            JSONArray().put(original), JSONArray(), emptyMap(),
+            JSONArray().put(edited))
+        assertNull(concurrentAddition)
+    }
+
     @Test fun malformedRowIsPreservedAndOneBadRecordIsIsolated() {
         val intact = payment("ok")
         val broken = JSONObject().put("id", "broken").put("title", JSONObject.NULL)
