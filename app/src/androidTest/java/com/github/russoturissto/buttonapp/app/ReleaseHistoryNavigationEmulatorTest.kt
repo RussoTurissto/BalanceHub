@@ -14,8 +14,10 @@ import androidx.test.espresso.assertion.ViewAssertions.doesNotExist
 import androidx.test.espresso.assertion.ViewAssertions.matches
 import androidx.test.espresso.matcher.ViewMatchers.isAssignableFrom
 import androidx.test.espresso.matcher.ViewMatchers.isDescendantOfA
+import androidx.test.espresso.matcher.ViewMatchers.withContentDescription
 import androidx.test.espresso.matcher.ViewMatchers.withText
 import org.hamcrest.Matchers.allOf
+import org.hamcrest.Matchers.startsWith
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -55,7 +57,9 @@ class ReleaseHistoryNavigationEmulatorTest {
                     androidx.test.espresso.matcher.ViewMatchers.isDisplayed()))
                 onView(withText("Версия 1.2.1-rc3")).check(doesNotExist())
                 onView(withText("Версия 1.2.1-rc4")).check(doesNotExist())
-                onView(withText("Версия 1.2.0")).perform(scrollTo(), click())
+                // Click the row that owns the listener, not its non-clickable label.
+                onView(withContentDescription(startsWith("Версия 1.2.0,")))
+                    .perform(scrollTo(), click())
                 onView(withText("• Улучшены банковские балансы."))
                     .check(matches(androidx.test.espresso.matcher.ViewMatchers.isDisplayed()))
                 pressBackUnconditionally()
