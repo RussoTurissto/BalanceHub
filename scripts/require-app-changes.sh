@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# An RC must contain runtime source changes since the last published release.
+# Public releases must contain runtime source changes since their baseline.
+# RCs compare with the preceding public RC/stable; stable compares with stable.
 # Applies to both automatic and manual builds.
 set -euo pipefail
 
-[[ "$RELEASE_CHANNEL" == "rc" ]] || exit 0
+[[ "$RELEASE_CHANNEL" == "rc" || "$RELEASE_CHANNEL" == "stable" ]] || exit 0
 [[ "$GITHUB_REF" == "refs/heads/main" ]] || {
-  echo "::error::Only main can publish an RC"; exit 1;
+  echo "::error::Only main can publish a release"; exit 1;
 }
 [[ -n "$PREVIOUS_RELEASE_TAG" && -n "$GITHUB_SHA" ]] || {
   echo "::error::Missing previous release tag or source SHA"; exit 1;
@@ -34,7 +35,7 @@ status=0
 git diff --quiet "$base_sha" "$GITHUB_SHA" -- "${runtime_paths[@]}" || status=$?
 case "$status" in
   0)
-    echo "::error::No runtime app changes since $PREVIOUS_RELEASE_TAG; refusing redundant RC"
+    echo "::error::No runtime app changes since $PREVIOUS_RELEASE_TAG; refusing redundant release"
     exit 1
     ;;
   1)
