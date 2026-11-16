@@ -23,6 +23,7 @@ if [[ "$target" != "$old_major.$old_minor.$((old_patch + 1))" &&
 fi
 
 channel="rc"
+previous_tag="$current"
 if [[ "${GITHUB_EVENT_NAME:-}" == "workflow_dispatch" &&
       "${INPUT_PUBLISH_STABLE:-false}" == "true" ]]; then
   [[ "${INPUT_APPROVED_VERSION:-}" == "$target" ]] || {
@@ -43,7 +44,6 @@ else
   # Public RC tags are permanent. Private historical drafts with untagged-*
   # names do not count, and cannot alter the monotonic RC sequence.
   max_rc=0
-  previous_tag="$current"
   while IFS= read -r found_tag; do
     if [[ "$found_tag" == "v$target-rc"* ]]; then
       suffix="${found_tag#v$target-rc}"
