@@ -6116,8 +6116,7 @@ class MainActivity : AppCompatActivity() {
         body.addView(textLine("BalanceHub обновлён!", 21f, ink, true))
         body.addView(verticalGap(8))
         body.addView(textLine(
-            "Рады снова видеть вас! Мы сделали BalanceHub удобнее: " +
-                "теперь важные даты, планы и платежи легко держать под контролем.",
+            "Коротко о том, что изменилось в этой версии:",
             14f, muted
         ))
         body.addView(verticalGap(9))
@@ -6144,11 +6143,7 @@ class MainActivity : AppCompatActivity() {
             }
             body.addView(row)
         }
-        body.addView(verticalGap(15))
-        body.addView(textLine(
-            "Спасибо, что выбираете BalanceHub. Пусть всё важное будет под рукой!",
-            13f, accent, true
-        ))
+        body.addView(verticalGap(10))
         val dialog = themedDialogBuilder().setView(android.widget.ScrollView(this).apply {
             addView(body)
         }).setPositiveButton("Начать пользоваться", null)
