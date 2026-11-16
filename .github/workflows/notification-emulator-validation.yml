@@ -9,6 +9,12 @@ on:
       - ".github/workflows/notification-emulator-validation.yml"
       - "app/src/main/**"
       - "app/src/androidTest/**"
+      - "gradle.properties"
+      - "release/notes-*.md"
+      - "scripts/prepare-release-version.sh"
+      - "scripts/publish-verified-release.sh"
+      - "scripts/test-release-versioning.sh"
+      - ".github/workflows/balancehub-apk.yml"
   pull_request:
     branches:
       - main
@@ -16,6 +22,12 @@ on:
       - ".github/workflows/notification-emulator-validation.yml"
       - "app/src/main/**"
       - "app/src/androidTest/**"
+      - "gradle.properties"
+      - "release/notes-*.md"
+      - "scripts/prepare-release-version.sh"
+      - "scripts/publish-verified-release.sh"
+      - "scripts/test-release-versioning.sh"
+      - ".github/workflows/balancehub-apk.yml"
   workflow_dispatch:
 
 permissions:
@@ -51,6 +63,9 @@ jobs:
           ls -l /dev/kvm
       - name: Gradle cache
         uses: gradle/actions/setup-gradle@v4
+      - name: Validate RC numbering, stable approval and publication script syntax
+        if: matrix.api == 29
+        run: bash scripts/test-release-versioning.sh
       - name: Run JVM regression tests
         if: matrix.api == 29
         run: ./gradlew --no-daemon --console=plain :app:testDebugUnitTest

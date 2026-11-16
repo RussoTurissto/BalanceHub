@@ -6,8 +6,9 @@ on:
       - main
     paths:
       - "app/**"
-      - "scripts/upload-private-drive-apk.sh"
-      - "scripts/publish-stable-release.sh"
+      - "scripts/prepare-release-version.sh"
+      - "scripts/publish-verified-release.sh"
+      - "release/notes-*.md"
       - "gradle/**"
       - "gradle.properties"
       - "build.gradle.kts"
@@ -20,6 +21,16 @@ on:
         type: boolean
         required: false
         default: false
+      publish_stable:
+        description: "Owner-approved final release, never used for RC builds"
+        type: boolean
+        required: false
+        default: false
+      approved_version:
+        description: "For stable only: type the exact target version (e.g. 1.2.1)"
+        type: string
+        required: false
+        default: ""
 
 permissions:
   actions: read
@@ -35,14 +46,33 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 55
-    env:
-      BUILD_VERSION_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.rollback_rc13 && '1.1.4-rc13-rollback' || '1.2.0' }}
+    timeout-minutes: 65
     steps:
       - name: Checkout repository or pinned rc13 rollback sources
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.rollback_rc13 && '2ea6f89b1c5688abef38fa25854cb52a5555a3ad' || github.sha }}
+
+      - name: Resolve version and public release channel
+        if: ${{ !inputs.rollback_rc13 }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_PUBLISH_STABLE: ${{ inputs.publish_stable }}
+          INPUT_APPROVED_VERSION: ${{ inputs.approved_version }}
+        run: bash scripts/prepare-release-version.sh
+
+      - name: Set up signed private rollback (legacy)
+        if: ${{ inputs.rollback_rc13 }}
+        shell: bash
+        run: |
+          if [[ "${{ inputs.publish_stable }}" == "true" ]]; then
+            echo "::error::Cannot combine stable publication with rollback"
+            exit 1
+          fi
+          echo "BUILD_VERSION_NAME=1.1.4-rc13-rollback" >> "$GITHUB_ENV"
+          echo "RELEASE_CHANNEL=rollback" >> "$GITHUB_ENV"
+          echo "RELEASE_TAG=v1.1.4-rc13-rollback-build$((GITHUB_RUN_NUMBER + 300))" >> "$GITHUB_ENV"
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -159,82 +189,59 @@ jobs:
         shell: bash
         run: cp app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/release/BalanceHub.apk
 
-      # Do not expose signed APKs as public Actions artifacts: public-repo
-      # readers can download them even when the Release is a private draft.
-      # The APK is attached only to the owner-visible draft below.
+      # Draft is a temporary verification stage only: successful RCs are
+      # published publicly with a permanent vX.Y.Z-rcN tag and direct APK URL.
+      # A stable release requires a separately approved manual workflow run.
+      - name: Publish verified public RC or approved stable release
+        if: ${{ !inputs.rollback_rc13 && github.ref == 'refs/heads/main' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_PUBLISH_STABLE: ${{ inputs.publish_stable }}
+          INPUT_APPROVED_VERSION: ${{ inputs.approved_version }}
+        run: bash scripts/publish-verified-release.sh
 
-      # A draft prerelease is visible only to repository writers. Do not publish.
-      # GitHub forbids the native "Latest" label on drafts: use an owner-only title.
-      - name: Create private Draft Pre-release from signed APK
+      # The exact already-published public APK can also be transferred into
+      # a ChatGPT conversation as a verified binary (Actions artifact ZIP).
+      # Never expose an APK via artifact before public release validation.
+      - name: Attach published signed APK for in-chat delivery
+        if: ${{ success() && !inputs.rollback_rc13 && (env.RELEASE_CHANNEL == 'rc' || env.RELEASE_CHANNEL == 'stable') }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: BalanceHub-${{ env.BUILD_VERSION_NAME }}-run${{ github.run_number }}
+          path: app/build/outputs/apk/release/BalanceHub.apk
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+      # Historical rollback stays private and is never offered as a public RC.
+      - name: Create private signed rollback draft
+        if: ${{ inputs.rollback_rc13 }}
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          version="$BUILD_VERSION_NAME"
-          code="$((GITHUB_RUN_NUMBER + 300))"
-          tag="v$version-build$code"
-          notes="release/notes-1.2.0.md"
-          if [[ "$version" == "1.1.4-rc13-rollback" ]]; then
-            notes="release/notes-1.1.4-rc13.md"
-          fi
           apk="app/build/outputs/apk/release/BalanceHub.apk"
-          [[ -s "$apk" ]] || { echo "::error::Missing signed APK"; exit 1; }
-          existing="$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" |
-            jq -r --arg tag "$tag" '.[] | select(.tag_name == $tag) | .id' | head -1)"
-          [[ -z "$existing" ]] || {
-            echo "::error::Release already exists, refusing overwrite: $tag"; exit 1;
-          }
-          gh release create "$tag" "$apk#BalanceHub.apk" \
-            --repo "$GITHUB_REPOSITORY" --target "$(git rev-parse HEAD)" \
-            --title "★ АКТУАЛЬНАЯ ТЕСТОВАЯ · BalanceHub $version (сборка $code)" \
-            --notes-file "$notes" \
-            --draft --prerelease --latest=false
-          # Retire older markers, preserving all previous draft APK files.
-          gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" |
-            jq -r --arg tag "$tag" '.[] |
-              select(.draft == true and .prerelease == true and .tag_name != $tag
-                and (.name | startswith("★ АКТУАЛЬНАЯ ТЕСТОВАЯ · "))) |
-              [.id, .name] | join("|")' |
-            while IFS='|' read -r id old_name; do
-              new_name="$(printf '%s' "$old_name" | sed 's/^★ АКТУАЛЬНАЯ ТЕСТОВАЯ · //')"
-              gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$id" \
-                -f name="$new_name" --jq '{tag_name,draft,prerelease,name}'
-            done
-          result="$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" |
-            jq -r --arg tag "$tag" '.[] |
-              select(.tag_name == $tag and .draft == true and .prerelease == true and
-                ([.assets[].name] | index("BalanceHub.apk") != null)) | .tag_name')"
-          if [[ "$result" != "$tag" ]]; then
-            echo "::error::Draft APK missing or draft status incorrect"
-            exit 1
+          [[ -s "$apk" ]] || { echo "::error::Signed APK missing"; exit 1; }
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::Rollback release already exists"; exit 1
           fi
-          echo "Private draft $tag: https://github.com/$GITHUB_REPOSITORY/releases" >> "$GITHUB_STEP_SUMMARY"
-
-      # Optional private delivery. Never upload APK as an Actions artifact:
-      # all artifacts in this public repository would be publicly readable.
-      # This script requires an OAuth Drive remote limited to drive.file.
-      - name: Upload signed APK privately to Google Drive
-        shell: bash
-        env:
-          PRIVATE_DRIVE_RCLONE_CONFIG_B64: ${{ secrets.BALANCEHUB_DRIVE_RCLONE_CONFIG_B64 }}
-        run: bash scripts/upload-private-drive-apk.sh
-
-      # Public stable release is a separate, explicitly approved operation.
-      # Requires same-commit Android emulators API 29, 35, and 36 to pass.
-      # The script verifies the signed asset hash while still a Draft, then
-      # publishes the single immutable v1.2.0 tag for the in-app updater.
-      - name: Publish verified stable BalanceHub 1.2.0
-        if: ${{ github.ref == 'refs/heads/main' && env.BUILD_VERSION_NAME == '1.2.0' && !inputs.rollback_rc13 }}
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: bash scripts/publish-stable-release.sh
+          gh release create "$RELEASE_TAG" "$apk#BalanceHub.apk" \
+            --repo "$GITHUB_REPOSITORY" --target "$(git rev-parse HEAD)" \
+            --title "Закрытый откат · BalanceHub ($BUILD_VERSION_NAME)" \
+            --notes-file release/notes-1.1.4-rc13.md \
+            --draft --prerelease --latest=false
+          echo "Private rollback draft: $RELEASE_TAG" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Notify build result in GitHub issue
         if: ${{ always() }}
         continue-on-error: true
         uses: actions/github-script@v8
+        env:
+          RELEASE_CHANNEL: ${{ env.RELEASE_CHANNEL }}
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -246,7 +253,7 @@ jobs:
               `**${resultText}**`,
               `Запуск: ${runUrl}`,
               `Коммит: \`${context.sha.slice(0, 12)}\``,
-              status === 'success' ? `APK помещена в Draft Pre-release, доступный только участникам с правами записи. Смотрите GitHub Releases.` : 'Диагностика: откройте журнал неуспешного шага сборки.',
+              status === 'success' ? (process.env.RELEASE_CHANNEL === 'rollback' ? 'Подписанный откат сохранён в приватном Draft.' : `Опубликован ${process.env.RELEASE_CHANNEL === 'stable' ? 'стабильный релиз' : 'публичный Pre-release'} ${process.env.RELEASE_TAG}. APK доступен на странице релиза и по прямой ссылке.`) : 'Диагностика: откройте журнал неуспешного шага сборки.',
               'Автоматический журнал: этот комментарий создаёт GitHub Actions сразу после завершения запуска.'
             ].join('\n\n');
             await github.rest.issues.createComment({
