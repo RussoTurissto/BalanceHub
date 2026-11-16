@@ -31,7 +31,7 @@ runtime_paths=(
   library-kotlin/src/main/
 )
 status=0
-git diff --quiet "$base_sha" "$GITHUB_SHA" -- "\${runtime_paths[@]}" || status=$?
+git diff --quiet "$base_sha" "$GITHUB_SHA" -- "${runtime_paths[@]}" || status=$?
 case "$status" in
   0)
     echo "::error::No runtime app changes since $PREVIOUS_RELEASE_TAG; refusing redundant RC"
@@ -39,7 +39,7 @@ case "$status" in
     ;;
   1)
     echo "Runtime changes since $PREVIOUS_RELEASE_TAG:"
-    git diff --name-only "$base_sha" "$GITHUB_SHA" -- "\${runtime_paths[@]}"
+    git diff --name-only "$base_sha" "$GITHUB_SHA" -- "${runtime_paths[@]}"
     ;;
   *)
     echo "::error::Unable to compare source with $PREVIOUS_RELEASE_TAG"
