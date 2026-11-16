@@ -2,6 +2,7 @@ package com.github.russoturissto.buttonapp.app
 
 import androidx.test.ext.junit.rules.activityScenarioRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import android.widget.ScrollView
 import androidx.test.espresso.Espresso.onView
 import androidx.test.espresso.Espresso.pressBackUnconditionally
 import androidx.test.espresso.action.ViewActions.click
@@ -32,6 +33,11 @@ class SystemBackNavigationEmulatorTest {
         isDescendantOfA(isAssignableFrom(BalanceBottomNavigation::class.java))
     )
 
+    private fun pageLabel(title: String) = allOf(
+        withText(title),
+        isDescendantOfA(isAssignableFrom(ScrollView::class.java))
+    )
+
     private fun assertHome() =
         onView(tab("Главная")).check(matches(isSelected()))
 
@@ -46,16 +52,16 @@ class SystemBackNavigationEmulatorTest {
 
     @Test fun nestedNotificationSettingsReturnOnePagePerBackThenHome() {
         onView(tab("Настройки")).perform(click())
-        onView(withText("Уведомления")).perform(scrollTo(), click())
-        onView(withText("Платежи")).perform(scrollTo(), click())
+        onView(pageLabel("Уведомления")).perform(scrollTo(), click())
+        onView(pageLabel("Платежи")).perform(scrollTo(), click())
 
         // Notification category -> notifications list -> settings root -> Home.
         pressBackUnconditionally()
         onView(tab("Настройки")).check(matches(isSelected()))
-        onView(withText("События")).check(matches(isDisplayed()))
+        onView(pageLabel("События")).check(matches(isDisplayed()))
         pressBackUnconditionally()
         onView(tab("Настройки")).check(matches(isSelected()))
-        onView(withText("Уведомления")).check(matches(isDisplayed()))
+        onView(pageLabel("Уведомления")).check(matches(isDisplayed()))
         pressBackUnconditionally()
         assertHome()
     }
