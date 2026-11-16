@@ -118,4 +118,60 @@ class PaymentAutomaticSoundEmulatorTest {
                 manager.deleteNotificationChannel(newId)
         }
     }
+
+    @Test fun directVolumeChangeKeepsTheConfirmedAutomaticChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+        val prefs = context.getSharedPreferences("balancehub_notification_sounds",
+            Context.MODE_PRIVATE)
+        val category = BalanceNotificationSounds.PAYMENT
+        val names = listOf(
+            "coloros_direct_vibration", PaymentAutomaticSound.ENABLED,
+            "channel_active_id_" + category, "channel_revision_" + category,
+            "payment_previous_working_channel_id", "payment_previous_working_sound_key",
+            "payment_previous_working_sound_gain", "payment_previous_working_automatic",
+            category, "volume_" + category)
+        val snapshot = prefs.all.filterKeys { it in names }
+        val originalId = BalanceNotificationSounds.ensureChannel(context, category)
+        val eventGain = BalanceNotificationSounds.volume(
+            context, BalanceNotificationSounds.EVENT)
+        var createdId: String? = null
+        try {
+            assertTrue(prefs.edit().putBoolean("coloros_direct_vibration", true)
+                .putBoolean(PaymentAutomaticSound.ENABLED, false).commit())
+            assertNull(PaymentToneChange.begin(context, "drop", 100, automatic = true))
+            val trial = PaymentToneChange.pending(context)!!
+            createdId = trial.id
+            assertTrue(PaymentToneChange.markTested(context, trial.id))
+            assertNull(PaymentToneChange.accept(context))
+            assertTrue(PaymentAutomaticSound.enabled(context))
+            val confirmedId = BalanceNotificationSounds.channelId(context, category)
+            assertEquals(trial.id, confirmedId)
+
+            for (gain in listOf(40, 0, 75)) {
+                assertNull("Failed to apply $gain percent",
+                    BalanceNotificationSounds.applyVolumeChoice(context, category, gain))
+                assertEquals(gain, BalanceNotificationSounds.volume(context, category))
+                assertEquals("Changing runtime gain must not rotate Android channels",
+                    confirmedId, BalanceNotificationSounds.channelId(context, category))
+                assertNull(manager.getNotificationChannel(confirmedId)!!.sound)
+                assertFalse(manager.getNotificationChannel(confirmedId)!!.shouldVibrate())
+                assertNull("Slider must not stage a trial", PaymentToneChange.pending(context))
+            }
+            assertEquals(eventGain, BalanceNotificationSounds.volume(
+                context, BalanceNotificationSounds.EVENT))
+            assertNotNull(PaymentAutomaticSound.playableUri(context, "drop", 75))
+        } finally {
+            PaymentToneChange.cancel(context)
+            val editor = prefs.edit()
+            for (name in names) when (val saved = snapshot[name]) {
+                is String -> editor.putString(name, saved)
+                is Int -> editor.putInt(name, saved)
+                is Boolean -> editor.putBoolean(name, saved)
+                else -> editor.remove(name)
+            }
+            assertTrue(editor.commit())
+            if (createdId != null && createdId != originalId)
+                manager.deleteNotificationChannel(createdId)
+        }
+    }
 }

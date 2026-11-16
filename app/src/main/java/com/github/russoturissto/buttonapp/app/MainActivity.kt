@@ -2548,25 +2548,17 @@ class MainActivity : AppCompatActivity() {
                     override fun onStartTrackingTouch(bar: SeekBar?) = Unit
                     override fun onStopTrackingTouch(bar: SeekBar?) {
                         val gain = (bar?.progress ?: current).coerceIn(0, 100)
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                            val issue = if (category == BalanceNotificationSounds.PAYMENT)
-                                PaymentToneChange.begin(this@MainActivity,
-                                    BalanceNotificationSounds.selected(this@MainActivity, category),
-                                    gain)
-                            else CategoryToneChange.begin(this@MainActivity, category,
-                                BalanceNotificationSounds.selected(this@MainActivity, category),
-                                gain)
-                            if (issue != null) Toast.makeText(this@MainActivity,
-                                issue, Toast.LENGTH_LONG).show()
-                            else if (category == BalanceNotificationSounds.PAYMENT)
-                                showPaymentSoundTrialDialog()
-                            else showCategorySoundTrialDialog(category)
-                        } else {
-                            val error = BalanceNotificationSounds.applyVolumeChoice(
-                                this@MainActivity, category, gain)
-                            if (error != null) Toast.makeText(this@MainActivity,
-                                error, Toast.LENGTH_LONG).show()
+                        // Slider changes apply directly. A WAV's gain is stored
+                        // for automatic playback or verified in a native channel.
+                        // The melody-selection trial remains a separate flow.
+                        val error = BalanceNotificationSounds.applyVolumeChoice(
+                            this@MainActivity, category, gain)
+                        if (error != null) {
+                            Toast.makeText(this@MainActivity, error,
+                                Toast.LENGTH_LONG).show()
                         }
+                        // Re-read the committed value (or the unchanged one on
+                        // failure). No test/confirmation dialog is displayed.
                         refreshSettingsWithoutJump()
                     }
                 })

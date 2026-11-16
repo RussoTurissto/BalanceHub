@@ -446,4 +446,46 @@ class NotificationChannelEmulatorTest {
         assertTrue(channel!!.shouldVibrate())
     }
 
+
+    @Test fun nativeSliderGainReplacesAndroidChannelWithoutTrialDialog() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val category = BalanceNotificationSounds.UPDATE
+        if (PaymentAutomaticSound.enabled(app, category)) return
+        val eventGain = BalanceNotificationSounds.volume(
+            app, BalanceNotificationSounds.EVENT)
+        val initial = BalanceNotificationSounds.applySettings(app, category,
+            "spark", NotificationVibrationMode.DEFAULT, 100)
+        assertNull("Cannot prepare native WAV channel: $initial", initial)
+        val oldId = BalanceNotificationSounds.channelId(app, category)
+
+        val applied = BalanceNotificationSounds.applyVolumeChoice(app, category, 40)
+        assertNull("Slider gain was not applied: $applied", applied)
+        val newId = BalanceNotificationSounds.channelId(app, category)
+        assertNotEquals("Native Android WAV gain needs a new channel", oldId, newId)
+        assertEquals(40, BalanceNotificationSounds.volume(app, category))
+        assertNull("No melody trial must be staged",
+            CategoryToneChange.pending(app, category))
+        val newChannel = manager().getNotificationChannel(newId)
+        assertNotNull(newChannel)
+        assertNotNull("40% channel was not audible", newChannel!!.sound)
+        assertNull("40% WAV cannot be read",
+            BalanceNotificationSounds.audioProbe(app, newChannel.sound!!))
+        val expected = BalanceSystemToneStore.cachedUri(app, "spark", 40)
+        assertNotNull(expected)
+        assertTrue("Android channel kept the previous WAV volume",
+            NotificationSignalPolicy.sameSoundUri(
+                expected.toString(), newChannel.sound.toString()))
+        assertEquals("Unrelated event gain changed", eventGain,
+            BalanceNotificationSounds.volume(app, BalanceNotificationSounds.EVENT))
+
+        BalanceNotificationSounds.ensureDefaultChannels(app)
+        assertEquals("Saved volume changed after channel initialization", 40,
+            BalanceNotificationSounds.volume(app, category))
+        assertEquals(newId, BalanceNotificationSounds.channelId(app, category))
+        assertNull("Zero gain should be applied without confirmation",
+            BalanceNotificationSounds.applyVolumeChoice(app, category, 0))
+        assertEquals(0, BalanceNotificationSounds.volume(app, category))
+        assertNull(manager().getNotificationChannel(
+            BalanceNotificationSounds.channelId(app, category))!!.sound)
+    }
 }
