@@ -2884,17 +2884,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun openReleaseHistoryFromWelcome() {
-        settingsStack.clear()
-        settingsScrollPositions.clear()
-        closeEngineeringMenu()
-        mobileSettingsOpen = false
-        settingsStack.add("updates")
-        settingsStack.add("history")
-        if (currentTab == 4) renderTab() else selectTab(4)
-        dashboardScroll.post { dashboardScroll.scrollTo(0, 0) }
-    }
-
     private fun renderHelpSettings() {
         settingsHeader("Помощь и диагностика", "Инструкции и системные проверки")
         settingsGroup(settingsPanel(
@@ -6146,10 +6135,7 @@ class MainActivity : AppCompatActivity() {
         body.addView(verticalGap(10))
         val dialog = themedDialogBuilder().setView(android.widget.ScrollView(this).apply {
             addView(body)
-        }).setPositiveButton("Начать пользоваться", null)
-            .setNeutralButton("История изменений") { _, _ ->
-                openReleaseHistoryFromWelcome()
-            }.create()
+        }).setPositiveButton("Начать пользоваться", null).create()
         dialog.setOnDismissListener {
             // Mark as shown even if the user closes the window with Back.
             preferences.edit().putLong("release_welcome_version", versionCode).apply()

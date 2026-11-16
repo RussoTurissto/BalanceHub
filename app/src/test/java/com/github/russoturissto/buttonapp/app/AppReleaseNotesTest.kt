@@ -29,6 +29,9 @@ class AppReleaseNotesTest {
             .map { it.title }))
         assertEquals(stable.size, stable.distinct().size)
         assertFalse(stable.any { it.contains("Тестовая сборка") })
+        // Previous stable-release improvements belong only in history.
+        val oldStable = AppReleaseNotes.forVersion("1.2.0").map { it.title }
+        assertTrue(stable.none { it in oldStable })
     }
 
     @Test fun unknownVersionsNeverSilentlyReuseOldReleaseNotes() {

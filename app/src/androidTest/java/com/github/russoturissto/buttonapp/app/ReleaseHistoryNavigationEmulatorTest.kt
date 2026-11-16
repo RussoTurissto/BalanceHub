@@ -24,6 +24,44 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class ReleaseHistoryNavigationEmulatorTest {
+    @Test fun welcomeContainsOnlyInstalledReleaseChangesAndNoHistoryAction() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val version = context.packageManager.getPackageInfo(context.packageName, 0).versionName
+        val currentNotes = AppReleaseNotes.forVersion(version)
+        org.junit.Assume.assumeTrue(currentNotes.isNotEmpty())
+        val prefs = context.getSharedPreferences("balancehub_data", Context.MODE_PRIVATE)
+        val previousOnboarding = prefs.all["onboarding_completed"]
+        val previousWelcome = prefs.all["release_welcome_version"]
+        val versionCode = PackageInfoCompat.getLongVersionCode(
+            context.packageManager.getPackageInfo(context.packageName, 0))
+        try {
+            assertTrue(prefs.edit()
+                .putBoolean("onboarding_completed", true)
+                .putLong("release_welcome_version", 0L)
+                .commit())
+            ActivityScenario.launch(MainActivity::class.java).use {
+                onView(withText("Что нового в версии " + version))
+                    .check(matches(androidx.test.espresso.matcher.ViewMatchers.isDisplayed()))
+                onView(withText(currentNotes.first().title))
+                    .check(matches(androidx.test.espresso.matcher.ViewMatchers.isDisplayed()))
+                // History is available in Settings > Updates, never on the welcome dialog.
+                onView(withText("История изменений")).check(doesNotExist())
+                onView(withText("Начать пользоваться")).perform(click())
+                org.junit.Assert.assertEquals(versionCode,
+                    prefs.getLong("release_welcome_version", -1L))
+            }
+        } finally {
+            val edit = prefs.edit()
+            if (previousOnboarding is Boolean) edit.putBoolean(
+                "onboarding_completed", previousOnboarding)
+            else edit.remove("onboarding_completed")
+            if (previousWelcome is Long) edit.putLong(
+                "release_welcome_version", previousWelcome)
+            else edit.remove("release_welcome_version")
+            edit.commit()
+        }
+    }
+
     @Test fun updateSettingsShowStableHistoryAndBackReturnsToUpdates() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val prefs = context.getSharedPreferences("balancehub_data", Context.MODE_PRIVATE)
