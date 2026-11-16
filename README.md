@@ -36,7 +36,7 @@ Reminder scheduling uses AlarmManager. Exact-alarm permission improves timing; w
 
 Install the signed `BalanceHub.apk` **over** the existing Android app. Do not uninstall it: the application ID (`com.github.russoturissto.buttonapp.app`) and release signing key must stay unchanged, and the new `versionCode` must be greater than the installed one.
 
-The owner-approved builds are stored as GitHub **draft prereleases**. Drafts are not public downloads. The current verified test baseline is **1.1.4-rc17 / build 701**; its historical source commit is `4749759a73a95461bc729ae04bd9ab9d233dd98a`.
+The latest approved stable version is **1.2.0**. Starting with **1.2.1-rc1**, test builds are published as **public GitHub Pre-releases** with direct signed APK links. Only explicitly approved stable releases are published as **Latest** and offered through the in-app updater. See [release workflow](docs/RELEASE_PROCESS.md).
 
 ## Repository and QA
 
