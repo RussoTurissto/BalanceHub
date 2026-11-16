@@ -6,7 +6,7 @@ internal object SettingsNavigationPolicy {
     private val parents = mapOf(
         "appearance" to ROOT, "mobile" to ROOT, "banks" to ROOT,
         "notifications" to ROOT, "updates" to ROOT,
-        "help" to ROOT, "about" to ROOT,
+        "help" to ROOT, "about" to ROOT, "history" to "updates",
         "payment" to "notifications", "event" to "notifications",
         "update_sound" to "notifications"
     )

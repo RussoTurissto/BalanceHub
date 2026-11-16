@@ -1,0 +1,61 @@
+package com.github.russoturissto.buttonapp.app
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class AppReleaseNotesTest {
+    @Test fun eachRcShowsOnlyWhatChangedInThatBuild() {
+        assertEquals(listOf(
+            "Обновлена информация в окне «Что нового».",
+            "Добавлена история изменений по версиям."
+        ), AppReleaseNotes.forVersion("1.2.1-rc4").map { it.title })
+        assertFalse(AppReleaseNotes.forVersion("1.2.1-rc4").any {
+            it.title.contains("балансов") || it.title.contains("обучения")
+        })
+        assertEquals(3, AppReleaseNotes.forVersion("1.2.1-rc3").size)
+        assertEquals(4, AppReleaseNotes.forVersion("1.2.1-rc2").size)
+        assertEquals(1, AppReleaseNotes.forVersion("1.2.1-rc1").size)
+    }
+
+    @Test fun stableReleaseCombinesAllUserFacingRcChangesWithoutDuplicates() {
+        val stable = AppReleaseNotes.forVersion("1.2.1").map { it.title }
+        assertTrue(stable.containsAll(AppReleaseNotes.forVersion("1.2.1-rc2")
+            .map { it.title }))
+        assertTrue(stable.containsAll(AppReleaseNotes.forVersion("1.2.1-rc3")
+            .map { it.title }))
+        assertTrue(stable.containsAll(AppReleaseNotes.forVersion("1.2.1-rc4")
+            .map { it.title }))
+        assertEquals(stable.size, stable.distinct().size)
+        assertFalse(stable.any { it.contains("Тестовая сборка") })
+    }
+
+    @Test fun unknownVersionsNeverSilentlyReuseOldReleaseNotes() {
+        assertTrue(AppReleaseNotes.forVersion("1.2.1-rc5").isEmpty())
+        assertTrue(AppReleaseNotes.forVersion("1.2.2").isEmpty())
+        assertTrue(AppReleaseNotes.forVersion(null).isEmpty())
+        assertFalse(AppReleaseNotes.forVersion("1.2.0").isEmpty())
+    }
+
+    @Test fun offlineHistoryNeverShowsTestCandidatesOrUnpublishedStable121() {
+        val current = AppReleaseNotes.offlineStableHistory("1.2.1-rc4")
+        assertEquals("1.2.0", current.first())
+        assertTrue(current.none { "-rc" in it || it == "1.2.1" })
+        assertEquals("1.2.1",
+            AppReleaseNotes.offlineStableHistory("1.2.1").first())
+    }
+
+    @Test fun userTextContainsNoBuildOrLayoutImplementationDetails() {
+        val versions = listOf("1.2.0", "1.2.1", "1.2.1-rc1",
+            "1.2.1-rc2", "1.2.1-rc3", "1.2.1-rc4")
+        for (version in versions) {
+            for (note in AppReleaseNotes.forVersion(version)) {
+                assertFalse(note.title.contains(" sp"))
+                assertFalse(note.title.contains(" dp"))
+                assertFalse(note.title.contains("versionCode"))
+                assertTrue(note.title.length <= 76)
+            }
+        }
+    }
+}

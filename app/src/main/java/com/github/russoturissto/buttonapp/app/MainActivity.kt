@@ -143,6 +143,9 @@ class MainActivity : AppCompatActivity() {
     private var selectedOperatorId: Int? = null
     private var sessionAutoRefreshStarted = false
     private var tutorialStep = -1
+    private var releaseHistoryVersions: List<String> = emptyList()
+    private var releaseHistoryRefreshStarted = false
+    private var expandedReleaseHistoryVersion: String? = null
     private val tutorialHighlightedViews =
         linkedMapOf<View, Pair<android.graphics.drawable.Drawable?, Float>>()
     // Match the approved header position on every tab and in every theme.
@@ -2250,6 +2253,7 @@ class MainActivity : AppCompatActivity() {
             "notifications" -> renderNotificationsMenu()
             "payment", "event", "update_sound" -> renderNotificationCategory()
             "updates" -> renderUpdateSettings()
+            "history" -> renderReleaseHistorySettings()
             "help" -> renderHelpSettings()
             "about" -> renderAboutSettings()
             else -> renderSettingsHome()
@@ -2828,6 +2832,10 @@ class MainActivity : AppCompatActivity() {
             settingsRow("download", "Проверить обновления",
                 found?.let { "Доступна " + it.tag } ?: "Проверить сейчас") {
                 checkGithubUpdate(manual = true, offer = true)
+            },
+            settingsRow("clock", "История изменений",
+                "Изменения официальных версий приложения") {
+                openSettingsPage("history")
             }
         ))
         if (found != null) settingsGroup(settingsPanel(
@@ -2836,6 +2844,57 @@ class MainActivity : AppCompatActivity() {
             }
         ))
     }
+    private fun renderReleaseHistorySettings() {
+        settingsHeader("История изменений", "Только стабильные версии приложения")
+        val local = PublishedReleaseHistory.offline(this)
+        if (!releaseHistoryRefreshStarted) {
+            releaseHistoryRefreshStarted = true
+            PublishedReleaseHistory.fetchAsync(this) { published ->
+                // A stable release can appear in the feed after this APK was installed.
+                releaseHistoryVersions = PublishedReleaseHistory.ordered(published + local)
+                if (!isFinishing && !isDestroyed && currentTab == 4 &&
+                    settingsScreen() == "history") refreshSettingsWithoutJump()
+            }
+        }
+        val versions = if (releaseHistoryVersions.isNotEmpty()) releaseHistoryVersions
+            else local
+        if (versions.isEmpty()) {
+            contentContainer.addView(textLine("История пока недоступна.", 13f, muted))
+            return
+        }
+        for (version in versions) {
+            val isExpanded = expandedReleaseHistoryVersion == version
+            val panel = settingsPanel(
+                settingsRow("clock", "Версия " + version,
+                    if (isExpanded) "Свернуть изменения" else "Показать изменения") {
+                    expandedReleaseHistoryVersion = if (isExpanded) null else version
+                    refreshSettingsWithoutJump()
+                })
+            if (isExpanded) {
+                panel.addView(LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(dp(16), dp(1), dp(16), dp(14))
+                    for (note in AppReleaseNotes.forStableRelease(version)) {
+                        addView(textLine("• " + note.title, 13f, ink))
+                        addView(verticalGap(6))
+                    }
+                })
+            }
+            settingsGroup(panel)
+        }
+    }
+
+    private fun openReleaseHistoryFromWelcome() {
+        settingsStack.clear()
+        settingsScrollPositions.clear()
+        closeEngineeringMenu()
+        mobileSettingsOpen = false
+        settingsStack.add("updates")
+        settingsStack.add("history")
+        if (currentTab == 4) renderTab() else selectTab(4)
+        dashboardScroll.post { dashboardScroll.scrollTo(0, 0) }
+    }
+
     private fun renderHelpSettings() {
         settingsHeader("Помощь и диагностика", "Инструкции и системные проверки")
         settingsGroup(settingsPanel(
@@ -6043,6 +6102,12 @@ class MainActivity : AppCompatActivity() {
         val versionCode = PackageInfoCompat.getLongVersionCode(packageInfo)
         val previous = preferences.getLong("release_welcome_version", 0L)
         if (previous >= versionCode) return
+        // Never reuse the notes of an older APK for a newer/unknown version.
+        val notes = AppReleaseNotes.forVersion(packageInfo.versionName)
+        if (notes.isEmpty()) {
+            preferences.edit().putLong("release_welcome_version", versionCode).apply()
+            return
+        }
         welcomeShowing = true
         val body = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -6059,7 +6124,7 @@ class MainActivity : AppCompatActivity() {
         body.addView(textLine(
             "Что нового в версии " + (packageInfo.versionName ?: ""), 15f, ink, true
         ))
-        for (note in AppReleaseNotes.current) {
+        for (note in notes) {
             body.addView(verticalGap(12))
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -6071,8 +6136,10 @@ class MainActivity : AppCompatActivity() {
                 addView(LinearLayout(this@MainActivity).apply {
                     orientation = LinearLayout.VERTICAL
                     addView(textLine(note.title, 14f, ink, true))
-                    addView(verticalGap(3))
-                    addView(textLine(note.description, 12f, muted))
+                    if (note.description.isNotBlank()) {
+                        addView(verticalGap(3))
+                        addView(textLine(note.description, 12f, muted))
+                    }
                 }, LinearLayout.LayoutParams(0, -2, 1f))
             }
             body.addView(row)
@@ -6084,10 +6151,13 @@ class MainActivity : AppCompatActivity() {
         ))
         val dialog = themedDialogBuilder().setView(android.widget.ScrollView(this).apply {
             addView(body)
-        }).setPositiveButton("Начать пользоваться") { _, _ ->
-            preferences.edit().putLong("release_welcome_version", versionCode).apply()
-        }.create()
+        }).setPositiveButton("Начать пользоваться", null)
+            .setNeutralButton("История изменений") { _, _ ->
+                openReleaseHistoryFromWelcome()
+            }.create()
         dialog.setOnDismissListener {
+            // Mark as shown even if the user closes the window with Back.
+            preferences.edit().putLong("release_welcome_version", versionCode).apply()
             welcomeShowing = false
             deferredUpdate?.let {
                 deferredUpdate = null

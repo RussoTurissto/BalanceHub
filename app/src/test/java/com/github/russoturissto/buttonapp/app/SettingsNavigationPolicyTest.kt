@@ -21,6 +21,16 @@ class SettingsNavigationPolicyTest {
         assertFalse(SettingsNavigationPolicy.canOpen("help", "vibration"))
         assertFalse(SettingsNavigationPolicy.canOpen("notifications", "vibration"))
     }
+    @Test fun releaseHistoryIsNestedOnlyUnderUpdates() {
+        assertTrue(SettingsNavigationPolicy.canOpen("updates", "history"))
+        assertFalse(SettingsNavigationPolicy.canOpen("root", "history"))
+        assertFalse(SettingsNavigationPolicy.canOpen("notifications", "history"))
+        assertEquals(listOf("updates", "history"),
+            SettingsNavigationPolicy.sanitize(listOf("updates", "history")))
+        assertEquals(listOf("updates"),
+            SettingsNavigationPolicy.sanitize(listOf("updates", "payment")))
+    }
+
     @Test fun restorationStopsAtInvalidPage() {
         assertEquals(listOf("notifications", "payment"),
             SettingsNavigationPolicy.sanitize(listOf("notifications", "payment")))
