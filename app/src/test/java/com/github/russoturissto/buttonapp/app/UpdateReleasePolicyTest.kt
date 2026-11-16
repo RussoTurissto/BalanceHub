@@ -42,6 +42,28 @@ class UpdateReleasePolicyTest {
         assertNull(UpdateReleasePolicy.parse(release("v1.1.0"), 200L))
         assertNull(UpdateReleasePolicy.parse(approved, 210L))
     }
+    @Test fun stable120IsVisibleOnlyWhenPublishedAndNewer() {
+        val body = "• Платежи и события: улучшены напоминания.\\n\\n" +
+            "• Уведомления: громкость применяется сразу.\\n" +
+            "<!-- BalanceHub-VersionCode: 715 -->"
+        val published = release("v1.2.0").put("body", body)
+            .put("draft", false).put("prerelease", false)
+        val update = UpdateReleasePolicy.parse(published, 710L)
+        assertNotNull(update)
+        assertEquals("v1.2.0", update!!.tag)
+        assertEquals(715L, update.code)
+        assertEquals("a".repeat(64), update.sha256)
+        assertEquals("• Платежи и события: улучшены напоминания.\\n\\n" +
+            "• Уведомления: громкость применяется сразу.", update.notes)
+        assertNotNull(UpdateReleasePolicy.fromCache(
+            UpdateReleasePolicy.toCache(update), 710L))
+        assertNull(UpdateReleasePolicy.parse(published, 715L))
+        assertNull(UpdateReleasePolicy.parse(JSONObject(published.toString())
+            .put("draft", true), 710L))
+        assertNull(UpdateReleasePolicy.parse(JSONObject(published.toString())
+            .put("prerelease", true), 710L))
+    }
+
     @Test fun rejectsOldDraftAndBadVersions() {
         assertNull(UpdateReleasePolicy.parse(release(), 140L))
         assertNull(UpdateReleasePolicy.parse(release("v1.0.133"), 137L))
