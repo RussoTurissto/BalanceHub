@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - "app/**"
+      - "scripts/upload-private-drive-apk.sh"
       - "gradle/**"
       - "gradle.properties"
       - "build.gradle.kts"
@@ -207,6 +208,15 @@ jobs:
             exit 1
           fi
           echo "Private draft $tag: https://github.com/$GITHUB_REPOSITORY/releases" >> "$GITHUB_STEP_SUMMARY"
+
+      # Optional private delivery. Never upload APK as an Actions artifact:
+      # all artifacts in this public repository would be publicly readable.
+      # This script requires an OAuth Drive remote limited to drive.file.
+      - name: Upload signed APK privately to Google Drive
+        shell: bash
+        env:
+          PRIVATE_DRIVE_RCLONE_CONFIG_B64: ${{ secrets.BALANCEHUB_DRIVE_RCLONE_CONFIG_B64 }}
+        run: bash scripts/upload-private-drive-apk.sh
 
       - name: Notify build result in GitHub issue
         if: ${{ always() }}
