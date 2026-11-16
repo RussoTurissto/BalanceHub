@@ -6,28 +6,24 @@ on:
       - main
       - feature/balancehub-foundation
     paths:
-      - ".github/workflows/notification-emulator-validation.yml"
       - "app/src/main/**"
+      - "app/src/test/**"
       - "app/src/androidTest/**"
-      - "gradle.properties"
-      - "release/notes-*.md"
-      - "scripts/prepare-release-version.sh"
-      - "scripts/publish-verified-release.sh"
-      - "scripts/test-release-versioning.sh"
-      - ".github/workflows/balancehub-apk.yml"
+      - "app/build.gradle.kts"
+      - "library-android/src/main/**"
+      - "library-compose/src/main/**"
+      - "library-kotlin/src/main/**"
   pull_request:
     branches:
       - main
     paths:
-      - ".github/workflows/notification-emulator-validation.yml"
       - "app/src/main/**"
+      - "app/src/test/**"
       - "app/src/androidTest/**"
-      - "gradle.properties"
-      - "release/notes-*.md"
-      - "scripts/prepare-release-version.sh"
-      - "scripts/publish-verified-release.sh"
-      - "scripts/test-release-versioning.sh"
-      - ".github/workflows/balancehub-apk.yml"
+      - "app/build.gradle.kts"
+      - "library-android/src/main/**"
+      - "library-compose/src/main/**"
+      - "library-kotlin/src/main/**"
   workflow_dispatch:
 
 permissions:
