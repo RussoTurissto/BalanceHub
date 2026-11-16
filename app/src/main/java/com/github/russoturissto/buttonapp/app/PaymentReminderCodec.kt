@@ -5,6 +5,42 @@ import org.json.JSONObject
 
 /** Keep each user's actual payment edit distinct from background archiving. */
 internal object PaymentActiveMergePolicy {
+    /**
+     * Apply the fields the user actually edited, not an entire stale UI record.
+     * Background date advancement and unknown/legacy fields must survive.
+     */
+    private fun applyUiFields(
+        current: JSONObject, originalJson: String, proposed: JSONObject
+    ): JSONObject? {
+        val original = try { JSONObject(originalJson) } catch (_: Exception) {
+            return null
+        }
+        val result = JSONObject(current.toString())
+        val keys = linkedSetOf<String>()
+        val oldKeys = original.keys()
+        while (oldKeys.hasNext()) keys.add(oldKeys.next())
+        val newKeys = proposed.keys()
+        while (newKeys.hasNext()) keys.add(newKeys.next())
+        for (key in keys) {
+            if (key == "id") continue
+            val beforeHas = original.has(key)
+            val afterHas = proposed.has(key)
+            val beforeValue = original.opt(key)
+            val afterValue = proposed.opt(key)
+            // Comparing JSON values, not serialized object key order, avoids
+            // accidentally restoring unrelated values from a stale screen.
+            val equal = if (beforeValue === JSONObject.NULL ||
+                afterValue === JSONObject.NULL) {
+                beforeValue === afterValue
+            } else beforeValue == afterValue
+            if (beforeHas != afterHas || !equal) {
+                if (afterHas) result.put(key, afterValue)
+                else result.remove(key)
+            }
+        }
+        return result
+    }
+
     fun merge(
         current: JSONArray,
         archive: JSONArray,
@@ -23,7 +59,7 @@ internal object PaymentActiveMergePolicy {
             record.optString("id").takeIf { it.isNotBlank() }?.let(archived::add)
         }
         val deleted = before.keys - after.keys
-        val changed = after.filter { (id, item) -> before[id] != item.toString() }
+        val modified = after.filter { (id, item) -> before[id] != item.toString() }
             .toMutableMap()
         val merged = JSONArray()
         val seen = mutableSetOf<String>()
@@ -41,14 +77,22 @@ internal object PaymentActiveMergePolicy {
             }
             if (!seen.add(id)) return null
             if (id in deleted) continue
-            val replacement = changed.remove(id)
-            // Never restore something already moved to the archive.
-            if (replacement != null) {
-                if (id !in archived) merged.put(replacement)
-            } else merged.put(item)
+            val edit = modified.remove(id)
+            if (edit == null) {
+                merged.put(item)
+                continue
+            }
+            // A concurrent record with the same ID is not necessarily ours.
+            // Never overwrite it, or revive a record already archived.
+            if (id in archived) return null
+            val baselineJson = before[id] ?: return null
+            val combined = applyUiFields(item, baselineJson, edit) ?: return null
+            merged.put(combined)
         }
-        for ((id, item) in changed) {
-            if (id !in archived) merged.put(item)
+        for ((id, item) in modified) {
+            // A stale UI cannot re-add a removed/archived record. Only genuinely
+            // new IDs are appended; concurrent additions are never overwritten.
+            if (id !in archived && id !in before) merged.put(item)
         }
         return merged
     }
