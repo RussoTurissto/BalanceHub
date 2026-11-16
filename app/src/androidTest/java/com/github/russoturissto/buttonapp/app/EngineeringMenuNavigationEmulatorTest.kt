@@ -1,6 +1,9 @@
 package com.github.russoturissto.buttonapp.app
 
+import android.view.View
+import android.view.ViewGroup
 import android.widget.ScrollView
+import android.widget.TextView
 import androidx.test.ext.junit.rules.activityScenarioRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.espresso.Espresso.onView
@@ -35,18 +38,32 @@ class EngineeringMenuNavigationEmulatorTest {
         isDescendantOfA(isAssignableFrom(BalanceBottomNavigation::class.java))
     )
 
-    private fun engineerUnlockHeader() = allOf(
-        withContentDescription("Настройки"),
-        isDescendantOfA(isAssignableFrom(ScrollView::class.java))
-    )
+    private fun unlockEngineeringInActiveActivity(activity: MainActivity) {
+        // Several layout copies can temporarily expose an identical heading.
+        // Operate on the active Activity's concrete view, not a global matcher.
+        fun findTitle(view: View): TextView? {
+            if (view is TextView && view.text.toString() == "Настройки" &&
+                view.contentDescription?.toString() == "Настройки" && view.isClickable) {
+                return view
+            }
+            if (view is ViewGroup) {
+                for (i in 0 until view.childCount) {
+                    findTitle(view.getChildAt(i))?.let { return it }
+                }
+            }
+            return null
+        }
+        val title = checkNotNull(findTitle(activity.window.decorView)) {
+            "Engineering unlock heading is missing from Settings"
+        }
+        repeat(5) { check(title.performClick()) }
+    }
 
     @Test fun channelActionsAreInEngineeringCategoriesButNotInOrdinarySettings() {
-        // The tab and unlock heading both announce "Настройки". Scope them
-        // to their containers so Espresso never clicks the wrong view.
+        // Enter via bottom navigation, then perform all five unlock taps on
+        // the Settings heading belonging to this Activity.
         onView(bottomSettingsTab()).perform(click())
-        repeat(5) {
-            onView(engineerUnlockHeader()).perform(click())
-        }
+        scenario.scenario.onActivity(::unlockEngineeringInActiveActivity)
         onView(withText("Системные каналы   ›")).perform(scrollTo(), click())
         for (category in listOf("Платежи", "События", "Обновления")) {
             onView(settingsLabel(category)).perform(scrollTo(), click())
