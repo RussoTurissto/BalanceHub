@@ -43,11 +43,13 @@ else
   # Public RC tags are permanent. Private historical drafts with untagged-*
   # names do not count, and cannot alter the monotonic RC sequence.
   max_rc=0
+  previous_tag="$current"
   while IFS= read -r found_tag; do
     if [[ "$found_tag" == "v$target-rc"* ]]; then
       suffix="${found_tag#v$target-rc}"
       if [[ "$suffix" =~ ^[1-9][0-9]*$ ]] && (( 10#$suffix > max_rc )); then
         max_rc=$((10#$suffix))
+        previous_tag="$found_tag"
       fi
     fi
   done < <(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" |
@@ -82,6 +84,7 @@ fi
   printf 'RELEASE_TAG=%s\n' "$tag"
   printf 'RELEASE_CHANNEL=%s\n' "$channel"
   printf 'RELEASE_NOTES_PATH=%s\n' "$notes"
+  printf 'PREVIOUS_RELEASE_TAG=%s\n' "$previous_tag"
 } >> "$GITHUB_ENV"
 echo "Selected $tag ($channel), notes $notes" >> "$GITHUB_STEP_SUMMARY"
 echo "Selected $tag ($channel); current stable is $current"
