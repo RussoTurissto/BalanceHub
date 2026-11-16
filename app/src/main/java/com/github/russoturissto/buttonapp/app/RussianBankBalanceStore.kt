@@ -58,6 +58,9 @@ internal object RussianBankBalanceStore {
             throw e
         }
     }
+    fun all(context: Context, id: String): List<Snapshot> = synchronized(lock) {
+        read(context)[id].orEmpty()
+    }
     fun latest(context: Context, id: String): Snapshot? = synchronized(lock) {
         read(context)[id]?.maxByOrNull { it.observedAt }
     }
