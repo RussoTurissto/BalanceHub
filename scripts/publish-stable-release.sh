@@ -54,8 +54,10 @@ if [[ -n "$existing" ]]; then
 
   # The same APK must be present in the CI-signed private draft created before
   # stable publishing. Both assets have identical size and SHA-256.
-  signed_draft="$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" |
-    jq -c '[.[] | select(.tag_name == "v1.2.0-build711")] | first // empty')"
+  # GitHub renames older draft tag_name values to "untagged-..." when
+  # another draft is created. The immutable release ID and asset digest are
+  # the reliable identity of the originally signed 711 build.
+  signed_draft="$(gh api "repos/$GITHUB_REPOSITORY/releases/446908808")"
   [[ -n "$signed_draft" ]] || {
     echo "::error::Private signed build 711 is missing"; exit 1;
   }
@@ -63,6 +65,7 @@ if [[ -n "$existing" ]]; then
     --arg sha "$previous_sha" --arg digest "$previous_digest" \
     --argjson size "$previous_size" \
     '.draft == true and .prerelease == true and
+     (.name | contains("сборка 711")) and
      .target_commitish == $sha and
      ([.assets[] | select(.name == "BalanceHub.apk" and
        .digest == $digest and .size == $size)] | length) == 1' >/dev/null || {
