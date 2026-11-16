@@ -143,6 +143,8 @@ class MainActivity : AppCompatActivity() {
     private var selectedOperatorId: Int? = null
     private var sessionAutoRefreshStarted = false
     private var tutorialStep = -1
+    private val tutorialHighlightedViews =
+        linkedMapOf<View, Pair<android.graphics.drawable.Drawable?, Float>>()
     // Match the approved header position on every tab and in every theme.
     // Never derive this padding from transient window insets during recreation.
     private val headerTopPadding get() = dp(36)
@@ -470,6 +472,27 @@ class MainActivity : AppCompatActivity() {
             if (bold) setTypeface(null, Typeface.BOLD)
         }
 
+    /** Shared visual style for all mobile providers and supported banks. */
+    private fun balanceAmountPill(label: String, knownBalance: Boolean = true): TextView =
+        textLine(label, if (knownBalance) BalanceAmountStyle.FONT_SIZE_SP else 15f,
+            Color.rgb(23, 55, 33), true).apply {
+            gravity = Gravity.CENTER
+            includeFontPadding = false
+            setPadding(dp(BalanceAmountStyle.HORIZONTAL_PADDING_DP),
+                dp(BalanceAmountStyle.VERTICAL_PADDING_DP),
+                dp(BalanceAmountStyle.HORIZONTAL_PADDING_DP),
+                dp(BalanceAmountStyle.VERTICAL_PADDING_DP))
+            background = rounded(
+                if (isNight) Color.rgb(191, 239, 104)
+                else Color.rgb(216, 241, 166), BalanceAmountStyle.CORNER_RADIUS_DP)
+        }
+
+    /** Keep full-size balances intact; stack the pill when horizontal space is short. */
+    private fun balancePillNeedsOwnLine(pill: TextView, reservedDp: Int): Boolean =
+        BalanceAmountStyle.needsOwnLine(
+            resources.configuration.screenWidthDp, resources.displayMetrics.density,
+            pill.paint.measureText(pill.text.toString()), reservedDp)
+
     private fun verticalGap(height: Int) = View(this).apply {
         layoutParams = LinearLayout.LayoutParams(1, dp(height))
     }
@@ -700,7 +723,6 @@ class MainActivity : AppCompatActivity() {
         contentContainer.alpha = 1f
         contentContainer.translationX = 0f
         if (tutorialStep == 0 && index == 1) {
-            tabViews.getOrNull(1)?.apply { background = null; elevation = 0f }
             tutorialStep = 1
         }
         currentTab = index
@@ -734,6 +756,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderTab() {
+        // The bottom navigation persists across tabs; restore its original
+        // drawable and elevation before rendering the next tutorial step.
+        clearTutorialHighlights()
         contentContainer.removeAllViews()
         // All top-level headings share the same vertical position.
         // Reuse the responsive top inset already approved for "Главная";
@@ -757,8 +782,20 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** Undo all tutorial-only decorations, including those on persistent views. */
+    private fun clearTutorialHighlights() {
+        for ((view, original) in tutorialHighlightedViews) {
+            view.background = original.first
+            view.elevation = original.second
+        }
+        tutorialHighlightedViews.clear()
+    }
+
     /** In-context coach: it never covers the actual buttons the user must tap. */
     private fun highlightTutorialTarget(target: View) {
+        if (!tutorialHighlightedViews.containsKey(target)) {
+            tutorialHighlightedViews[target] = target.background to target.elevation
+        }
         val gold = Color.rgb(235, 200, 94)
         target.background = GradientDrawable().apply {
             setColor(if (isNight) Color.rgb(44, 75, 67) else Color.rgb(220, 238, 225))
@@ -769,12 +806,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun completeTutorial() {
+        clearTutorialHighlights()
         preferences.edit().putBoolean("onboarding_completed", true).apply()
         tutorialStep = -1
         renderTab()
     }
 
     private fun restartTutorial() {
+        clearTutorialHighlights()
         tutorialStep = 0
         operatorDetailsOpen = false
         mobileSettingsOpen = false
@@ -782,6 +821,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun backTutorial() {
+        clearTutorialHighlights()
         when (tutorialStep) {
             1 -> {
                 tutorialStep = 0
@@ -1332,25 +1372,18 @@ class MainActivity : AppCompatActivity() {
                 addView(textLine(sim.label + " · мобильный баланс", 12f, muted))
             }
             row.addView(info, LinearLayout.LayoutParams(0, -2, 1f))
-            val amount = textLine(
+            val amount = balanceAmountPill(
                 cached?.first?.let { it + " ₽" } ?: "Нет данных",
-                if (cached == null) 15f else 22f,
-                Color.rgb(23, 55, 33), true
-            ).apply {
-                gravity = Gravity.CENTER
-                setPadding(dp(10), dp(8), dp(10), dp(8))
-                background = rounded(
-                    if (isNight) Color.rgb(191, 239, 104)
-                    else Color.rgb(216, 241, 166), 14
-                )
-            }
-            if (resources.configuration.screenWidthDp >= 395) {
+                knownBalance = cached != null)
+            val amountBelow = balancePillNeedsOwnLine(amount,
+                BalanceAmountStyle.MOBILE_RESERVED_DP)
+            if (!amountBelow) {
                 row.addView(View(this), LinearLayout.LayoutParams(dp(6), 1))
                 row.addView(amount)
             }
             mobile.addView(row)
-            if (resources.configuration.screenWidthDp < 395) {
-                mobile.addView(verticalGap(9))
+            if (amountBelow) {
+                mobile.addView(verticalGap(7))
                 mobile.addView(LinearLayout(this).apply {
                     gravity = Gravity.END
                     addView(amount)
@@ -1445,19 +1478,13 @@ class MainActivity : AppCompatActivity() {
         }
 
     private fun bankBalanceAmount(kopecks: Long): TextView =
-        textLine(rubles(kopecks), 17f, Color.rgb(23, 55, 33), true).apply {
-            gravity = Gravity.CENTER
-            setPadding(dp(10), dp(8), dp(10), dp(8))
-            background = rounded(
-                if (isNight) Color.rgb(191, 239, 104)
-                else Color.rgb(216, 241, 166), 13)
-        }
+        balanceAmountPill(rubles(kopecks))
 
     /** Rows share the same margins; narrow screens place the amount below. */
     private fun bankBalanceAccountRow(item: BankAccountBalance): LinearLayout {
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(0), dp(11), dp(0), dp(11))
+            setPadding(dp(0), dp(3), dp(0), dp(3))
         }
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -1465,19 +1492,22 @@ class MainActivity : AppCompatActivity() {
         }
         row.addView(textLine(BankAccountRows.label(item.lastFour), 14f, ink, true),
             LinearLayout.LayoutParams(0, -2, 1f))
-        if (resources.configuration.screenWidthDp >= 395) {
-            row.addView(View(this), LinearLayout.LayoutParams(dp(9), 1))
-            row.addView(bankBalanceAmount(item.kopecks))
+        val amount = bankBalanceAmount(item.kopecks)
+        val amountBelow = balancePillNeedsOwnLine(amount,
+            BalanceAmountStyle.BANK_RESERVED_DP)
+        if (!amountBelow) {
+            row.addView(View(this), LinearLayout.LayoutParams(dp(8), 1))
+            row.addView(amount)
             container.addView(row)
         } else {
             container.addView(row)
             container.addView(verticalGap(6))
             container.addView(LinearLayout(this).apply {
                 gravity = Gravity.END
-                addView(bankBalanceAmount(item.kopecks))
+                addView(amount)
             })
         }
-        container.addView(verticalGap(5))
+        container.addView(verticalGap(2))
         val updated = DateFormat.getDateTimeInstance(
             DateFormat.SHORT, DateFormat.SHORT).format(Date(item.observedAt))
         val stale = System.currentTimeMillis() - item.observedAt !in 0L..86_400_000L
@@ -1495,14 +1525,16 @@ class MainActivity : AppCompatActivity() {
         val visible = all.filter {
             BankAccountVisibility.visible(this, bank.id, it.lastFour)
         }
-        val bankCard = card()
+        val bankCard = card().apply {
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+        }
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        header.addView(bankLogo(bank, 49),
-            LinearLayout.LayoutParams(dp(49), dp(49)))
-        header.addView(View(this), LinearLayout.LayoutParams(dp(11), 1))
+        header.addView(bankLogo(bank, 40),
+            LinearLayout.LayoutParams(dp(40), dp(40)))
+        header.addView(View(this), LinearLayout.LayoutParams(dp(9), 1))
         val caption = when {
             !enabled -> "Push не подключён"
             !granted -> "Нет доступа к уведомлениям"
@@ -1518,7 +1550,7 @@ class MainActivity : AppCompatActivity() {
         }, LinearLayout.LayoutParams(0, -2, 1f))
         bankCard.addView(header)
         if (visible.isNotEmpty()) {
-            bankCard.addView(verticalGap(12))
+            bankCard.addView(verticalGap(7))
             visible.forEachIndexed { i, item ->
                 if (i > 0) {
                     bankCard.addView(View(this).apply {
