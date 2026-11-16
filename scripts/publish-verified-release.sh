@@ -38,8 +38,11 @@ previous_stable="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq '.tag_
 
 # CI must confirm Android API 29, 35 and 36 on this *exact commit*, whether
 # this was an ordinary push or an explicitly approved manual stable run.
+# Emulator matrix jobs have a 55-minute timeout; reserve a full 60 minutes
+# for same-commit results so a slow Android 36 run does not block a valid APK.
 verified_run=""
-for attempt in $(seq 1 100); do
+max_attempts=240
+for attempt in $(seq 1 "$max_attempts"); do
   runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/notification-emulator-validation.yml/runs?event=push&head_sha=$GITHUB_SHA&per_page=30")"
   candidate="$(printf '%s' "$runs" | jq -c --arg sha "$GITHUB_SHA" \
     '[.workflow_runs[] | select(.head_sha == $sha and .event == "push")] |
@@ -65,8 +68,14 @@ for attempt in $(seq 1 100); do
       break
     fi
   fi
-  echo "Waiting for matching emulator results ($attempt/100)"
-  sleep 15
+  if [[ -n "$candidate" ]]; then
+    echo "Waiting for emulator run $run_id ($status, ${result:-pending}) [$attempt/$max_attempts]"
+  else
+    echo "Waiting for same-SHA emulator run to appear [$attempt/$max_attempts]"
+  fi
+  if (( attempt < max_attempts )); then
+    sleep 15
+  fi
 done
 [[ -n "$verified_run" ]] || {
   echo "::error::Timed out waiting for emulator verification"; exit 1;

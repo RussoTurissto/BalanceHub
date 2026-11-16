@@ -46,7 +46,8 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 65
+    # Android 36 validation can take ~30 minutes; allow release checks to finish.
+    timeout-minutes: 95
     steps:
       - name: Checkout repository or pinned rc13 rollback sources
         uses: actions/checkout@v4
