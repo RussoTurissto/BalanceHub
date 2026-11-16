@@ -1,4 +1,6 @@
-# BalanceHub: private APK delivery to ChatGPT
+# BalanceHub: private APK delivery to ChatGPT (on hold)
+
+**Historical optional design.** Starting with version 1.2.1, the normal test workflow produces **public GitHub Pre-releases** with direct APK links; it does not use this private Google Drive upload script. The Drive setup is postponed. See [the active release process](RELEASE_PROCESS.md).
 
 ## How it works
 
@@ -57,7 +59,7 @@ Never send tokens, rclone config, secret values, or screenshots of them in chat.
 
        BALANCEHUB_DRIVE_RCLONE_CONFIG_B64
 
-5. On the next signed main-branch build the workflow uploads a uniquely
+5. If the optional private workflow is explicitly re-enabled later, it can upload a uniquely
    named APK such as BalanceHub-1.1.4-rc21-buildNNN.apk and a SHA-256 file
    into the private rclone-created Drive folder.
 
@@ -70,9 +72,7 @@ Never send tokens, rclone config, secret values, or screenshots of them in chat.
   was not obtained earlier.
 - Upload integrity is checked by MD5 from the remote Drive file; SHA-256
   is written to a separate manifest for verification by ChatGPT.
-- If the optional Secret is missing, private Drive delivery is NOT enabled
-  yet. The workflow continues to save the signed APK in the existing private
-  Draft Release instead; it does not disclose a public APK.
+- The private Drive workflow is currently disabled. Missing optional credentials do not prevent the normal public RC releases. Old private Draft Releases remain archived.
 - If credentials are present but upload fails, the Actions job fails and
   the issue should be diagnosed before trying in-chat delivery.
 - Standalone Google service accounts cannot own new files in consumer
