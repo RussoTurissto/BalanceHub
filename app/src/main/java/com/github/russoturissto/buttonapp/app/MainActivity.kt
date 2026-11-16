@@ -64,6 +64,7 @@ import java.util.UUID
 class MainActivity : AppCompatActivity() {
     private val preferences by lazy { getSharedPreferences("balancehub_data", MODE_PRIVATE) }
     private val payments = mutableListOf<PaymentReminder>()
+    private val paymentBaseline = mutableMapOf<String, String>()
     private lateinit var titleInput: EditText
     private lateinit var amountInput: EditText
     private lateinit var currencyInput: EditText
@@ -1886,7 +1887,11 @@ class MainActivity : AppCompatActivity() {
             payments.firstOrNull { it.id == legacyId }?.let {
                 cancelReminder(it)
                 payments.remove(it)
-                persistPayments()
+                if (!persistPayments()) {
+                    payments.clear()
+                    loadPayments()
+                    return
+                }
             }
         }
         val old = payments.firstOrNull { it.id == id }
@@ -1894,7 +1899,10 @@ class MainActivity : AppCompatActivity() {
             if (old != null) {
                 cancelReminder(old)
                 payments.remove(old)
-                persistPayments()
+                if (!persistPayments()) {
+                    payments.clear()
+                    loadPayments()
+                }
             }
             return
         }
@@ -1911,7 +1919,11 @@ class MainActivity : AppCompatActivity() {
             payments.remove(old)
         }
         payments.add(newPayment)
-        persistPayments()
+        if (!persistPayments()) {
+            payments.clear()
+            loadPayments()
+            return
+        }
         scheduleReminder(newPayment)
     }
 
@@ -4739,7 +4751,11 @@ class MainActivity : AppCompatActivity() {
             currency, dueDate.timeInMillis, leadDays, recurrence, selectedPaymentIcon)
         payments.add(reminder)
         editingId = null
-        persistPayments()
+        if (!persistPayments()) {
+            payments.clear()
+            loadPayments()
+            return false
+        }
         scheduleReminder(reminder)
         upcomingListExpanded = true
         expandedPaymentId = reminder.id
@@ -5340,7 +5356,11 @@ class MainActivity : AppCompatActivity() {
                     recurrence = listOf("once", "weekly", "monthly")[recurrence.selectedItemPosition],
                     iconId = chosenIcon)
                 payments.add(updated)
-                persistPayments()
+                if (!persistPayments()) {
+                    payments.clear()
+                    loadPayments()
+                    return@setOnClickListener
+                }
                 scheduleReminder(updated)
                 renderPayments()
                 dialog.dismiss()
@@ -6294,72 +6314,78 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun loadPayments() {
-        val array = JSONArray(preferences.getString("payment_reminders", "[]") ?: "[]")
+        val array = PaymentArchiveStore.activeSnapshot(this)
+        if (array == null) {
+            Toast.makeText(this, "Данные платежей повреждены. Исходная запись сохранена; " +
+                "автоматическая перезапись запрещена.", Toast.LENGTH_LONG).show()
+            return
+        }
+        paymentBaseline.clear()
         var advanced = false
+        var invalid = 0
+        val now = System.currentTimeMillis()
         for (i in 0 until array.length()) {
-            val item = array.getJSONObject(i)
-            val recurrence = item.optString("recurrence", "once")
-            val lead = item.getInt("leadDays")
-            val date = Calendar.getInstance().apply { timeInMillis = item.getLong("dueAt") }
-            var paymentAdvanced = false
-            if (recurrence == "weekly" || recurrence == "monthly") {
-                // T2 stays in "upcoming" until the actual estimated debit date;
-                // receiving a one-day-before alert must not hide that payment.
-                while (date.timeInMillis <= System.currentTimeMillis()) {
-                    if (recurrence == "weekly") date.add(Calendar.DAY_OF_YEAR, 7)
-                    else date.add(Calendar.MONTH, 1)
+            val raw = array.optJSONObject(i)
+            val original = raw?.let(PaymentReminderCodec::decode)
+            if (original == null) {
+                invalid++
+                continue
+            }
+            paymentBaseline[original.id] = PaymentReminderCodec.encode(original).toString()
+            var payment = original
+            if (original.recurrence == "weekly" || original.recurrence == "monthly") {
+                val due = Calendar.getInstance().apply { timeInMillis = original.dueAt }
+                var iterations = 0
+                while (due.timeInMillis <= now && iterations++ < 10_000) {
+                    if (original.recurrence == "weekly") due.add(Calendar.DAY_OF_YEAR, 7)
+                    else due.add(Calendar.MONTH, 1)
+                }
+                if (due.timeInMillis != original.dueAt) {
+                    payment = payment.copy(dueAt = due.timeInMillis)
                     advanced = true
-                    paymentAdvanced = true
                 }
             }
-            val id = item.getString("id")
-            val oldTitle = item.getString("title")
-            val title = if (id.startsWith("t2_subscription_")) {
-                "Абонентская плата T2"
-            } else oldTitle
-            if (title != oldTitle) {
+            if (payment.id.startsWith("t2_subscription_") &&
+                payment.title != "Абонентская плата T2") {
+                payment = payment.copy(title = "Абонентская плата T2")
                 advanced = true
-                paymentAdvanced = true
             }
-            val payment = PaymentReminder(id, title,
-                item.getString("amount"), item.getString("currency"), date.timeInMillis,
-                lead, recurrence, item.optString("icon")
-                    .takeIf { IconRegistry.find(it) != null })
             payments.add(payment)
-            if (paymentAdvanced) scheduleReminder(payment)
-            else if (payment.recurrence == "once") {
-                PaymentArchiveScheduler.schedule(this, payment.id, payment.dueAt)
-            }
         }
-        if (advanced) persistPayments()
-        // Reconcile every active reminder after upgrades and force-stop recovery.
+        // Merge only the revised recurring records, preserving unreadable rows.
+        if (advanced && !persistPayments()) {
+            Toast.makeText(this, "Не удалось сохранить обновлённые даты платежей",
+                Toast.LENGTH_LONG).show()
+        }
+        if (invalid > 0) Toast.makeText(this,
+            "Некоторые записи платежей не удалось прочитать; они сохранены без изменений",
+            Toast.LENGTH_LONG).show()
         payments.forEach(::scheduleReminder)
     }
 
-    private fun persistPayments() {
-        // Do not resurrect items moved to history by an alarm while the UI was open.
-        val historyIds = PaymentArchiveStore.archived(this).map { it.id }.toSet()
-        payments.removeAll { it.id in historyIds }
-        val array = JSONArray()
+    private fun persistPayments(): Boolean {
+        // Archive transactions and UI updates share one lock and commit atomically.
+        val archivedIds = PaymentArchiveStore.archived(this).map { it.id }.toSet()
+        payments.removeAll { it.id in archivedIds }
+        val desired = JSONArray()
+        val nextBaseline = mutableMapOf<String, String>()
         for (payment in payments) {
-            array.put(JSONObject().apply {
-                put("id", payment.id); put("title", payment.title); put("amount", payment.amount)
-                put("currency", payment.currency); put("dueAt", payment.dueAt); put("leadDays", payment.leadDays)
-                put("recurrence", payment.recurrence)
-                put("icon", payment.iconId ?: JSONObject.NULL)
-            })
+            val record = PaymentReminderCodec.encode(payment)
+            desired.put(record)
+            nextBaseline[payment.id] = record.toString()
         }
-        preferences.edit().putString("payment_reminders", array.toString()).apply()
+        val saved = PaymentArchiveStore.saveUiChanges(this, paymentBaseline, desired)
+        if (saved) {
+            paymentBaseline.clear()
+            paymentBaseline.putAll(nextBaseline)
+        } else Toast.makeText(this,
+            "Не удалось сохранить платежи. Данные в хранилище не изменены.",
+            Toast.LENGTH_LONG).show()
+        return saved
     }
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 }
-
-private data class PaymentReminder(
-    val id: String, val title: String, val amount: String, val currency: String,
-    val dueAt: Long, val leadDays: Int, val recurrence: String = "once",
-    val iconId: String? = null
-)
 
 private data class HelpSection(
     val title: String,

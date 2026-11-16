@@ -27,9 +27,32 @@ internal object RussianBankPushParser {
         emptyList()): Assessment {
         val bank = RussianBankCatalog.byPackage(packageName)
         if (bank == null || bank.id == "sber") return Assessment(null, Reason.NOT_SUPPORTED)
-        val parts = bodies.ifEmpty { titles }
-            .filter { it.isNotBlank() && it.length <= 8192 }
+        val readableBodies = bodies.filter { it.isNotBlank() && it.length <= 8192 }
             .map(SberPushSignals::normalize)
+        val readableTitles = titles.filter { it.isNotBlank() && it.length <= 8192 }
+            .map(SberPushSignals::normalize)
+        // A credit or bonus heading can completely change the meaning of
+        // "Доступно" in the body. Never treat that as cash.
+        val nonCashHeading = Regex(
+            """(?iu)(?:кредит\p{L}*|лимит\p{L}*|овердрафт\p{L}*|бонус\p{L}*|балл\p{L}*|к[эе]шб[эе]к\p{L}*|рассрочк\p{L}*)"""
+        )
+        if (readableTitles.any(nonCashHeading::containsMatchIn))
+            return Assessment(null, Reason.NO_BALANCE)
+        // A few bank notifications split "Остаток" (title) from "120 ₽"
+        // (body). Bridge only when the title explicitly means cash balance,
+        // and the body holds exactly one amount with no transaction/credit cues.
+        // Never infer a balance by subtracting a purchase or transfer.
+        val bridged = readableTitles.filter { title ->
+            balanceCue.containsMatchIn(title) && !invalidContext.containsMatchIn(title)
+        }.flatMap { title ->
+            readableBodies.filter { body ->
+                money.findAll(body).count() == 1 &&
+                    !invalidContext.containsMatchIn(body) &&
+                    (money.find(body)?.range?.first ?: Int.MAX_VALUE) <= 35
+            }.map { body -> "$title: $body" }
+        }
+        val parts = (if (readableBodies.isEmpty()) readableTitles
+            else readableBodies + bridged).distinct()
         val candidates = mutableSetOf<Long>()
         val accounts = mutableSetOf<String>()
         var invalid = false
