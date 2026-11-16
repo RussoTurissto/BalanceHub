@@ -253,7 +253,7 @@ class MainActivity : AppCompatActivity() {
                         expandedArchiveEventId = null
                         renderTab()
                     }
-                    operatorDetailsOpen -> {
+                    operatorDetailsOpen && currentTab == 1 -> {
                         operatorDetailsOpen = false
                         renderTab()
                     }
@@ -297,10 +297,12 @@ class MainActivity : AppCompatActivity() {
                         else renderTab()
                     }
                     settingsStack.isNotEmpty() && currentTab == 4 -> backSettingsPage()
-                    else -> {
-                        isEnabled = false
-                        onBackPressedDispatcher.onBackPressed()
-                    }
+                    // Back from any top-level section always returns Home, not
+                    // the previously visited tab or the Android launcher.
+                    currentTab != 0 -> selectTab(0)
+                    // At Home, leave the task alive with its local data and
+                    // navigation state, just as pressing Android Home would.
+                    else -> moveTaskToBack(true)
                 }
             }
         })
