@@ -149,7 +149,7 @@ internal object EventOccurrenceEngine {
     fun next(event: PlannedEvent, after: Long): EventOccurrence? {
         val until = Calendar.getInstance().apply {
             timeInMillis = after
-            add(Calendar.YEAR, 5)
+            add(Calendar.YEAR, 30)
         }.timeInMillis
         return between(event, after + 1L, until).firstOrNull { !it.skipped }
     }
