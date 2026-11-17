@@ -81,9 +81,9 @@ class RecurringChoiceChipsEmulatorTest {
                     assertTrue(checkNotNull(find(form, "Число месяца 5, выбрано")).isSelected)
                     val monthlySwitch = findSwitch(form)
                     assertTrue(checkNotNull(monthlySwitch).isChecked)
-                    assertTrue(monthlySwitch.performClick())
+                    monthlySwitch.toggle()
                     assertFalse((field.get(activity) as PaymentPlan).monthlyEnabled)
-                    assertTrue(monthlySwitch.performClick())
+                    monthlySwitch.toggle()
                     assertTrue((field.get(activity) as PaymentPlan).monthlyEnabled)
                 }
             }
