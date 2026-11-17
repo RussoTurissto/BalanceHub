@@ -1,0 +1,50 @@
+name: BalanceHub — owner-approved RC command
+
+on:
+  issue_comment:
+    types: [created]
+
+# Only the owner may request a TEST release, from the dedicated issue.
+# Never interpolate the untrusted comment text into a shell command.
+permissions:
+  actions: write
+  contents: write
+
+jobs:
+  release-command:
+    name: Validate owner command and resume RC
+    if: >-
+      github.repository == 'RussoTurissto/BalanceHub' &&
+      github.event.issue.number == 1 &&
+      github.event.issue.pull_request == null &&
+      github.event.comment.user.login == 'RussoTurissto' &&
+      github.event.comment.body == '/balancehub build-rc'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: balancehub-approved-rc
+      cancel-in-progress: false
+    steps:
+      - name: Checkout full current main history
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Publish an existing verified draft, or dispatch RC build
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if bash scripts/resume-verified-rc.sh; then
+            echo "Existing approved signed RC successfully published."
+          else
+            result=$?
+            if [[ "$result" -ne 10 ]]; then
+              echo "::error::Draft verification failed. Do not start another build."
+              exit "$result"
+            fi
+            gh api --method POST               "repos/$GITHUB_REPOSITORY/actions/workflows/balancehub-apk.yml/dispatches"               -f ref=main               -f 'inputs[rollback_rc13]=false'               -f 'inputs[publish_stable]=false'               -f 'inputs[approved_version]='
+            echo "Owner-authorized RC build dispatched for main."
+          fi
