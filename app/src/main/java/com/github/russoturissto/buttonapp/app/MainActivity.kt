@@ -2133,8 +2133,8 @@ class MainActivity : AppCompatActivity() {
         )
         val datePanel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val monthlyPanel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val dateInfo = textLine("", 12f, muted)
-        val endInfo = textLine("", 12f, muted)
+        val dateInfo = customRecurrenceCaption()
+        val endInfo = customRecurrenceCaption()
         fun store() {
             pendingPaymentPlan = PaymentPlan(
                 mode, dates.toSet(), monthlyDays.toSet(), monthlyEnabled,
@@ -2188,9 +2188,9 @@ class MainActivity : AppCompatActivity() {
         }
         monthlyPanel.addView(monthlySwitch)
         monthlyPanel.addView(verticalGap(6))
-        monthlyPanel.addView(textLine("Выберите числа месяца", 12f, muted))
+        monthlyPanel.addView(customRecurrenceCaption("Выберите числа месяца"))
         monthlyPanel.addView(verticalGap(8))
-        val selectionSummary = textLine("", 12f, muted)
+        val selectionSummary = customRecurrenceCaption()
         fun refreshSelectionSummary() {
             selectionSummary.text = if (monthlyDays.isEmpty()) "Выбрано: 0"
                 else "Выбрано: ${monthlyDays.size} · ${monthlyDays.sorted().joinToString(", ")}"
@@ -2245,7 +2245,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
         form.addView(panel, LinearLayout.LayoutParams(-1, -2).apply {
-            topMargin = dp(10)
+            topMargin = dp(4)
         })
         panel.visibility = if (recurrence.selectedItemPosition == 3) View.VISIBLE else View.GONE
         refresh()
@@ -6098,6 +6098,12 @@ class MainActivity : AppCompatActivity() {
             contentDescription = IconRegistry.find(id)?.label ?: "Иконка"
         }
 
+    /** Captions inside custom recurrence panels align with their spinner titles. */
+    private fun customRecurrenceCaption(value: String = "") =
+        textLine(value, 12f, muted).apply {
+            setPadding(dp(14), 0, dp(14), 0)
+        }
+
     private fun styledSpinner(options: List<String>, selected: Int = 0): Spinner =
         Spinner(this).apply {
             adapter = object : ArrayAdapter<String>(
@@ -6660,9 +6666,9 @@ class MainActivity : AppCompatActivity() {
             if (mode == "dates") 1 else 0)
         val weekdayPanel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val datePanel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val dateText = textLine("", 12f, muted)
+        val dateText = customRecurrenceCaption()
 
-        val endText = textLine("", 12f, muted)
+        val endText = customRecurrenceCaption()
         fun value() = EventPlan(mode, days.toSet(), weeks.coerceIn(1, 104),
             selected.toSet(), endsAt,
             initial?.anchorAt?.takeIf { it > 0 } ?: startAt.timeInMillis,
@@ -6683,7 +6689,7 @@ class MainActivity : AppCompatActivity() {
         val weekdayRow = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
-        weekdayRow.addView(textLine("Выберите дни недели", 12f, muted))
+        weekdayRow.addView(customRecurrenceCaption("Выберите дни недели"))
         weekdayRow.addView(verticalGap(8))
         val columns = recurringChoiceRows(
             listOf(
@@ -6750,7 +6756,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
         form.addView(panel, LinearLayout.LayoutParams(-1, -2).apply {
-            topMargin = dp(10)
+            topMargin = dp(4)
         })
         panel.visibility = if (recurrence.selectedItemPosition == 5)
             View.VISIBLE else View.GONE

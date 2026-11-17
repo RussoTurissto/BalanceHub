@@ -60,9 +60,23 @@ class RecurringChoiceChipsEmulatorTest {
                     method.invoke(activity, form, recurrence, PaymentPlan(
                         mode = "monthly", monthlyDays = setOf(5, 15),
                         monthlyEnabled = true))
-                    assertEquals((10 * activity.resources.displayMetrics.density).toInt(),
+                    assertEquals((4 * activity.resources.displayMetrics.density).toInt(),
                         (form.getChildAt(form.childCount - 1).layoutParams
                             as LinearLayout.LayoutParams).topMargin)
+                    val density = activity.resources.displayMetrics.density
+                    val monthHint = checkNotNull(findText(form, "Выберите числа месяца"))
+                    val monthSummary = checkNotNull(findText(form, "Выбрано: 2 · 5, 15"))
+                    val endHint = checkNotNull(findText(form, "Дата окончания не задана"))
+                    listOf(monthHint, monthSummary, endHint).forEach {
+                        assertCaptionAlignment(it, density)
+                    }
+                    assertCaptionsFit(form, listOf(monthHint, monthSummary, endHint),
+                        280, density)
+                    monthHint.textSize = 20f
+                    monthSummary.textSize = 20f
+                    endHint.textSize = 20f
+                    assertCaptionsFit(form, listOf(monthHint, monthSummary, endHint),
+                        280, density)
                     val checked = checkNotNull(find(form, "Число месяца 15, выбрано"))
                     assertTrue(checked.isSelected)
                     assertNotNull(checked.background)
@@ -121,6 +135,26 @@ class RecurringChoiceChipsEmulatorTest {
         return null
     }
 
+    private fun assertCaptionAlignment(label: TextView, density: Float) {
+        val expected = (14 * density).toInt()
+        assertEquals("Caption left padding", expected, label.paddingLeft)
+        assertEquals("Caption right padding", expected, label.paddingRight)
+    }
+
+    private fun assertCaptionsFit(form: LinearLayout, labels: List<TextView>,
+        widthDp: Int, density: Float
+    ) {
+        val width = (widthDp * density).toInt()
+        form.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+        form.layout(0, 0, width, form.measuredHeight)
+        labels.forEach { label ->
+            assertTrue("Caption has no width", label.width > 0)
+            assertTrue("Caption overflows parent", label.right <=
+                (label.parent as View).width)
+        }
+    }
+
     private fun findSwitch(view: View): SwitchCompat? {
         if (view is SwitchCompat) return view
         if (view is ViewGroup) for (i in 0 until view.childCount)
@@ -149,9 +183,15 @@ class RecurringChoiceChipsEmulatorTest {
                 method.isAccessible = true
                 method.invoke(activity, form, recurrence, initial,
                     Calendar.getInstance(), { plan: EventPlan -> updated = plan })
-                assertEquals((10 * activity.resources.displayMetrics.density).toInt(),
+                assertEquals((4 * activity.resources.displayMetrics.density).toInt(),
                     (form.getChildAt(form.childCount - 1).layoutParams
                         as LinearLayout.LayoutParams).topMargin)
+                val density = activity.resources.displayMetrics.density
+                val weekHint = checkNotNull(findText(form, "Выберите дни недели"))
+                val endHint = checkNotNull(findText(form, "Без даты окончания"))
+                assertCaptionAlignment(weekHint, density)
+                assertCaptionAlignment(endHint, density)
+                assertCaptionsFit(form, listOf(weekHint, endHint), 280, density)
                 val monday = checkNotNull(find(form, "День недели Пн, выбрано"))
                 val wednesday = checkNotNull(find(form, "День недели Ср, выбрано"))
                 val friday = checkNotNull(find(form, "День недели Пт, не выбрано"))
@@ -203,6 +243,54 @@ class RecurringChoiceChipsEmulatorTest {
                 assertTrue(monday.performClick())
                 assertEquals(setOf(Calendar.MONDAY), checkNotNull(updated).weekdays)
                 assertEquals(1, checkNotNull(updated).intervalWeeks)
+            }
+        }
+    }
+
+    @Test fun customDateCaptionsStayAlignedInPaymentAndEventDialogs() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val density = activity.resources.displayMetrics.density
+                val paymentForm = LinearLayout(activity).apply {
+                    orientation = LinearLayout.VERTICAL
+                }
+                val paymentSpinner = Spinner(activity).apply {
+                    adapter = ArrayAdapter(activity, android.R.layout.simple_spinner_item,
+                        listOf("once", "weekly", "monthly", "custom"))
+                    setSelection(3)
+                }
+                MainActivity::class.java.getDeclaredMethod("installCustomPaymentControls",
+                    LinearLayout::class.java, Spinner::class.java,
+                    PaymentPlan::class.java).apply { isAccessible = true }
+                    .invoke(activity, paymentForm, paymentSpinner, null)
+                val payDates = checkNotNull(findText(paymentForm, "Даты не выбраны"))
+                val payEnd = checkNotNull(findText(paymentForm,
+                    "Дата окончания не задана"))
+                listOf(payDates, payEnd).forEach { assertCaptionAlignment(it, density) }
+                assertCaptionsFit(paymentForm, listOf(payDates, payEnd), 280, density)
+
+                val eventForm = LinearLayout(activity).apply {
+                    orientation = LinearLayout.VERTICAL
+                }
+                val eventSpinner = Spinner(activity).apply {
+                    adapter = ArrayAdapter(activity, android.R.layout.simple_spinner_item,
+                        listOf("a", "b", "c", "d", "e", "custom"))
+                    setSelection(5)
+                }
+                val datesPlan = EventPlan(mode = "dates")
+                MainActivity::class.java.getDeclaredMethod("installCustomEventControls",
+                    LinearLayout::class.java, Spinner::class.java,
+                    EventPlan::class.java, Calendar::class.java,
+                    kotlin.jvm.functions.Function1::class.java).apply {
+                        isAccessible = true
+                    }.invoke(activity, eventForm, eventSpinner, datesPlan,
+                        Calendar.getInstance(), { _: EventPlan -> })
+                val eventDates = checkNotNull(findText(eventForm, "Даты не выбраны"))
+                val eventEnd = checkNotNull(findText(eventForm, "Без даты окончания"))
+                listOf(eventDates, eventEnd).forEach {
+                    assertCaptionAlignment(it, density)
+                }
+                assertCaptionsFit(eventForm, listOf(eventDates, eventEnd), 280, density)
             }
         }
     }
