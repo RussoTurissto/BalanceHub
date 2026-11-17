@@ -58,6 +58,8 @@ internal object PaymentOccurrenceScheduler {
     }
 
     fun schedule(context: Context, payment: PaymentReminder) {
+        // Existing v1.2.1 alarms must not fire alongside the new per-occurrence alarms.
+        PaymentAlarmScheduler.cancel(context, payment.id)
         cancel(context, payment.id)
         val now = System.currentTimeMillis()
         val end = Calendar.getInstance().apply {
