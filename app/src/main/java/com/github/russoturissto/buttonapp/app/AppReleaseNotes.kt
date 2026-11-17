@@ -30,6 +30,12 @@ internal object AppReleaseNotes {
         note("clock", "Добавлена история изменений по версиям.")
     )
 
+    private val stable122 = listOf(
+        note("wallet", "Платежи: улучшено выравнивание элементов."),
+        note("calendar-days", "События: унифицировано оформление полей и повторений."),
+        note("home", "Интерфейс: выровнены отступы и расстояния между элементами.")
+    )
+
     private val stable120 = listOf(
         note("calendar-days", "Улучшены платежи, события и напоминания."),
         note("music", "Расширены настройки уведомлений."),
@@ -59,6 +65,7 @@ internal object AppReleaseNotes {
     )
 
     private val stableNotes = linkedMapOf(
+        "1.2.2" to stable122,
         "1.2.1" to stable121(),
         "1.2.0" to stable120,
         "1.1.2" to stable112,
@@ -92,7 +99,10 @@ internal object AppReleaseNotes {
         val published = listOf(
             "1.2.0", "1.1.2", "1.1.1", "1.1.0", "1.0.144", "1.0.142"
         )
-        return if (installedVersionName == "1.2.1") listOf("1.2.1") + published
-        else published
+        return when (installedVersionName) {
+            "1.2.2" -> listOf("1.2.2", "1.2.1") + published
+            "1.2.1" -> listOf("1.2.1") + published
+            else -> published
+        }
     }
 }

@@ -1,10 +1,10 @@
-name: BalanceHub — owner-approved RC command
+name: BalanceHub — owner-approved release command
 
 on:
   issue_comment:
     types: [created]
 
-# Only the owner may request a TEST release, from the dedicated issue.
+# Only the owner may request an approved release, from the dedicated issue.
 # Never interpolate the untrusted comment text into a shell command.
 permissions:
   actions: write
@@ -12,13 +12,14 @@ permissions:
 
 jobs:
   release-command:
-    name: Validate owner command and resume RC
+    name: Validate owner command and dispatch approved release
     if: >-
       github.repository == 'RussoTurissto/BalanceHub' &&
       github.event.issue.number == 1 &&
       github.event.issue.pull_request == null &&
       github.event.comment.user.login == 'RussoTurissto' &&
-      github.event.comment.body == '/balancehub build-rc'
+      (github.event.comment.body == '/balancehub build-rc' ||
+       github.event.comment.body == '/balancehub build-stable 1.2.2')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     concurrency:
@@ -31,12 +32,26 @@ jobs:
           ref: main
           fetch-depth: 0
           persist-credentials: false
-      - name: Publish an existing verified draft, or dispatch RC build
+      - name: Dispatch approved stable, or resume/build RC
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          OWNER_COMMAND: ${{ github.event.comment.body }}
         run: |
           set -euo pipefail
+          if [[ "$OWNER_COMMAND" == "/balancehub build-stable 1.2.2" ]]; then
+            target="$(sed -n 's/^NEXT_RELEASE_VERSION=//p' gradle.properties | head -1)"
+            [[ "$target" == "1.2.2" ]] || {
+              echo "::error::Approved stable target mismatch"; exit 1;
+            }
+            gh api --method POST \
+              "repos/$GITHUB_REPOSITORY/actions/workflows/balancehub-apk.yml/dispatches" \
+              -f ref=main -f 'inputs[rollback_rc13]=false' \
+              -f 'inputs[publish_stable]=true' -f "inputs[approved_version]=$target"
+            echo "Owner-authorized stable $target dispatched."
+            exit 0
+          fi
+          [[ "$OWNER_COMMAND" == "/balancehub build-rc" ]] || exit 1
           if bash scripts/resume-verified-rc.sh; then
             echo "Existing approved signed RC successfully published."
           else

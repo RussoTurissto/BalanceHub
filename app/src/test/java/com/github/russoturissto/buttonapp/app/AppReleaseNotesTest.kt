@@ -34,9 +34,22 @@ class AppReleaseNotesTest {
         assertTrue(stable.none { it in oldStable })
     }
 
+    @Test fun stable122HasExactlyThreeApprovedNotesWithoutUpdatesSection() {
+        val expected = listOf(
+            "Платежи: улучшено выравнивание элементов.",
+            "События: унифицировано оформление полей и повторений.",
+            "Интерфейс: выровнены отступы и расстояния между элементами."
+        )
+        assertEquals(expected, AppReleaseNotes.forVersion("1.2.2").map { it.title })
+        assertEquals(expected, AppReleaseNotes.forStableRelease("1.2.2")
+            .map { it.title })
+        assertTrue(expected.none { it.contains("Обновления") || it.contains("APK") })
+        assertEquals("1.2.2", AppReleaseNotes.offlineStableHistory("1.2.2").first())
+    }
+
     @Test fun unknownVersionsNeverSilentlyReuseOldReleaseNotes() {
         assertTrue(AppReleaseNotes.forVersion("1.2.1-rc5").isEmpty())
-        assertTrue(AppReleaseNotes.forVersion("1.2.2").isEmpty())
+        assertTrue(AppReleaseNotes.forVersion("1.2.3").isEmpty())
         assertTrue(AppReleaseNotes.forVersion(null).isEmpty())
         assertFalse(AppReleaseNotes.forVersion("1.2.0").isEmpty())
     }
@@ -50,7 +63,7 @@ class AppReleaseNotesTest {
     }
 
     @Test fun userTextContainsNoBuildOrLayoutImplementationDetails() {
-        val versions = listOf("1.2.0", "1.2.1", "1.2.1-rc1",
+        val versions = listOf("1.2.0", "1.2.1", "1.2.2", "1.2.1-rc1",
             "1.2.1-rc2", "1.2.1-rc3", "1.2.1-rc4")
         for (version in versions) {
             for (note in AppReleaseNotes.forVersion(version)) {
