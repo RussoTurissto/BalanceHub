@@ -6,10 +6,12 @@ on:
       - main
     paths:
       - ".github/workflows/balancehub-apk.yml"
+      - ".github/workflows/chat-build-trigger.yml"
       - ".github/workflows/notification-emulator-validation.yml"
       - ".github/workflows/release-infrastructure-validation.yml"
       - "scripts/prepare-release-version.sh"
       - "scripts/publish-verified-release.sh"
+      - "scripts/resume-verified-rc.sh"
       - "scripts/require-app-changes.sh"
       - "scripts/test-release-versioning.sh"
       - "gradle.properties"
@@ -19,10 +21,12 @@ on:
       - main
     paths:
       - ".github/workflows/balancehub-apk.yml"
+      - ".github/workflows/chat-build-trigger.yml"
       - ".github/workflows/notification-emulator-validation.yml"
       - ".github/workflows/release-infrastructure-validation.yml"
       - "scripts/prepare-release-version.sh"
       - "scripts/publish-verified-release.sh"
+      - "scripts/resume-verified-rc.sh"
       - "scripts/require-app-changes.sh"
       - "scripts/test-release-versioning.sh"
       - "gradle.properties"
