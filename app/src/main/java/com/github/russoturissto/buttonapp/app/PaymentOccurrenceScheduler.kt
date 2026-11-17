@@ -1,5 +1,6 @@
 package com.github.russoturissto.buttonapp.app
 
+import android.annotation.SuppressLint
 import android.app.AlarmManager
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -18,6 +19,7 @@ import java.util.Date
  * Each occurrence has its own alarm identity. A saved per-card index lets the
  * app cancel every stale PendingIntent when dates or exceptions are edited.
  */
+@SuppressLint("UseKtx", "ApplySharedPref")
 internal object PaymentOccurrenceScheduler {
     private const val PREFS = "balancehub_occurrence_alarms_v2"
     private fun requestCode(card: String, source: String): Int =
@@ -183,6 +185,7 @@ class PaymentScheduleMaintenanceReceiver : BroadcastReceiver() {
         PaymentScheduleMaintenance.schedule(context)
     }
 }
+@SuppressLint("UseKtx", "ApplySharedPref")
 class PaymentOccurrenceReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val cardId = intent.getStringExtra("card_id") ?: return
@@ -259,9 +262,7 @@ class PaymentOccurrenceReceiver : BroadcastReceiver() {
         }
         val noticeId = ("payment_bundle|" + cardId + "|" + day + "|" +
             target.reminderHour + ":" + target.reminderMinute).hashCode()
-        val existing = if (Build.VERSION.SDK_INT >= 23) {
-            system.activeNotifications.any { it.id == noticeId }
-        } else false
+        val existing = system.activeNotifications.any { it.id == noticeId }
         val entries = group.map { item ->
             java.text.SimpleDateFormat("dd.MM.yyyy", java.util.Locale("ru"))
                 .format(Date(item.dueAt)) + " — " +
