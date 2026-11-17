@@ -64,6 +64,7 @@
             android:foregroundServiceType="mediaPlayback" />
         <receiver android:name=".DiagnosticReminderReceiver" android:enabled="true" android:exported="false" />
         <receiver android:name=".PaymentReminderReceiver" android:enabled="true" android:exported="false" />
+        <receiver android:name=".PaymentOccurrenceReceiver" android:enabled="true" android:exported="false" />
         <receiver android:name=".EventReminderReceiver" android:enabled="true" android:exported="false" />
         <receiver android:name=".EventDueReceiver" android:enabled="true" android:exported="false" />
         <receiver android:name=".PaymentArchiveReceiver" android:enabled="true" android:exported="false" />
