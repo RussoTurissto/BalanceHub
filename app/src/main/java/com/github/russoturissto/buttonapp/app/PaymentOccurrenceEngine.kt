@@ -225,7 +225,7 @@ internal object PaymentOccurrenceEngine {
             val source = dateForSource(id) ?: return@mapNotNull null
             val sourceDay = id.substringAfterLast('-').toIntOrNull() ?: return@mapNotNull null
             val selectedRule = schedule?.bulkEdits?.lastOrNull { rule ->
-                source >= day(rule.from) &&
+                (edit?.movedAt ?: originalAt) >= rule.from &&
                     (rule.sourceDay == null || rule.sourceDay == sourceDay) &&
                     (edit?.skipped != true || rule.includeSkipped)
             }
