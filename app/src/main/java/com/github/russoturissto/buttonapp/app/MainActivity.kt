@@ -5112,7 +5112,8 @@ class MainActivity : AppCompatActivity() {
                     result = result.copy(edits = kept,
                         bulkEdits = result.bulkEdits + rule,
                         history = result.history + PaymentHistoryEntry(
-                            occurrence.id, "bulk_edit", now, occurrence.dueAt, null))
+                            occurrence.id, "bulk_edit", now, occurrence.dueAt, null,
+                            rule.toString()))
                 }
                 val approved = result
                 val message = (if (scopeIndex == 0) "Одно начисление"
@@ -5451,6 +5452,30 @@ class MainActivity : AppCompatActivity() {
                         "Напоминание за " + entry.leadDays + " дн. · в архиве с " +
                         DateFormat.getDateInstance(DateFormat.SHORT)
                             .format(Date(entry.archivedAt)), 12f, muted))
+                    val history = PaymentArchiveStore.archivedPlan(
+                        this@MainActivity, entry.id)?.history.orEmpty()
+                    if (history.isNotEmpty()) {
+                        addView(verticalGap(12))
+                        addView(textLine("История начислений и изменений",
+                            13f, ink, true))
+                        for (change in history) {
+                            val whenChanged = DateFormat.getDateTimeInstance(
+                                DateFormat.SHORT, DateFormat.SHORT)
+                                .format(Date(change.timestamp))
+                            val dateBefore = change.previousAt?.let {
+                                DateFormat.getDateInstance(DateFormat.SHORT)
+                                    .format(Date(it))
+                            } ?: "—"
+                            val dateAfter = change.currentAt?.let {
+                                DateFormat.getDateInstance(DateFormat.SHORT)
+                                    .format(Date(it))
+                            } ?: "—"
+                            addView(textLine(whenChanged + " · " + change.action +
+                                " · " + change.sourceId + " · " + dateBefore +
+                                " → " + dateAfter, 11f, muted))
+                            change.details?.let { addView(textLine(it, 10f, muted)) }
+                        }
+                    }
                     addView(verticalGap(12))
                     val stack = resources.configuration.screenWidthDp < 365
                     val actions = LinearLayout(this@MainActivity).apply {
