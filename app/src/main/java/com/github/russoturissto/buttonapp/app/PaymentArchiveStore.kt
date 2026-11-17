@@ -255,13 +255,17 @@ internal object PaymentArchiveStore {
         record.remove("archiveReason")
         record.put("id", newId)
         record.put("dueAt", nextDueAt)
-        if (record.optString("recurrence") == "custom") {
-            val plan = PaymentPlanCodec.decode(record.optJSONObject("scheduleV2"))
-            if (plan != null) record.put("scheduleV2", PaymentPlanCodec.encode(
+        val plan = PaymentPlanCodec.decode(record.optJSONObject("scheduleV2"))
+        if (plan != null) {
+            record.put("scheduleV2", PaymentPlanCodec.encode(
                 plan.copy(startsAt = nextDueAt,
-                    selectedDates = if (plan.mode == "dates")
+                    selectedDates = if (record.optString("recurrence") == "custom" &&
+                        plan.mode == "dates")
                         setOf(PaymentOccurrenceEngine.day(nextDueAt))
                         else plan.selectedDates,
+                    // A copy keeps the audit trail, not stale source IDs or changes
+                    // from the original card's already-finished schedule.
+                    edits = emptyMap(), bulkEdits = emptyList(),
                     history = plan.history + PaymentHistoryEntry(
                         "", "restored_copy", System.currentTimeMillis(), null, nextDueAt))))
         }
