@@ -5,7 +5,7 @@ import java.util.Calendar
 /** Calendar-based recurrence across daylight saving changes and month/year lengths. */
 internal object EventDateRules {
     private val cycles = setOf("daily", "weekly", "monthly", "yearly")
-    fun validRecurrence(value: String) = value == "once" || value in cycles
+    fun validRecurrence(value: String) = value == "once" || value == "custom" || value in cycles
 
     fun nextOccurrence(dueAt: Long, recurrence: String, now: Long): Long? {
         if (recurrence !in cycles || dueAt <= 0L) return null
