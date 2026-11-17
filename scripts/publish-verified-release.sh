@@ -113,8 +113,17 @@ fi
 
 # GitHub gives *draft* assets a temporary untagged download URL. Validate
 # digest/size while private, then check permanent tag URL after publishing.
-staged="$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" |
-  jq -c --arg tag "$RELEASE_TAG" '.[] | select(.tag_name == $tag)' | head -1)"
+# Draft assets and their tag metadata can take a few seconds to become
+# visible through GitHub's paginated Releases API. Do not fail a verified APK
+# simply because the initial list query races the upload.
+staged=""
+for attempt in $(seq 1 15); do
+  staged="$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" |
+    jq -cs --arg tag "$RELEASE_TAG"       '[.[][] | select(.tag_name == $tag and .draft == true)] | .[0] // empty')"
+  [[ -n "$staged" ]] && break
+  echo "Waiting for staged draft $RELEASE_TAG [$attempt/15]"
+  if (( attempt < 15 )); then sleep 2; fi
+done
 [[ -n "$staged" ]] || { echo "::error::Cannot verify staged release"; exit 1; }
 if [[ "$RELEASE_CHANNEL" == "rc" ]]; then
   expected_pre="true"
