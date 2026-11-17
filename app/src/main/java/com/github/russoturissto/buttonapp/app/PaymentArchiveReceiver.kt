@@ -23,6 +23,12 @@ internal object PaymentArchiveScheduler {
         ExactReminderAlarms.schedule(context, trigger, pending(context, id, dueAt))
     }
 
+    fun scheduleDeadline(context: Context, id: String, deadline: Long,
+        lastDueAt: Long) {
+        if (deadline > System.currentTimeMillis())
+            ExactReminderAlarms.schedule(context, deadline, pending(context, id, lastDueAt))
+    }
+
     fun cancel(context: Context, id: String) {
         (context.getSystemService(Context.ALARM_SERVICE) as AlarmManager)
             .cancel(pending(context, id, 0L))
@@ -35,8 +41,7 @@ class PaymentArchiveReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val id = intent.getStringExtra("id") ?: return
         val dueAt = intent.getLongExtra("dueAt", -1L)
-        if (dueAt <= 0L ||
-            System.currentTimeMillis() - dueAt < PaymentDeliveryPolicy.LATE_GRACE_MS) return
+        if (dueAt <= 0L) return
         val prefs = context.getSharedPreferences("balancehub_data", Context.MODE_PRIVATE)
         val items = try {
             JSONArray(prefs.getString("payment_reminders", "[]") ?: "[]")
@@ -45,6 +50,18 @@ class PaymentArchiveReceiver : BroadcastReceiver() {
             .firstOrNull { it.optString("id") == id &&
                 it.optLong("dueAt", -1L) == dueAt } ?: return
         val recurrence = item.optString("recurrence", "once")
+        if (recurrence == "custom") {
+            val payment = PaymentReminderCodec.decode(item) ?: return
+            if (PaymentOccurrenceEngine.lastScheduledAt(payment) != dueAt ||
+                !PaymentArchiveStore.shouldArchive(item, System.currentTimeMillis())) return
+            if (PaymentArchiveStore.archiveById(context, id,
+                    PaymentArchiveStore.COMPLETED, expectedDue = item.optLong("dueAt"))) {
+                context.sendBroadcast(Intent(ACTION_PAYMENTS_CHANGED)
+                    .setPackage(context.packageName))
+            }
+            return
+        }
+        if (System.currentTimeMillis() - dueAt < PaymentDeliveryPolicy.LATE_GRACE_MS) return
         if (recurrence == "once") {
             if (PaymentArchiveStore.archiveById(context, id,
                 PaymentArchiveStore.COMPLETED, expectedDue = dueAt)) {
@@ -61,8 +78,9 @@ class PaymentArchiveReceiver : BroadcastReceiver() {
         val leadDays = item.optInt("leadDays", 0)
         item.put("dueAt", next)
         if (prefs.edit().putString("payment_reminders", items.toString()).commit()) {
-            PaymentAlarmScheduler.schedule(context, id, title, amount, currency,
-                next, leadDays, recurrence)
+            PaymentReminderCodec.decode(item)?.let {
+                PaymentOccurrenceScheduler.schedule(context, it)
+            }
             context.sendBroadcast(Intent(ACTION_PAYMENTS_CHANGED)
                 .setPackage(context.packageName))
         }
