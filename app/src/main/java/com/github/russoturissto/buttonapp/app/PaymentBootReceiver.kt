@@ -21,10 +21,7 @@ class PaymentBootReceiver : BroadcastReceiver() {
         for (i in 0 until items.length()) {
             val p = items.optJSONObject(i) ?: continue
             try {
-                PaymentAlarmScheduler.schedule(context, p.getString("id"),
-                    p.getString("title"), p.getString("amount"),
-                    p.getString("currency"), p.getLong("dueAt"),
-                    p.getInt("leadDays"), p.optString("recurrence", "once"))
+                PaymentReminderCodec.decode(p)?.let { PaymentOccurrenceScheduler.schedule(context, it) }
             } catch (_: Exception) { /* Another entry must not block this recovery. */ }
         }
     }
