@@ -4923,13 +4923,232 @@ class MainActivity : AppCompatActivity() {
         return true
     }
 
+
+    private fun updatePaymentPlan(payment: PaymentReminder, plan: PaymentPlan) {
+        val idx = payments.indexOfFirst { it.id == payment.id }
+        if (idx < 0) return
+        val updated = payment.copy(plan = plan)
+        payments[idx] = updated
+        if (!persistPayments()) {
+            payments.clear()
+            loadPayments()
+            return
+        }
+        PaymentOccurrenceScheduler.schedule(this, updated)
+        renderTab()
+    }
+
+    private fun skipPaymentDate(payment: PaymentReminder,
+        selected: PaymentOccurrence, skipped: Boolean) {
+        val day = PaymentOccurrenceEngine.day(selected.dueAt)
+        val next = Calendar.getInstance().apply {
+            timeInMillis = day
+            add(Calendar.DAY_OF_YEAR, 1)
+        }.timeInMillis
+        var plan = payment.plan ?: PaymentPlan(mode = "legacy", startsAt = payment.dueAt)
+        for (occ in PaymentOccurrenceEngine.occurrences(payment, day, next)) {
+            for (source in occ.sourceIds) {
+                val before = plan.edits[source] ?: PaymentOccurrenceEdit(source)
+                plan = plan.withEdit(before.copy(skipped = skipped),
+                    if (skipped) "skip_date" else "restore_date", occ.dueAt, occ.dueAt)
+            }
+        }
+        updatePaymentPlan(payment, plan)
+    }
+
+    private fun showPaymentChargeEditor(payment: PaymentReminder,
+        occurrence: PaymentOccurrence) {
+        val form = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(10), dp(18), dp(14))
+        }
+        val date = Calendar.getInstance().apply { timeInMillis = occurrence.dueAt }
+        val reminder = Calendar.getInstance().apply {
+            timeInMillis = occurrence.dueAt
+            set(Calendar.HOUR_OF_DAY, occurrence.reminderHour)
+            set(Calendar.MINUTE, occurrence.reminderMinute)
+        }
+        var moved = occurrence.manuallyMoved
+        val amount = field("Индивидуальная сумма").apply {
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER or
+                android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+            setText(occurrence.amount)
+        }
+        val dateButton = secondaryButton("Дата: " +
+            DateFormat.getDateInstance(DateFormat.MEDIUM).format(date.time)) {
+            showThemedCalendar(date) {
+                moved = true
+                // The date button is updated by the selection callback below.
+            }
+        }
+        dateButton.setOnClickListener {
+            showThemedCalendar(date) {
+                moved = true
+                dateButton.text = "Дата: " +
+                    DateFormat.getDateInstance(DateFormat.MEDIUM).format(date.time)
+            }
+        }
+        val dueClock = secondaryButton("Время оплаты: " +
+            java.text.SimpleDateFormat("HH:mm", Locale("ru")).format(date.time)) {}
+        dueClock.setOnClickListener {
+            BalanceTimePicker.show(this, date.get(Calendar.HOUR_OF_DAY),
+                date.get(Calendar.MINUTE)) { h, m ->
+                date.set(Calendar.HOUR_OF_DAY, h)
+                date.set(Calendar.MINUTE, m)
+                dueClock.text = "Время оплаты: " +
+                    java.text.SimpleDateFormat("HH:mm", Locale("ru")).format(date.time)
+            }
+        }
+        val reminderClock = secondaryButton("Время напоминания: " +
+            String.format(Locale.ROOT, "%02d:%02d",
+                occurrence.reminderHour, occurrence.reminderMinute)) {}
+        reminderClock.setOnClickListener {
+            BalanceTimePicker.show(this, reminder.get(Calendar.HOUR_OF_DAY),
+                reminder.get(Calendar.MINUTE)) { h, m ->
+                reminder.set(Calendar.HOUR_OF_DAY, h)
+                reminder.set(Calendar.MINUTE, m)
+                reminderClock.text = String.format(Locale.ROOT,
+                    "Время напоминания: %02d:%02d", h, m)
+            }
+        }
+        val lead = field("Напомнить за дней").apply {
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            setText(occurrence.leadDays.toString())
+        }
+        val skip = android.widget.CheckBox(this).apply {
+            text = "Пропустить начисление"
+            isChecked = occurrence.skipped
+            setTextColor(ink)
+        }
+        val undo = android.widget.CheckBox(this).apply {
+            text = "Отменить перенос"
+            isEnabled = occurrence.manuallyMoved
+            setTextColor(ink)
+        }
+        val scope = styledSpinner(listOf("Только это начисление",
+            "Будущие этого исходного числа", "Все будущие начисления"))
+        val includeSkipped = android.widget.CheckBox(this).apply {
+            text = "Включить пропущенные будущие"
+            setTextColor(ink)
+        }
+        val preserve = android.widget.CheckBox(this).apply {
+            text = "Сохранить индивидуальные исключения"
+            isChecked = true
+            setTextColor(ink)
+        }
+        form.addView(textLine("Исходное число: " + occurrence.sourceDay, 12f, muted))
+        form.addView(amount)
+        form.addView(dateButton)
+        form.addView(dueClock)
+        form.addView(reminderClock)
+        form.addView(lead)
+        form.addView(skip)
+        form.addView(undo)
+        form.addView(textLine("Область применения", 12f, muted))
+        form.addView(scope)
+        form.addView(includeSkipped)
+        form.addView(preserve)
+        val dialog = themedDialogBuilder().setTitle("Настройки начисления")
+            .setView(android.widget.ScrollView(this).apply { addView(form) })
+            .setNegativeButton("Отмена", null)
+            .setPositiveButton("Просмотреть изменения", null).create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setOnClickListener {
+                val sum = amount.text.toString().trim().replace(',', '.')
+                val days = lead.text.toString().toIntOrNull()
+                if (sum.toBigDecimalOrNull() == null || days == null || days !in 0..30) {
+                    Toast.makeText(this, "Проверьте сумму и дни напоминания",
+                        Toast.LENGTH_LONG).show()
+                    return@setOnClickListener
+                }
+                val now = System.currentTimeMillis()
+                val scopeIndex = scope.selectedItemPosition
+                if (scopeIndex > 0 && occurrence.dueAt <= now) {
+                    Toast.makeText(this, "Массовые изменения только для будущих начислений",
+                        Toast.LENGTH_LONG).show()
+                    return@setOnClickListener
+                }
+                val base = payment.plan ?: PaymentPlan(mode = "legacy",
+                    startsAt = payment.dueAt)
+                var result = base
+                if (scopeIndex == 0) {
+                    for (source in occurrence.sourceIds) {
+                        val old = result.edits[source] ?: PaymentOccurrenceEdit(source)
+                        val edit = old.copy(amount = sum,
+                            movedAt = if (undo.isChecked) null
+                                else if (moved) date.timeInMillis else old.movedAt,
+                            paymentHour = date.get(Calendar.HOUR_OF_DAY),
+                            paymentMinute = date.get(Calendar.MINUTE),
+                            reminderHour = reminder.get(Calendar.HOUR_OF_DAY),
+                            reminderMinute = reminder.get(Calendar.MINUTE),
+                            leadDays = days, skipped = skip.isChecked,
+                            manualMove = !undo.isChecked && (moved || old.manualMove))
+                        result = result.withEdit(edit,
+                            if (undo.isChecked) "undo_move" else "edit",
+                            occurrence.dueAt, date.timeInMillis)
+                    }
+                } else {
+                    val start = maxOf(now + 1L, occurrence.dueAt)
+                    val rule = PaymentBulkEdit(start,
+                        if (scopeIndex == 1) occurrence.sourceDay else null,
+                        sum, date.get(Calendar.HOUR_OF_DAY), date.get(Calendar.MINUTE),
+                        reminder.get(Calendar.HOUR_OF_DAY),
+                        reminder.get(Calendar.MINUTE), days, includeSkipped.isChecked)
+                    val kept = if (preserve.isChecked) result.edits else
+                        result.edits.filter { (source, edit) ->
+                            val actual = edit.movedAt
+                                ?: PaymentOccurrenceEngine.dateForSource(source) ?: 0L
+                            val matching = scopeIndex == 2 ||
+                                source.substringAfterLast('-').toIntOrNull() ==
+                                occurrence.sourceDay
+                            actual < start || !matching ||
+                                (edit.skipped && !includeSkipped.isChecked)
+                        }
+                    result = result.copy(edits = kept,
+                        bulkEdits = result.bulkEdits + rule,
+                        history = result.history + PaymentHistoryEntry(
+                            occurrence.id, "bulk_edit", now, occurrence.dueAt, null))
+                }
+                val approved = result
+                val message = (if (scopeIndex == 0) "Одно начисление"
+                    else if (scopeIndex == 1) "Будущие начисления исходного числа"
+                    else "Все будущие начисления") + "\\nСумма: " + sum + " " +
+                    payment.currency + "\\nВремя оплаты: " +
+                    String.format(Locale.ROOT, "%02d:%02d",
+                        date.get(Calendar.HOUR_OF_DAY), date.get(Calendar.MINUTE)) +
+                    "\\nИсключения: " +
+                    if (preserve.isChecked) "сохранить" else "сбросить"
+                val confirm = {
+                    themedDialogBuilder().setTitle("Применить изменения?")
+                        .setMessage(message)
+                        .setNegativeButton("Отмена", null)
+                        .setPositiveButton("Применить") { _, _ ->
+                            updatePaymentPlan(payment, approved)
+                            dialog.dismiss()
+                        }.show()
+                }
+                if (moved && !undo.isChecked && date.timeInMillis < now) {
+                    themedDialogBuilder().setTitle("Перенос в прошлое")
+                        .setMessage("Дата начисления уже прошла.")
+                        .setNegativeButton("Отмена", null)
+                        .setPositiveButton("Продолжить") { _, _ -> confirm() }
+                        .show()
+                } else confirm()
+            }
+        }
+        dialog.show()
+    }
+
     private fun renderPayments() {
         if (!::listContainer.isInitialized || currentTab != 2 || archiveOpen) return
         listContainer.removeAllViews()
         if (expandedPaymentId != null && payments.none { it.id == expandedPaymentId }) {
             expandedPaymentId = null
         }
-        val sorted = payments.sortedBy { it.dueAt }
+        val sorted = payments.sortedBy {
+            PaymentOccurrenceEngine.upcoming(it, System.currentTimeMillis(), 1)
+                .firstOrNull()?.dueAt ?: Long.MAX_VALUE
+        }
         val section = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = cardGradient()
@@ -5002,8 +5221,18 @@ class MainActivity : AppCompatActivity() {
                         ellipsize = android.text.TextUtils.TruncateAt.END
                     })
                     addView(verticalGap(4))
-                    addView(textLine(DateFormat.getDateInstance(DateFormat.MEDIUM)
-                        .format(Date(payment.dueAt)), 12f, muted))
+                    val nextFour = PaymentOccurrenceEngine.upcoming(
+                        payment, System.currentTimeMillis(), 4)
+                    for ((position, next) in nextFour.withIndex()) {
+                        addView(textLine(
+                            (if (position == 0) "Ближайшее: " else "Далее: ") +
+                            DateFormat.getDateInstance(DateFormat.SHORT)
+                                .format(Date(next.dueAt)) + " · " +
+                            PaymentCurrencyFormatter.amountWithCurrency(
+                                next.amount, next.currency), 11f, muted))
+                    }
+                    if (nextFour.isEmpty()) addView(textLine(
+                        "Нет будущих начислений", 11f, muted))
                 }
                 row.addView(iconTile(payment.iconId ?: IconRegistry.select(
                     payment.title, "credit-card"), 38), LinearLayout.LayoutParams(dp(38), dp(38)))
@@ -5041,6 +5270,48 @@ class MainActivity : AppCompatActivity() {
                         13f, muted
                     ))
                     detail.addView(verticalGap(10))
+                    val from = Calendar.getInstance().apply {
+                        add(Calendar.DAY_OF_YEAR, -32)
+                    }.timeInMillis
+                    val until = Calendar.getInstance().apply {
+                        add(Calendar.YEAR, 3)
+                    }.timeInMillis
+                    val charges = PaymentOccurrenceEngine.occurrences(
+                        payment, from, until).take(45)
+                    for (charge in charges) {
+                        val info = eventDateLabel(charge.dueAt) + " · " +
+                            PaymentCurrencyFormatter.amountWithCurrency(
+                                charge.amount, charge.currency) +
+                            (if (charge.manuallyMoved) " · перенесено с " +
+                                DateFormat.getDateInstance(DateFormat.SHORT)
+                                    .format(Date(charge.originalAt)) +
+                                " (исходное " + charge.sourceDay + ")" else
+                                if (charge.automaticallyClamped)
+                                    " · исходное число " + charge.sourceDay else "") +
+                            (if (charge.skipped) " · пропущено" else "") +
+                            String.format(Locale.ROOT, " · напомнить %02d:%02d",
+                                charge.reminderHour, charge.reminderMinute)
+                        detail.addView(textLine(info, 12f,
+                            if (charge.skipped) muted else ink).apply {
+                            if (charge.skipped) paintFlags = paintFlags or
+                                android.graphics.Paint.STRIKE_THRU_TEXT_FLAG
+                            setPadding(0, dp(8), 0, dp(8))
+                            setOnClickListener { showPaymentChargeEditor(payment, charge) }
+                        })
+                        val rowActions = LinearLayout(this).apply {
+                            orientation = LinearLayout.HORIZONTAL
+                        }
+                        rowActions.addView(secondaryButton("Изменить") {
+                            showPaymentChargeEditor(payment, charge)
+                        }, LinearLayout.LayoutParams(0, dp(40), 1f))
+                        rowActions.addView(View(this),
+                            LinearLayout.LayoutParams(dp(6), 1))
+                        rowActions.addView(secondaryButton(
+                            if (charge.skipped) "Восстановить дату" else "Пропустить дату") {
+                            skipPaymentDate(payment, charge, !charge.skipped)
+                        }, LinearLayout.LayoutParams(0, dp(40), 1f))
+                        detail.addView(rowActions)
+                    }
                     val actions = LinearLayout(this).apply {
                         orientation = LinearLayout.HORIZONTAL
                     }
