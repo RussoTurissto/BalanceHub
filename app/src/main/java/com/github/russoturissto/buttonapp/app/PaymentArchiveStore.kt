@@ -93,6 +93,17 @@ internal object PaymentArchiveStore {
         return records.sortedByDescending { it.archivedAt }
     }
 
+    fun archivedPlan(context: Context, id: String): PaymentPlan? {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val entries = readArray(prefs.getString(ARCHIVE, "[]")) ?: return null
+        for (i in 0 until entries.length()) {
+            val item = entries.optJSONObject(i) ?: continue
+            if (item.optString("id") == id)
+                return PaymentPlanCodec.decode(item.optJSONObject("scheduleV2"))
+        }
+        return null
+    }
+
     /** Read active entries without dropping malformed rows or rewriting stored JSON. */
     @Synchronized
     fun activeSnapshot(context: Context): JSONArray? {
@@ -248,6 +259,9 @@ internal object PaymentArchiveStore {
             val plan = PaymentPlanCodec.decode(record.optJSONObject("scheduleV2"))
             if (plan != null) record.put("scheduleV2", PaymentPlanCodec.encode(
                 plan.copy(startsAt = nextDueAt,
+                    selectedDates = if (plan.mode == "dates")
+                        setOf(PaymentOccurrenceEngine.day(nextDueAt))
+                        else plan.selectedDates,
                     history = plan.history + PaymentHistoryEntry(
                         "", "restored_copy", System.currentTimeMillis(), null, nextDueAt))))
         }
