@@ -5135,6 +5135,10 @@ class MainActivity : AppCompatActivity() {
                             rule.toString()))
                 }
                 val approved = result
+                val overdueTransfer = moved && !undo.isChecked &&
+                    date.timeInMillis < now
+                val willArchive = overdueTransfer && PaymentArchiveStore.archiveDeadline(
+                    payment.copy(plan = approved))?.let { now >= it } == true
                 val message = (if (scopeIndex == 0) "Одно начисление"
                     else if (scopeIndex == 1) "Будущие начисления исходного числа"
                     else "Все будущие начисления") + "\\nСумма: " + sum + " " +
@@ -5142,25 +5146,20 @@ class MainActivity : AppCompatActivity() {
                     String.format(Locale.ROOT, "%02d:%02d",
                         date.get(Calendar.HOUR_OF_DAY), date.get(Calendar.MINUTE)) +
                     "\\nИсключения: " +
-                    if (preserve.isChecked) "сохранить" else "сбросить"
-                val confirm = {
-                    themedDialogBuilder().setTitle("Применить изменения?")
-                        .setMessage(message)
-                        .setNegativeButton("Отмена", null)
-                        .setPositiveButton("Применить") { _, _ ->
-                            updatePaymentPlan(payment, approved)
-                            dialog.dismiss()
-                        }.show()
-                }
-                if (moved && !undo.isChecked && date.timeInMillis < now) {
-                    themedDialogBuilder().setTitle("Перенос в прошлое")
-                        .setMessage("Дата начисления уже прошла. Если это последнее " +
-                            "начисление, карточка может сразу перейти в архив " +
-                            "после завершения периода ожидания.")
-                        .setNegativeButton("Отмена", null)
-                        .setPositiveButton("Продолжить") { _, _ -> confirm() }
-                        .show()
-                } else confirm()
+                    (if (preserve.isChecked) "сохранить" else "сбросить") +
+                    (if (willArchive) "\\nВнимание: перенос в прошлое приведёт " +
+                        "к немедленному архивированию карточки."
+                    else if (overdueTransfer) "\\nВнимание: дата переноса уже прошла."
+                    else "")
+                themedDialogBuilder().setTitle(
+                        if (overdueTransfer) "Подтвердить перенос в прошлое"
+                        else "Применить изменения?")
+                    .setMessage(message)
+                    .setNegativeButton("Отмена", null)
+                    .setPositiveButton("Применить") { _, _ ->
+                        updatePaymentPlan(payment, approved)
+                        dialog.dismiss()
+                    }.show()
             }
         }
         dialog.show()
