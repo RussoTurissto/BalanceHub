@@ -181,6 +181,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
     private var editingId: String? = null
+    private var pendingPaymentPlan: PaymentPlan? = null
     private var dueDate = ReminderDateTimePolicy.atOpening()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -2005,9 +2006,152 @@ class MainActivity : AppCompatActivity() {
         renderPayments()
     }
 
+
+    /**
+     * The existing themed calendar is reused for each selected date. Both custom
+     * modes keep their selections when the user switches within the editor.
+     */
+    private fun installCustomPaymentControls(
+        form: LinearLayout, recurrence: Spinner, initial: PaymentPlan?
+    ) {
+        var mode = initial?.mode ?: "dates"
+        val dates = initial?.selectedDates?.toMutableSet() ?: linkedSetOf()
+        val monthlyDays = initial?.monthlyDays?.toMutableSet() ?: linkedSetOf()
+        var monthlyEnabled = initial?.monthlyEnabled ?: false
+        var endsAt = initial?.endsAt
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(7), dp(6), dp(7), dp(6))
+            background = rounded(softAccent, 12)
+        }
+        val modeSpinner = styledSpinner(
+            listOf("Конкретные даты", "Числа каждого месяца"),
+            if (mode == "monthly") 1 else 0
+        )
+        val datePanel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val monthlyPanel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val dateInfo = textLine("", 12f, muted)
+        val endInfo = textLine("", 12f, muted)
+        fun store() {
+            pendingPaymentPlan = PaymentPlan(
+                mode, dates.toSet(), monthlyDays.toSet(), monthlyEnabled,
+                initial?.startsAt ?: 0L, endsAt,
+                initial?.edits ?: emptyMap(),
+                initial?.history ?: emptyList(),
+                initial?.bulkEdits ?: emptyList()
+            )
+        }
+        fun refresh() {
+            dateInfo.text = if (dates.isEmpty()) "Даты не выбраны"
+                else dates.sorted().joinToString(", ") {
+                    DateFormat.getDateInstance(DateFormat.SHORT).format(Date(it))
+                }
+            endInfo.text = if (endsAt == null) "Дата окончания не задана"
+                else "До " + DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(endsAt!!))
+            datePanel.visibility = if (mode == "dates") View.VISIBLE else View.GONE
+            monthlyPanel.visibility = if (mode == "monthly") View.VISIBLE else View.GONE
+            store()
+        }
+        datePanel.addView(dateInfo)
+        datePanel.addView(verticalGap(6))
+        datePanel.addView(secondaryButton("＋ Добавить дату") {
+            val selected = Calendar.getInstance()
+            showThemedCalendar(selected) {
+                dates.add(PaymentOccurrenceEngine.day(selected.timeInMillis))
+                refresh()
+            }
+        })
+        datePanel.addView(verticalGap(6))
+        datePanel.addView(secondaryButton("Очистить выбранные даты") {
+            dates.clear()
+            refresh()
+        })
+        val monthlySwitch = android.widget.CheckBox(this).apply {
+            text = "Повторять каждый месяц"
+            isChecked = monthlyEnabled
+            setTextColor(ink)
+            setOnCheckedChangeListener { _, checked ->
+                monthlyEnabled = checked
+                store()
+            }
+        }
+        monthlyPanel.addView(monthlySwitch)
+        monthlyPanel.addView(textLine("Выберите числа месяца", 12f, muted))
+        val dayGrid = GridLayout(this).apply { columnCount = 7 }
+        for (selected in 1..31) {
+            val check = android.widget.CheckBox(this).apply {
+                text = selected.toString()
+                textSize = 11f
+                isChecked = selected in monthlyDays
+                setTextColor(ink)
+                setPadding(0, 0, 0, 0)
+                buttonTintList = android.content.res.ColorStateList.valueOf(accent)
+                setOnCheckedChangeListener { _, enabled ->
+                    if (enabled) monthlyDays.add(selected) else monthlyDays.remove(selected)
+                    store()
+                }
+            }
+            dayGrid.addView(check, GridLayout.LayoutParams().apply {
+                width = dp(44)
+                height = dp(48)
+            })
+        }
+        monthlyPanel.addView(dayGrid)
+        panel.addView(modeSpinner)
+        panel.addView(verticalGap(8))
+        panel.addView(datePanel)
+        panel.addView(monthlyPanel)
+        panel.addView(verticalGap(8))
+        panel.addView(endInfo)
+        panel.addView(secondaryButton("Выбрать дату окончания") {
+            val selected = Calendar.getInstance().apply {
+                timeInMillis = endsAt ?: System.currentTimeMillis()
+            }
+            showThemedCalendar(selected) {
+                endsAt = PaymentOccurrenceEngine.day(selected.timeInMillis)
+                refresh()
+            }
+        })
+        panel.addView(verticalGap(5))
+        panel.addView(secondaryButton("Без даты окончания") {
+            endsAt = null
+            refresh()
+        })
+        modeSpinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) = Unit
+            override fun onItemSelected(
+                parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long
+            ) {
+                mode = if (position == 1) "monthly" else "dates"
+                refresh()
+            }
+        }
+        recurrence.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) = Unit
+            override fun onItemSelected(
+                parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long
+            ) {
+                panel.visibility = if (position == 3) View.VISIBLE else View.GONE
+            }
+        }
+        form.addView(panel)
+        panel.visibility = if (recurrence.selectedItemPosition == 3) View.VISIBLE else View.GONE
+        refresh()
+    }
+
+    private fun validCustomPaymentPlan(plan: PaymentPlan?): Boolean {
+        if (plan == null) return false
+        return when (plan.mode) {
+            "dates" -> plan.selectedDates.isNotEmpty()
+            "monthly" -> plan.monthlyEnabled && plan.monthlyDays.isNotEmpty()
+            else -> false
+        }
+    }
+
     /** Payment creation uses the same controls as before, now in a scrollable dialog. */
     private fun showNewPaymentDialog() {
         editingId = null
+        pendingPaymentPlan = null
         selectedPaymentIcon = null
         dueDate = ReminderDateTimePolicy.atOpening()
         val form = LinearLayout(this).apply {
@@ -2047,7 +2191,7 @@ class MainActivity : AppCompatActivity() {
                     java.text.SimpleDateFormat("HH:mm", Locale("ru")).format(dueDate.time)
             }
         }
-        val recOptions = listOf("Единоразовый", "Еженедельный", "Ежемесячный")
+        val recOptions = listOf("Единоразовый", "Еженедельный", "Ежемесячный", "Пользовательское")
         recurrenceInput = styledSpinner(recOptions)
         form.addView(textLine("Название", 13f, muted))
         form.addView(titleInput)
@@ -2072,6 +2216,7 @@ class MainActivity : AppCompatActivity() {
         form.addView(textLine("Повторение платежа", 13f, muted))
         form.addView(verticalGap(6))
         form.addView(recurrenceInput)
+        installCustomPaymentControls(form, recurrenceInput, null)
         form.addView(verticalGap(12))
         form.addView(textLine("Напомнить за сколько дней", 13f, muted))
         form.addView(leadDaysInput)
@@ -4728,14 +4873,19 @@ class MainActivity : AppCompatActivity() {
                 Toast.LENGTH_LONG).show()
             return false
         }
-        val recurrence = listOf("once", "weekly", "monthly")[recurrenceInput.selectedItemPosition]
+        val recurrence = listOf("once", "weekly", "monthly", "custom")[recurrenceInput.selectedItemPosition]
+        if (recurrence == "custom" && !validCustomPaymentPlan(pendingPaymentPlan)) {
+            Toast.makeText(this, "Выберите даты или включите повторение по числам месяца", Toast.LENGTH_LONG).show()
+            return false
+        }
         val old = payments.firstOrNull { it.id == editingId }
         if (old != null) {
             cancelReminder(old)
             payments.removeAll { it.id == old.id }
         }
         val reminder = PaymentReminder(old?.id ?: UUID.randomUUID().toString(), title, amount,
-            currency, dueDate.timeInMillis, leadDays, recurrence, selectedPaymentIcon)
+            currency, dueDate.timeInMillis, leadDays, recurrence, selectedPaymentIcon,
+            pendingPaymentPlan?.copy(startsAt = dueDate.timeInMillis))
         payments.add(reminder)
         editingId = null
         if (!persistPayments()) {
@@ -5219,6 +5369,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showEditPaymentDialog(payment: PaymentReminder) {
+        pendingPaymentPlan = payment.plan
         val editor = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(12), dp(20), dp(8))
@@ -5261,7 +5412,7 @@ class MainActivity : AppCompatActivity() {
                     java.text.SimpleDateFormat("HH:mm", Locale("ru")).format(date.time)
             }
         }
-        val options = listOf("Единоразовый", "Еженедельный", "Ежемесячный")
+        val options = listOf("Единоразовый", "Еженедельный", "Ежемесячный", "Пользовательское")
         val recurrence = Spinner(this).apply {
             adapter = object : ArrayAdapter<String>(
                 this@MainActivity, android.R.layout.simple_spinner_item, options
@@ -5279,7 +5430,7 @@ class MainActivity : AppCompatActivity() {
                     }
             }
             background = rounded(softAccent, 12)
-            setSelection(listOf("once", "weekly", "monthly")
+            setSelection(listOf("once", "weekly", "monthly", "custom")
                 .indexOf(payment.recurrence).coerceAtLeast(0))
         }
         editor.addView(textLine("Название", 13f, muted))
@@ -5305,6 +5456,7 @@ class MainActivity : AppCompatActivity() {
         editor.addView(textLine("Повторение", 13f, muted))
         editor.addView(verticalGap(6))
         editor.addView(recurrence)
+        installCustomPaymentControls(editor, recurrence, payment.plan)
         editor.addView(verticalGap(12))
         editor.addView(textLine("Напомнить за (дней)", 13f, muted))
         editor.addView(days)
@@ -5340,8 +5492,10 @@ class MainActivity : AppCompatActivity() {
                 val updated = payment.copy(title = newTitle, amount = newAmount,
                     currency = newCurrency, dueAt = date.timeInMillis,
                     leadDays = newDays,
-                    recurrence = listOf("once", "weekly", "monthly")[recurrence.selectedItemPosition],
-                    iconId = chosenIcon)
+                    recurrence = listOf("once", "weekly", "monthly", "custom")[recurrence.selectedItemPosition],
+                    iconId = chosenIcon,
+                    plan = pendingPaymentPlan?.copy(startsAt = payment.plan?.startsAt
+                        ?.takeIf { it > 0L } ?: date.timeInMillis))
                 payments.add(updated)
                 if (!persistPayments()) {
                     payments.clear()
