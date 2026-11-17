@@ -132,7 +132,7 @@ internal object PaymentOccurrenceEngine {
             val m = p[1].toInt() - 1
             val d = p[2].toInt()
             if (m !in 0..11 || d !in 1..31) null
-            else localTimestamp(y, m, d, 0, 0)
+            else localTimestamp(y, m, d.coerceAtMost(PaymentCalendarMath.daysInMonth(y, m)), 0, 0)
         }
     } catch (_: Exception) { null }
 
