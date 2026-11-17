@@ -101,7 +101,8 @@ internal object PaymentActiveMergePolicy {
 internal data class PaymentReminder(
     val id: String, val title: String, val amount: String, val currency: String,
     val dueAt: Long, val leadDays: Int, val recurrence: String = "once",
-    val iconId: String? = null
+    val iconId: String? = null,
+    val plan: PaymentPlan? = null
 )
 
 /** Fault-isolated JSON codec: one bad legacy record cannot crash the activity. */
@@ -116,10 +117,12 @@ internal object PaymentReminderCodec {
             val dueAt = record.getLong("dueAt").takeIf { it > 0L } ?: return null
             val lead = record.getInt("leadDays").takeIf { it in 0..365 } ?: return null
             val recurrence = record.optString("recurrence", "once")
-                .takeIf { it in setOf("once", "weekly", "monthly") } ?: return null
+                .takeIf { it in setOf("once", "weekly", "monthly", "custom") } ?: return null
             PaymentReminder(id, title, record.getString("amount"),
                 record.getString("currency"), dueAt, lead, recurrence,
-                record.optString("icon").takeIf { IconRegistry.find(it) != null })
+                record.optString("icon").takeIf { IconRegistry.find(it) != null },
+                PaymentPlanCodec.decode(record.optJSONObject("scheduleV2")))
+                .takeIf { recurrence != "custom" || it.plan != null }
         } catch (_: Exception) {
             null
         }
@@ -131,4 +134,5 @@ internal object PaymentReminderCodec {
         .put("dueAt", payment.dueAt).put("leadDays", payment.leadDays)
         .put("recurrence", payment.recurrence)
         .put("icon", payment.iconId ?: JSONObject.NULL)
+        .also { if (payment.plan != null) it.put("scheduleV2", PaymentPlanCodec.encode(payment.plan)) }
 }
