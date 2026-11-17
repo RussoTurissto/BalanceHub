@@ -5655,6 +5655,57 @@ class MainActivity : AppCompatActivity() {
         else -> "Не повторяется"
     }
 
+
+    private fun applyEventVisitChanges(
+        event: PlannedEvent, ids: Set<String>, skip: Boolean? = null,
+        movedAt: Long? = null, undoMove: Boolean = false
+    ) {
+        if (ids.isEmpty()) return
+        var plan = event.plan ?: EventPlan(anchorAt = event.dueAt)
+        val now = System.currentTimeMillis()
+        for (id in ids) {
+            val old = plan.edits[id] ?: EventOccurrenceEdit(id)
+            val updated = old.copy(skipped = skip ?: old.skipped,
+                movedAt = if (undoMove) null else movedAt ?: old.movedAt)
+            plan = plan.withEdit(updated,
+                when {
+                    undoMove -> "undo_move"
+                    movedAt != null -> "move"
+                    skip == true -> "skip"
+                    else -> "restore"
+                }, EventOccurrenceEngine.between(event, now - 400L * 86_400_000L,
+                    now + 400L * 86_400_000L)
+                    .firstOrNull { it.sourceId == id }?.dueAt, updated.movedAt)
+        }
+        var updated = event.copy(plan = plan)
+        if (event.recurrence == "custom") {
+            val next = EventOccurrenceEngine.next(updated, now - 1L)
+            if (next != null) updated = updated.copy(dueAt = next.dueAt)
+        }
+        if (EventStore.save(this, updated)) {
+            EventScheduler.cancel(this, event.id)
+            EventScheduler.schedule(this, updated)
+            renderTab()
+        } else Toast.makeText(this, "Не удалось сохранить посещения",
+            Toast.LENGTH_LONG).show()
+    }
+
+    private fun moveEventVisit(event: PlannedEvent, visit: EventOccurrence) {
+        val date = Calendar.getInstance().apply { timeInMillis = visit.dueAt }
+        showThemedCalendar(date) {
+            val target = date.timeInMillis
+            val apply = {
+                applyEventVisitChanges(event, setOf(visit.sourceId), movedAt = target)
+            }
+            if (target < System.currentTimeMillis()) {
+                themedDialogBuilder().setTitle("Перенос в прошлое")
+                    .setMessage("Выбранная дата уже прошла. Перенести посещение?")
+                    .setNegativeButton("Отмена", null)
+                    .setPositiveButton("Перенести") { _, _ -> apply() }.show()
+            } else apply()
+        }
+    }
+
     private fun renderEvents() {
         contentContainer.addView(textLine("События", 23f, ink, true))
         contentContainer.addView(verticalGap(6))
@@ -5769,6 +5820,65 @@ class MainActivity : AppCompatActivity() {
                 details.addView(textLine(
                     eventRepeatLabel(event.recurrence) + " · " + lead, 12f, muted))
                 details.addView(verticalGap(10))
+                if (event.recurrence == "custom") {
+                    val start = Calendar.getInstance().apply {
+                        add(Calendar.DAY_OF_YEAR, -7)
+                    }.timeInMillis
+                    val finish = Calendar.getInstance().apply {
+                        add(Calendar.YEAR, 2)
+                    }.timeInMillis
+                    val visits = EventOccurrenceEngine.between(event, start, finish)
+                        .take(24)
+                    val chosen = mutableSetOf<String>()
+                    details.addView(textLine("Посещения — выберите несколько дат " +
+                        "для пропуска или восстановления", 12f, muted))
+                    for (visit in visits) {
+                        val checkbox = android.widget.CheckBox(this).apply {
+                            text = eventDateLabel(visit.dueAt) +
+                                (if (visit.skipped) " · пропущено" else "") +
+                                (if (visit.moved) " · перенесено с " +
+                                    DateFormat.getDateInstance(DateFormat.SHORT)
+                                        .format(Date(visit.originalAt)) else "")
+                            isChecked = false
+                            setTextColor(if (visit.skipped) muted else ink)
+                            setOnCheckedChangeListener { _, selected ->
+                                if (selected) chosen.add(visit.sourceId)
+                                else chosen.remove(visit.sourceId)
+                            }
+                        }
+                        details.addView(checkbox)
+                        val controlsForVisit = LinearLayout(this).apply {
+                            orientation = LinearLayout.HORIZONTAL
+                        }
+                        controlsForVisit.addView(secondaryButton(
+                            if (visit.skipped) "Восстановить" else "Пропустить") {
+                            applyEventVisitChanges(event, setOf(visit.sourceId),
+                                skip = !visit.skipped)
+                        }, LinearLayout.LayoutParams(0, dp(42), 1f))
+                        controlsForVisit.addView(View(this),
+                            LinearLayout.LayoutParams(dp(5), 1))
+                        controlsForVisit.addView(secondaryButton(
+                            if (visit.moved) "Отмена переноса" else "Перенести") {
+                            if (visit.moved) applyEventVisitChanges(event,
+                                setOf(visit.sourceId), undoMove = true)
+                            else moveEventVisit(event, visit)
+                        }, LinearLayout.LayoutParams(0, dp(42), 1f))
+                        details.addView(controlsForVisit)
+                    }
+                    details.addView(verticalGap(10))
+                    val multi = LinearLayout(this).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                    }
+                    multi.addView(secondaryButton("Пропустить выбранные") {
+                        applyEventVisitChanges(event, chosen, skip = true)
+                    }, LinearLayout.LayoutParams(0, dp(44), 1f))
+                    multi.addView(View(this), LinearLayout.LayoutParams(dp(5), 1))
+                    multi.addView(secondaryButton("Восстановить выбранные") {
+                        applyEventVisitChanges(event, chosen, skip = false)
+                    }, LinearLayout.LayoutParams(0, dp(44), 1f))
+                    details.addView(multi)
+                    details.addView(verticalGap(10))
+                }
                 val controls = LinearLayout(this).apply {
                     orientation = LinearLayout.HORIZONTAL
                 }
