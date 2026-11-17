@@ -90,7 +90,7 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/staged" "$tmp/stable"
 # Use the asset ID, not its private untagged download URL.
-gh api -H 'Accept: application/octet-stream'   "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id"   --output "$tmp/staged/BalanceHub.apk"
+curl --fail --silent --show-error --location --retry 3   -H 'Accept: application/octet-stream'   -H 'X-GitHub-Api-Version: 2022-11-28'   -H "Authorization: Bearer $GH_TOKEN"   "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/assets/$asset_id"   --output "$tmp/staged/BalanceHub.apk"
 new="$tmp/staged/BalanceHub.apk"
 [[ -s "$new" ]] || { echo "::error::Staged APK download failed"; exit 1; }
 actual_size="$(stat -c %s "$new")"
