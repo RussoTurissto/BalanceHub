@@ -159,6 +159,16 @@ class MainActivity : AppCompatActivity() {
                 ::contentContainer.isInitialized) renderTab()
         }
     }
+    private val calendarChangedReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            val action = intent?.action
+            if (action == Intent.ACTION_DATE_CHANGED ||
+                action == Intent.ACTION_TIMEZONE_CHANGED ||
+                action == Intent.ACTION_TIME_CHANGED) {
+                if (::contentContainer.isInitialized && currentTab == 0) renderTab()
+            }
+        }
+    }
     private val paymentChangedReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action != PaymentArchiveReceiver.ACTION_PAYMENTS_CHANGED) return
@@ -343,6 +353,12 @@ class MainActivity : AppCompatActivity() {
         ContextCompat.registerReceiver(this, paymentChangedReceiver,
             IntentFilter(PaymentArchiveReceiver.ACTION_PAYMENTS_CHANGED),
             ContextCompat.RECEIVER_NOT_EXPORTED)
+        ContextCompat.registerReceiver(this, calendarChangedReceiver,
+            IntentFilter().apply {
+                addAction(Intent.ACTION_DATE_CHANGED)
+                addAction(Intent.ACTION_TIME_CHANGED)
+                addAction(Intent.ACTION_TIMEZONE_CHANGED)
+            }, ContextCompat.RECEIVER_EXPORTED)
         ContextCompat.registerReceiver(this, downloadedApkReceiver,
             IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE),
             ContextCompat.RECEIVER_EXPORTED)
@@ -354,6 +370,7 @@ class MainActivity : AppCompatActivity() {
         unregisterReceiver(bankUpdateReceiver)
         unregisterReceiver(eventChangedReceiver)
         unregisterReceiver(paymentChangedReceiver)
+        unregisterReceiver(calendarChangedReceiver)
         unregisterReceiver(downloadedApkReceiver)
         super.onStop()
     }
