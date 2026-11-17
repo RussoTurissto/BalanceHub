@@ -5,7 +5,8 @@ on:
     branches:
       - main
     paths:
-      # Only runtime application source changes trigger a new APK.
+      # Runtime changes and explicitly approved version updates trigger release checks.
+      - "gradle.properties"
       - "app/src/main/**"
       - "library-android/src/main/**"
       - "library-compose/src/main/**"
