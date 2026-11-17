@@ -77,7 +77,9 @@ internal object PaymentOccurrenceScheduler {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().putString(payment.id, keys.toString()).commit()
         val last = PaymentOccurrenceEngine.lastScheduledAt(payment)
-        if (last != null) PaymentArchiveScheduler.schedule(context, payment.id, last)
+        val deadline = PaymentArchiveStore.archiveDeadline(payment)
+        if (last != null && deadline != null)
+            PaymentArchiveScheduler.scheduleDeadline(context, payment.id, deadline, last)
     }
 
     fun nextTrigger(occ: PaymentOccurrence, now: Long): Long? {
