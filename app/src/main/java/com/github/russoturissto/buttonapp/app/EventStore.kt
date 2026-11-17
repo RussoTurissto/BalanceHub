@@ -13,7 +13,8 @@ internal data class PlannedEvent(
     val dueAt: Long,
     val leadMinutes: Int,
     val recurrence: String,
-    val iconId: String? = null
+    val iconId: String? = null,
+    val plan: EventPlan? = null
 )
 internal data class ArchivedEvent(
     val archiveId: String,
@@ -34,11 +35,13 @@ internal object EventStore {
             json.getString("id"), json.getString("title"),
             json.optString("details", ""), json.getLong("dueAt"),
             json.getInt("lead"), json.optString("repeat", "once"),
-            json.optString("icon").takeIf { IconRegistry.find(it) != null }
+            json.optString("icon").takeIf { IconRegistry.find(it) != null },
+            EventPlanCodec.decode(json.optJSONObject("eventPlanV2"))
         )
         event.takeIf { it.id.isNotBlank() && it.title.isNotBlank() &&
             it.dueAt > 0 && it.leadMinutes in 0..10_080 &&
-            EventDateRules.validRecurrence(it.recurrence) }
+            EventDateRules.validRecurrence(it.recurrence) &&
+            (it.recurrence != "custom" || it.plan != null) }
     } catch (_: Exception) { null }
 
     private fun encode(event: PlannedEvent): JSONObject = JSONObject()
@@ -46,6 +49,7 @@ internal object EventStore {
         .put("dueAt", event.dueAt).put("lead", event.leadMinutes)
         .put("repeat", event.recurrence)
         .put("icon", event.iconId ?: JSONObject.NULL)
+        .also { if (event.plan != null) it.put("eventPlanV2", EventPlanCodec.encode(event.plan)) }
 
     private fun array(raw: String?): JSONArray = try { JSONArray(raw ?: "[]") }
         catch (_: Exception) { JSONArray() }
@@ -87,9 +91,11 @@ internal object EventStore {
         val original = active(context)
         val selected = original.firstOrNull { it.id == id } ?: return null
         val now = System.currentTimeMillis()
-        val next = if (nextForRepeated)
-            EventDateRules.nextOccurrence(selected.dueAt, selected.recurrence, now)
-        else null
+        val next = if (nextForRepeated) {
+            if (selected.recurrence == "custom")
+                EventOccurrenceEngine.next(selected, maxOf(now, selected.dueAt))?.dueAt
+            else EventDateRules.nextOccurrence(selected.dueAt, selected.recurrence, now)
+        } else null
         val kept = original.filterNot { it.id == id } +
             listOfNotNull(next?.let { selected.copy(dueAt = it) })
         val jsonActive = JSONArray().also { a -> kept.forEach { a.put(encode(it)) } }
@@ -151,7 +157,9 @@ internal object EventStore {
         val original = active(context)
         val old = original.firstOrNull { it.id == id && it.dueAt == expectedDue }
             ?: return null
-        val next = EventDateRules.nextOccurrence(old.dueAt, old.recurrence, now)
+        val next = if (old.recurrence == "custom")
+            EventOccurrenceEngine.next(old, now)?.dueAt
+        else EventDateRules.nextOccurrence(old.dueAt, old.recurrence, now)
             ?: return null
         val updated = old.copy(dueAt = next)
         return updated.takeIf { save(context, updated) }
