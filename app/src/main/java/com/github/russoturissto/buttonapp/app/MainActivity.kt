@@ -4953,8 +4953,10 @@ class MainActivity : AppCompatActivity() {
             return
         }
         PaymentOccurrenceScheduler.schedule(this, updated)
+        PaymentNotificationRefresh.refresh(this, updated)
         if (PaymentArchiveStore.archiveDue(this).contains(updated.id)) {
             PaymentOccurrenceScheduler.cancel(this, updated.id)
+            PaymentNotificationRefresh.cancelAll(this, updated.id)
             payments.removeAll { it.id == updated.id }
         }
         renderTab()
@@ -5600,6 +5602,7 @@ class MainActivity : AppCompatActivity() {
                     this, payment.id, PaymentArchiveStore.DELETED
                 )) {
                 cancelReminder(payment)
+                PaymentNotificationRefresh.cancelAll(this, payment.id)
                 payments.removeAll { it.id == payment.id }
                 if (editingId == payment.id) editingId = null
                 renderTab()
@@ -5859,6 +5862,7 @@ class MainActivity : AppCompatActivity() {
                         return
                     }
                     scheduleReminder(value)
+                    PaymentNotificationRefresh.refresh(this, value)
                     renderPayments()
                     dialog.dismiss()
                 }
