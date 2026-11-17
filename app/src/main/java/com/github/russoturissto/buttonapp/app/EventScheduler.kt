@@ -118,6 +118,7 @@ class EventReminderReceiver : BroadcastReceiver() {
             Intent(context, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
                 putExtra("open_tab", 3)
+                putExtra("open_event_id", id)
             }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val message = event.details.ifBlank { "Запланированное событие" }
         val builder = NotificationCompat.Builder(context, channelId)
