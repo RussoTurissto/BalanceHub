@@ -102,6 +102,22 @@ class RecurringChoiceChipsEmulatorTest {
         }
     }
 
+    private fun findText(view: View, value: String): TextView? {
+        if (view is TextView && view.text?.toString() == value) return view
+        if (view is ViewGroup) for (i in 0 until view.childCount) {
+            findText(view.getChildAt(i), value)?.let { return it }
+        }
+        return null
+    }
+
+    private fun findHint(view: View, value: String): TextView? {
+        if (view is TextView && view.hint?.toString() == value) return view
+        if (view is ViewGroup) for (i in 0 until view.childCount) {
+            findHint(view.getChildAt(i), value)?.let { return it }
+        }
+        return null
+    }
+
     private fun findSwitch(view: View): SwitchCompat? {
         if (view is SwitchCompat) return view
         if (view is ViewGroup) for (i in 0 until view.childCount)
@@ -144,6 +160,43 @@ class RecurringChoiceChipsEmulatorTest {
                     checkNotNull(updated).weekdays)
                 assertEquals(2, checkNotNull(updated).intervalWeeks)
                 assertEquals("weekdays", checkNotNull(updated).mode)
+                assertTrue("Removed interval label must stay hidden",
+                    findText(form, "Повторять через число недель") == null)
+                assertTrue("Removed interval input must stay hidden",
+                    findHint(form, "Интервал в неделях") == null)
+            }
+        }
+    }
+
+    @Test fun newlyCreatedCustomEventDefaultsToEveryWeek() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val form = LinearLayout(activity).apply {
+                    orientation = LinearLayout.VERTICAL
+                }
+                val recurrence = Spinner(activity).apply {
+                    adapter = ArrayAdapter(activity, android.R.layout.simple_spinner_item,
+                        listOf("a", "b", "c", "d", "e", "custom"))
+                    setSelection(5)
+                }
+                var updated: EventPlan? = null
+                val method = MainActivity::class.java.getDeclaredMethod(
+                    "installCustomEventControls",
+                    LinearLayout::class.java, Spinner::class.java,
+                    EventPlan::class.java, Calendar::class.java,
+                    kotlin.jvm.functions.Function1::class.java)
+                method.isAccessible = true
+                method.invoke(activity, form, recurrence, null,
+                    Calendar.getInstance(), { plan: EventPlan -> updated = plan })
+                assertEquals(1, checkNotNull(updated).intervalWeeks)
+                assertTrue("Removed interval label must not exist",
+                    findText(form, "Повторять через число недель") == null)
+                assertTrue("Removed input hint must not exist",
+                    findHint(form, "Интервал в неделях") == null)
+                val monday = checkNotNull(find(form, "День недели Пн, не выбрано"))
+                assertTrue(monday.performClick())
+                assertEquals(setOf(Calendar.MONDAY), checkNotNull(updated).weekdays)
+                assertEquals(1, checkNotNull(updated).intervalWeeks)
             }
         }
     }

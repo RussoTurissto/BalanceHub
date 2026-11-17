@@ -6645,7 +6645,9 @@ class MainActivity : AppCompatActivity() {
         var mode = initial?.mode ?: "weekdays"
         val days = initial?.weekdays?.toMutableSet() ?: linkedSetOf()
         val selected = initial?.explicitDates?.toMutableSet() ?: linkedSetOf()
-        var weeks = initial?.intervalWeeks ?: 1
+        // Existing custom plans retain their original interval; newly created
+        // weekday schedules always repeat weekly after removing the interval UI.
+        val weeks = initial?.intervalWeeks ?: 1
         var endsAt = initial?.endsAt
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -6657,10 +6659,7 @@ class MainActivity : AppCompatActivity() {
         val weekdayPanel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val datePanel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val dateText = textLine("", 12f, muted)
-        val weekInterval = field("Интервал в неделях").apply {
-            inputType = android.text.InputType.TYPE_CLASS_NUMBER
-            setText(weeks.toString())
-        }
+
         val endText = textLine("", 12f, muted)
         fun value() = EventPlan(mode, days.toSet(), weeks.coerceIn(1, 104),
             selected.toSet(), endsAt,
@@ -6697,18 +6696,6 @@ class MainActivity : AppCompatActivity() {
         }
         weekdayRow.addView(columns)
         weekdayRow.addView(verticalGap(10))
-        weekdayRow.addView(textLine("Повторять через число недель", 12f, muted))
-        weekdayRow.addView(weekInterval)
-        weekInterval.addTextChangedListener(object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int,
-                count: Int, after: Int) = Unit
-            override fun onTextChanged(s: CharSequence?, start: Int,
-                before: Int, count: Int) {
-                weeks = s?.toString()?.toIntOrNull()?.coerceIn(1, 104) ?: 1
-                refresh()
-            }
-            override fun afterTextChanged(s: Editable?) = Unit
-        })
         weekdayPanel.addView(weekdayRow)
         datePanel.addView(dateText)
         datePanel.addView(secondaryButton("＋ Добавить дату") {
