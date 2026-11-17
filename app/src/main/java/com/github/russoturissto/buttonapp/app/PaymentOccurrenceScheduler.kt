@@ -62,10 +62,18 @@ internal object PaymentOccurrenceScheduler {
         PaymentAlarmScheduler.cancel(context, payment.id)
         cancel(context, payment.id)
         val now = System.currentTimeMillis()
-        val end = Calendar.getInstance().apply {
+        val defaultEnd = Calendar.getInstance().apply {
             timeInMillis = now
             add(Calendar.MONTH, 18)
         }.timeInMillis
+        val futureStart = payment.plan?.startsAt ?: 0L
+        val selectedEnd = payment.plan?.selectedDates?.maxOrNull() ?: 0L
+        val end = maxOf(defaultEnd,
+            if (futureStart > defaultEnd) Calendar.getInstance().apply {
+                timeInMillis = futureStart
+                add(Calendar.MONTH, 18)
+            }.timeInMillis else defaultEnd,
+            selectedEnd + 86_400_000L)
         val keys = JSONArray()
         for (occ in PaymentOccurrenceEngine.occurrences(payment,
                 PaymentOccurrenceEngine.day(now), end)) {
