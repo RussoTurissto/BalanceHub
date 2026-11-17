@@ -4935,6 +4935,10 @@ class MainActivity : AppCompatActivity() {
             return
         }
         PaymentOccurrenceScheduler.schedule(this, updated)
+        if (PaymentArchiveStore.archiveDue(this).contains(updated.id)) {
+            PaymentOccurrenceScheduler.cancel(this, updated.id)
+            payments.removeAll { it.id == updated.id }
+        }
         renderTab()
     }
 
@@ -5129,7 +5133,9 @@ class MainActivity : AppCompatActivity() {
                 }
                 if (moved && !undo.isChecked && date.timeInMillis < now) {
                     themedDialogBuilder().setTitle("Перенос в прошлое")
-                        .setMessage("Дата начисления уже прошла.")
+                        .setMessage("Дата начисления уже прошла. Если это последнее " +
+                            "начисление, карточка может сразу перейти в архив " +
+                            "после завершения периода ожидания.")
                         .setNegativeButton("Отмена", null)
                         .setPositiveButton("Продолжить") { _, _ -> confirm() }
                         .show()
@@ -5492,11 +5498,12 @@ class MainActivity : AppCompatActivity() {
                             "Нужна будущая дата. Запись осталась в архиве.",
                             Toast.LENGTH_LONG).show()
                     } else {
-                        val payment = PaymentReminder(
-                            restored.id, restored.title, restored.amount,
-                            restored.currency, restored.dueAt,
-                            restored.leadDays, restored.recurrence
-                        )
+                        val payment = PaymentArchiveStore.activeSnapshot(this)
+                            ?.let { array ->
+                                (0 until array.length()).mapNotNull { i ->
+                                    array.optJSONObject(i)?.let(PaymentReminderCodec::decode)
+                                }.firstOrNull { it.id == restored.id }
+                            } ?: return@showThemedCalendar
                         payments.add(payment)
                         if (payment.id.startsWith("t2_subscription_") ||
                             payment.id.startsWith("mobile_subscription_")) {
