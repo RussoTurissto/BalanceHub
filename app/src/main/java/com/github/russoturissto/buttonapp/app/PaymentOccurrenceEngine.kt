@@ -278,10 +278,12 @@ internal object PaymentOccurrenceEngine {
 
     fun upcoming(payment: PaymentReminder, now: Long, count: Int = 4):
         List<PaymentOccurrence> {
-        val end = Calendar.getInstance().apply {
+        val baseEnd = Calendar.getInstance().apply {
             timeInMillis = now
-            add(Calendar.YEAR, 3)
+            add(Calendar.YEAR, 30)
         }.timeInMillis
+        val selected = payment.plan?.selectedDates?.maxOrNull() ?: 0L
+        val end = maxOf(baseEnd, selected + 86_400_000L)
         return occurrences(payment, day(now), end).filter {
             !it.skipped && it.dueAt >= now
         }.take(count)
