@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.core.content.pm.PackageInfoCompat
 import androidx.test.core.app.ActivityScenario
 import androidx.test.espresso.Espresso.onView
+import androidx.test.espresso.matcher.RootMatchers.isDialog
 import androidx.test.espresso.action.ViewActions.click
 import androidx.test.espresso.assertion.ViewAssertions.doesNotExist
 import androidx.test.espresso.assertion.ViewAssertions.matches
@@ -52,29 +53,29 @@ class PaymentMultiDateSelectionEmulatorTest {
                 var saved: Set<Long>? = null
                 val original = setOf(day(15), day(17))
                 openCalendar(scenario, original) { saved = it }
-                onView(withText("Выбрано дат: 2")).check(matches(isDisplayed()))
-                onView(withContentDescription("Дата 15.01.2027, выбрана"))
+                onView(withText("Выбрано дат: 2")).inRoot(isDialog()).check(matches(isDisplayed()))
+                onView(withContentDescription("Дата 15.01.2027, выбрана")).inRoot(isDialog())
                     .check(matches(isDisplayed()))
-                onView(withContentDescription("Дата 16.01.2027, не выбрана"))
+                onView(withContentDescription("Дата 16.01.2027, не выбрана")).inRoot(isDialog())
                     .perform(click())
-                onView(withText("Выбрано дат: 3")).check(matches(isDisplayed()))
-                onView(withContentDescription("Дата 15.01.2027, выбрана"))
+                onView(withText("Выбрано дат: 3")).inRoot(isDialog()).check(matches(isDisplayed()))
+                onView(withContentDescription("Дата 15.01.2027, выбрана")).inRoot(isDialog())
                     .perform(click())
-                onView(withText("Выбрано дат: 2")).check(matches(isDisplayed()))
-                onView(withContentDescription("Дата 15.01.2027, не выбрана"))
+                onView(withText("Выбрано дат: 2")).inRoot(isDialog()).check(matches(isDisplayed()))
+                onView(withContentDescription("Дата 15.01.2027, не выбрана")).inRoot(isDialog())
                     .check(matches(isDisplayed()))
                 assertEquals(null, saved)
-                onView(withText("Готово")).perform(click())
+                onView(withText("Готово")).inRoot(isDialog()).perform(click())
                 assertEquals(setOf(day(16), day(17)), saved)
                 onView(withText("Выберите даты платежей")).check(doesNotExist())
 
                 // Reopening shows the saved selection, but Cancel cannot alter it.
                 openCalendar(scenario, checkNotNull(saved)) { saved = it }
-                onView(withContentDescription("Дата 16.01.2027, выбрана"))
+                onView(withContentDescription("Дата 16.01.2027, выбрана")).inRoot(isDialog())
                     .check(matches(isDisplayed()))
-                onView(withContentDescription("Дата 18.01.2027, не выбрана"))
+                onView(withContentDescription("Дата 18.01.2027, не выбрана")).inRoot(isDialog())
                     .perform(click())
-                onView(withText("Отмена")).perform(click())
+                onView(withText("Отмена")).inRoot(isDialog()).perform(click())
                 assertEquals(setOf(day(16), day(17)), saved)
                 onView(withText("Выберите даты платежей")).check(doesNotExist())
             }
