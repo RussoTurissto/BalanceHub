@@ -56,6 +56,7 @@ class PaymentArchiveReceiver : BroadcastReceiver() {
                 !PaymentArchiveStore.shouldArchive(item, System.currentTimeMillis())) return
             if (PaymentArchiveStore.archiveById(context, id,
                     PaymentArchiveStore.COMPLETED, expectedDue = item.optLong("dueAt"))) {
+                PaymentNotificationRefresh.cancelAll(context, id)
                 context.sendBroadcast(Intent(ACTION_PAYMENTS_CHANGED)
                     .setPackage(context.packageName))
             }
@@ -65,6 +66,7 @@ class PaymentArchiveReceiver : BroadcastReceiver() {
         if (recurrence == "once") {
             if (PaymentArchiveStore.archiveById(context, id,
                 PaymentArchiveStore.COMPLETED, expectedDue = dueAt)) {
+                PaymentNotificationRefresh.cancelAll(context, id)
                 context.sendBroadcast(Intent(ACTION_PAYMENTS_CHANGED)
                     .setPackage(context.packageName))
             }
