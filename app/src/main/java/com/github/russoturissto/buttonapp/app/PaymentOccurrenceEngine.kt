@@ -31,6 +31,18 @@ internal data class PaymentHistoryEntry(
     val currentAt: Long?
 )
 
+internal data class PaymentBulkEdit(
+    val from: Long,
+    val sourceDay: Int? = null,
+    val amount: String? = null,
+    val paymentHour: Int? = null,
+    val paymentMinute: Int? = null,
+    val reminderHour: Int? = null,
+    val reminderMinute: Int? = null,
+    val leadDays: Int? = null,
+    val includeSkipped: Boolean = false
+)
+
 internal data class PaymentPlan(
     val mode: String = "dates",
     val selectedDates: Set<Long> = emptySet(),
@@ -39,7 +51,8 @@ internal data class PaymentPlan(
     val startsAt: Long = 0L,
     val endsAt: Long? = null,
     val edits: Map<String, PaymentOccurrenceEdit> = emptyMap(),
-    val history: List<PaymentHistoryEntry> = emptyList()
+    val history: List<PaymentHistoryEntry> = emptyList(),
+    val bulkEdits: List<PaymentBulkEdit> = emptyList()
 ) {
     fun withEdit(edit: PaymentOccurrenceEdit, action: String, oldAt: Long?,
         newAt: Long?, now: Long = System.currentTimeMillis()): PaymentPlan =
@@ -211,19 +224,29 @@ internal object PaymentOccurrenceEngine {
             val edit = schedule?.edits?.get(id)
             val source = dateForSource(id) ?: return@mapNotNull null
             val sourceDay = id.substringAfterLast('-').toIntOrNull() ?: return@mapNotNull null
+            val selectedRule = schedule?.bulkEdits?.lastOrNull { rule ->
+                source >= day(rule.from) &&
+                    (rule.sourceDay == null || rule.sourceDay == sourceDay) &&
+                    (edit?.skipped != true || rule.includeSkipped)
+            }
             val effectiveAt = edit?.movedAt ?: if (edit?.paymentHour != null ||
-                edit?.paymentMinute != null) {
+                edit?.paymentMinute != null || selectedRule?.paymentHour != null ||
+                selectedRule?.paymentMinute != null) {
                 Calendar.getInstance().apply {
                     timeInMillis = originalAt
-                    edit.paymentHour?.let { set(Calendar.HOUR_OF_DAY, it) }
-                    edit.paymentMinute?.let { set(Calendar.MINUTE, it) }
+                    (edit?.paymentHour ?: selectedRule?.paymentHour)
+                        ?.let { set(Calendar.HOUR_OF_DAY, it) }
+                    (edit?.paymentMinute ?: selectedRule?.paymentMinute)
+                        ?.let { set(Calendar.MINUTE, it) }
                 }.timeInMillis
             } else originalAt
             if (effectiveAt !in from until until) return@mapNotNull null
             PaymentOccurrence(id, payment.id, source, sourceDay, listOf(id),
-                effectiveAt, originalAt, edit?.amount ?: payment.amount, payment.currency,
-                edit?.reminderHour ?: hour, edit?.reminderMinute ?: minute,
-                edit?.leadDays ?: payment.leadDays, edit?.skipped ?: false,
+                effectiveAt, originalAt, edit?.amount ?: selectedRule?.amount ?: payment.amount, payment.currency,
+                edit?.reminderHour ?: selectedRule?.reminderHour ?: hour,
+                edit?.reminderMinute ?: selectedRule?.reminderMinute ?: minute,
+                edit?.leadDays ?: selectedRule?.leadDays ?: payment.leadDays,
+                edit?.skipped ?: false,
                 edit?.manualMove ?: false, auto)
         }
         // Only automatically clamped coincident charges with identical settings
@@ -290,6 +313,7 @@ internal object PaymentPlanCodec {
             val days = json.optJSONArray("monthlyDays") ?: JSONArray()
             val edits = json.optJSONArray("edits") ?: JSONArray()
             val history = json.optJSONArray("history") ?: JSONArray()
+            val bulkArray = json.optJSONArray("bulkEdits") ?: JSONArray()
             val map = linkedMapOf<String, PaymentOccurrenceEdit>()
             for (i in 0 until edits.length()) {
                 val e = edits.getJSONObject(i)
@@ -314,12 +338,24 @@ internal object PaymentPlanCodec {
                     h.optLong("previousAt").takeIf { h.has("previousAt") && !h.isNull("previousAt") },
                     h.optLong("currentAt").takeIf { h.has("currentAt") && !h.isNull("currentAt") })
             }
+            val bulk = (0 until bulkArray.length()).mapNotNull { i ->
+                val e = bulkArray.optJSONObject(i) ?: return@mapNotNull null
+                fun optionalInt(k: String) = if (e.has(k) && !e.isNull(k))
+                    e.optInt(k) else null
+                fun optionalString(k: String) = if (e.has(k) && !e.isNull(k))
+                    e.optString(k) else null
+                PaymentBulkEdit(e.optLong("from"), optionalInt("sourceDay"),
+                    optionalString("amount"), optionalInt("paymentHour"),
+                    optionalInt("paymentMinute"), optionalInt("reminderHour"),
+                    optionalInt("reminderMinute"), optionalInt("leadDays"),
+                    e.optBoolean("includeSkipped"))
+            }
             PaymentPlan(json.optString("mode", "dates"),
                 (0 until dates.length()).map { dates.optLong(it) }.filter { it > 0 }.toSet(),
                 (0 until days.length()).map { days.optInt(it) }.filter { it in 1..31 }.toSet(),
                 json.optBoolean("monthlyEnabled", false), json.optLong("startsAt"),
                 json.optLong("endsAt").takeIf { json.has("endsAt") && !json.isNull("endsAt") },
-                map, audit)
+                map, audit, bulk)
         } catch (_: Exception) { null }
     }
 
@@ -347,6 +383,21 @@ internal object PaymentPlanCodec {
                     put("leadDays", e.leadDays ?: JSONObject.NULL)
                     put("skipped", e.skipped)
                     put("manualMove", e.manualMove)
+                })
+            }
+        })
+        put("bulkEdits", JSONArray().apply {
+            plan.bulkEdits.forEach { r ->
+                put(JSONObject().apply {
+                    put("from", r.from)
+                    put("sourceDay", r.sourceDay ?: JSONObject.NULL)
+                    put("amount", r.amount ?: JSONObject.NULL)
+                    put("paymentHour", r.paymentHour ?: JSONObject.NULL)
+                    put("paymentMinute", r.paymentMinute ?: JSONObject.NULL)
+                    put("reminderHour", r.reminderHour ?: JSONObject.NULL)
+                    put("reminderMinute", r.reminderMinute ?: JSONObject.NULL)
+                    put("leadDays", r.leadDays ?: JSONObject.NULL)
+                    put("includeSkipped", r.includeSkipped)
                 })
             }
         })
