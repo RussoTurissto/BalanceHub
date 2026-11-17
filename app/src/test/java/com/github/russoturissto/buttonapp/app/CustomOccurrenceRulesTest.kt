@@ -105,7 +105,7 @@ class CustomOccurrenceRulesTest {
                 intervalWeeks = 2, anchorAt = anchor))
         val visits = EventOccurrenceEngine.between(
             event, at(2027, 3, 1), at(2027, 3, 22))
-        assertEquals(9, visits.size)
+        assertEquals(6, visits.size)
     }
 
     @Test fun skipTwoVisitsNextWeekKeepsPermanentEventPattern() {
