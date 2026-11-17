@@ -116,6 +116,12 @@ internal object PaymentOccurrenceScheduler {
         return null
     }
 
+    fun rearmEarly(context: Context, cardId: String,
+        sourceId: String, expectedAt: Long) {
+        ExactReminderAlarms.schedule(context, expectedAt,
+            pending(context, cardId, sourceId, expectedAt))
+    }
+
     /** A delivered occurrence remains eligible for its next local-day alert. */
     fun rescheduleAfterDelivery(context: Context, payment: PaymentReminder,
         source: String, now: Long) {
@@ -185,6 +191,16 @@ class PaymentOccurrenceReceiver : BroadcastReceiver() {
         if (expected <= 0) return
         val payment = PaymentOccurrenceScheduler.find(context, cardId) ?: return
         val now = System.currentTimeMillis()
+        if (now + 1_000L < expected) {
+            PaymentOccurrenceScheduler.rearmEarly(context, cardId, sourceId, expected)
+            return
+        }
+        if (DailyReminderPolicy.dayKey(now) != DailyReminderPolicy.dayKey(expected)) {
+            // An old alarm reached Android after local midnight: re-plan the
+            // card rather than showing yesterday's reminder today.
+            PaymentOccurrenceScheduler.schedule(context, payment)
+            return
+        }
         val from = Calendar.getInstance().apply {
             timeInMillis = expected
             add(Calendar.DAY_OF_YEAR, -40)
@@ -197,6 +213,7 @@ class PaymentOccurrenceReceiver : BroadcastReceiver() {
         val target = occurrences.firstOrNull { sourceId in it.sourceIds && !it.skipped }
             ?: return
         if (target.dueAt < now - PaymentDeliveryPolicy.LATE_GRACE_MS) return
+        PaymentDeliveryLog.received(context, expected, now, target.dueAt)
         // Old alarm intents from earlier dates/rules are rejected.
         val expectedDay = DailyReminderPolicy.dayKey(expected)
         val valid = target.firstReminderAt() <= expected &&
@@ -236,7 +253,10 @@ class PaymentOccurrenceReceiver : BroadcastReceiver() {
         val unseen = group.filter { occ ->
             ledger.getInt(cardId + "|" + occ.id, 0) != day
         }
-        if (unseen.isEmpty()) return
+        if (unseen.isEmpty()) {
+            PaymentDeliveryLog.skipped(context, "Дублирующий сигнал начисления")
+            return
+        }
         val noticeId = ("payment_bundle|" + cardId + "|" + day + "|" +
             target.reminderHour + ":" + target.reminderMinute).hashCode()
         val existing = if (Build.VERSION.SDK_INT >= 23) {
@@ -269,6 +289,7 @@ class PaymentOccurrenceReceiver : BroadcastReceiver() {
             context, BalanceNotificationSounds.PAYMENT, builder)
         try {
             notifications.notify(noticeId, builder.build())
+            PaymentDeliveryLog.posted(context)
             PaymentNotificationRefresh.remember(context, cardId, noticeId,
                 target.reminderHour, target.reminderMinute)
             val edit = ledger.edit()
