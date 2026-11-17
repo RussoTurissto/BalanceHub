@@ -24,6 +24,20 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class ReleaseHistoryNavigationEmulatorTest {
+    private fun clickSettingsRow(root: android.view.View, title: String): Boolean {
+        fun find(view: android.view.View): android.view.View? {
+            if (view.isClickable && view.contentDescription?.startsWith("$title,") == true)
+                return view
+            if (view is android.view.ViewGroup)
+                for (i in 0 until view.childCount) {
+                    find(view.getChildAt(i))?.let { return it }
+                }
+            return null
+        }
+        return checkNotNull(find(root)) {
+            "Clickable settings row not found: $title"
+        }.performClick()
+    }
     @Test fun welcomeContainsOnlyInstalledReleaseChangesAndNoHistoryAction() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val version = context.packageManager.getPackageInfo(context.packageName, 0).versionName
@@ -87,10 +101,19 @@ class ReleaseHistoryNavigationEmulatorTest {
                     assertTrue(checkNotNull(findNav(activity.window.decorView))
                         .section(4)!!.performClick())
                 }
+                // The scroll container on API 29 may intercept a synthetic tap
+                // on a label. Activate the actual clickable settings row instead.
+                scenario.onActivity { activity ->
+                    assertTrue(clickSettingsRow(activity.window.decorView, "Обновления"))
+                }
                 val page = isDescendantOfA(isAssignableFrom(ScrollView::class.java))
-                onView(allOf(withText("Обновления"), page)).perform(scrollTo(), click())
+                onView(allOf(withText("Установленная версия"), page))
+                    .check(matches(androidx.test.espresso.matcher.ViewMatchers.isDisplayed()))
+                scenario.onActivity { activity ->
+                    assertTrue(clickSettingsRow(activity.window.decorView, "История изменений"))
+                }
                 onView(allOf(withText("История изменений"), page))
-                    .perform(scrollTo(), click())
+                    .check(matches(androidx.test.espresso.matcher.ViewMatchers.isDisplayed()))
                 onView(withText("Версия 1.2.0")).check(matches(
                     androidx.test.espresso.matcher.ViewMatchers.isDisplayed()))
                 onView(withText("Версия 1.2.1-rc3")).check(doesNotExist())
