@@ -157,9 +157,9 @@ internal object EventStore {
         val original = active(context)
         val old = original.firstOrNull { it.id == id && it.dueAt == expectedDue }
             ?: return null
-        val next = if (old.recurrence == "custom")
+        val next = (if (old.recurrence == "custom")
             EventOccurrenceEngine.next(old, now)?.dueAt
-        else EventDateRules.nextOccurrence(old.dueAt, old.recurrence, now)
+        else EventDateRules.nextOccurrence(old.dueAt, old.recurrence, now))
             ?: return null
         val updated = old.copy(dueAt = next)
         return updated.takeIf { save(context, updated) }
