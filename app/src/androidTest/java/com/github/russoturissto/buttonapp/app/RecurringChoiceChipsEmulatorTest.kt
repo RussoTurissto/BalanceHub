@@ -46,7 +46,7 @@ class RecurringChoiceChipsEmulatorTest {
                 .putLong("release_welcome_version", code).commit())
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                 scenario.onActivity { activity ->
-                    val form = LinearLayout(activity)
+                    val form = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
                     val recurrence = Spinner(activity).apply {
                         adapter = ArrayAdapter(activity,
                             android.R.layout.simple_spinner_item,
@@ -112,7 +112,7 @@ class RecurringChoiceChipsEmulatorTest {
     @Test fun eventWeekdayChipsToggleWithoutChangingTheInterval() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
-                val form = LinearLayout(activity)
+                val form = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
                 val recurrence = Spinner(activity).apply {
                     adapter = ArrayAdapter(activity, android.R.layout.simple_spinner_item,
                         listOf("a", "b", "c", "d", "e", "custom"))
