@@ -981,15 +981,20 @@ class MainActivity : AppCompatActivity() {
             addView(verticalGap(5))
             addView(textLine(upcomingPayments.size.toString(), 27f, ink, true))
             addView(verticalGap(3))
+            val monthNow = Calendar.getInstance()
+            val thisMonthCharges = payments.flatMap { payment ->
+                PaymentOccurrenceEngine.month(payment,
+                    monthNow.get(Calendar.YEAR), monthNow.get(Calendar.MONTH))
+            }.filterNot { it.skipped }
             val amount = PaymentOverview.totalLabel(
-                upcomingPayments.map { it.amount to it.currency })
+                thisMonthCharges.map { it.amount to it.currency })
             addView(textLine(amount, if (amount.length > 17) 12f else 15f,
                 ink, true).apply {
                 maxLines = 2
                 ellipsize = android.text.TextUtils.TruncateAt.END
             })
             addView(verticalGap(2))
-            addView(textLine("Общая сумма", 11f, muted))
+            addView(textLine("За текущий месяц", 11f, muted))
             setOnClickListener { selectTab(2) }
         }
         totals.addView(paymentsColumn, LinearLayout.LayoutParams(0, -2, 1f))
@@ -1043,8 +1048,11 @@ class MainActivity : AppCompatActivity() {
             today.get(Calendar.MONTH) == month
         val byDay = linkedMapOf<Int, MutableList<PaymentReminder>>()
         for (payment in payments) {
-            for (day in PaymentCalendarMath.scheduledDays(
-                    payment.dueAt, payment.recurrence, year, month)) {
+            for (charge in PaymentOccurrenceEngine.month(payment, year, month)) {
+                if (charge.skipped) continue
+                val day = Calendar.getInstance().apply {
+                    timeInMillis = charge.dueAt
+                }.get(Calendar.DAY_OF_MONTH)
                 byDay.getOrPut(day) { mutableListOf() }.add(payment)
             }
         }
@@ -1059,6 +1067,16 @@ class MainActivity : AppCompatActivity() {
             add(Calendar.MONTH, 1)
         }.timeInMillis
         for (event in events) {
+            if (event.recurrence == "custom") {
+                for (visit in EventOccurrenceEngine.between(event, monthStart, monthEnd)) {
+                    if (visit.skipped) continue
+                    val day = Calendar.getInstance().apply {
+                        timeInMillis = visit.dueAt
+                    }.get(Calendar.DAY_OF_MONTH)
+                    eventByDay.getOrPut(day) { mutableListOf() }.add(event)
+                }
+                continue
+            }
             var occurrence = if (event.dueAt < monthStart)
                 EventDateRules.nextOccurrence(event.dueAt, event.recurrence,
                     monthStart - 1L) ?: continue
