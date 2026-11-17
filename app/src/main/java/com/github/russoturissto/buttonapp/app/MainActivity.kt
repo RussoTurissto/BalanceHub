@@ -526,6 +526,40 @@ class MainActivity : AppCompatActivity() {
         elevation = dp(2).toFloat()
     }
 
+    /** Reusable themed toggle chip for monthly payment days and event weekdays. */
+    private fun recurringChoiceChip(
+        label: String, description: String, initiallySelected: Boolean,
+        onChanged: (Boolean) -> Unit
+    ): TextView = textLine(label, 14f, ink, true).apply {
+        gravity = Gravity.CENTER
+        includeFontPadding = false
+        isClickable = true
+        isFocusable = true
+        minHeight = dp(42)
+
+        fun updateAppearance(active: Boolean) {
+            isSelected = active
+            contentDescription = "$description, " + if (active) "выбрано" else "не выбрано"
+            setTextColor(if (active) Color.WHITE else ink)
+            background = if (active) filledButtonGradient() else
+                GradientDrawable().apply {
+                    setColor(if (isNight) Color.rgb(34, 66, 69)
+                        else Color.rgb(242, 250, 248))
+                    cornerRadius = dp(12).toFloat()
+                    setStroke(dp(1), if (isNight) Color.rgb(79, 156, 155)
+                        else Color.rgb(116, 180, 171))
+                }
+            elevation = if (active) dp(2).toFloat() else 0f
+        }
+
+        updateAppearance(initiallySelected)
+        setOnClickListener {
+            val next = !isSelected
+            updateAppearance(next)
+            onChanged(next)
+        }
+    }
+
     private fun secondaryButton(label: String, action: () -> Unit) = Button(this).apply {
         text = label
         isAllCaps = false
@@ -2102,37 +2136,56 @@ class MainActivity : AppCompatActivity() {
             dates.clear()
             refresh()
         })
-        val monthlySwitch = android.widget.CheckBox(this).apply {
+        val monthlySwitch = SwitchCompat(this).apply {
             text = "Повторять каждый месяц"
+            textSize = 14f
             isChecked = monthlyEnabled
             setTextColor(ink)
+            setPadding(dp(4), dp(8), dp(4), dp(8))
+            thumbTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
+            trackTintList = android.content.res.ColorStateList(
+                arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
+                intArrayOf(accent, if (isNight) Color.rgb(76, 113, 112)
+                    else Color.rgb(172, 205, 200))
+            )
             setOnCheckedChangeListener { _, checked ->
                 monthlyEnabled = checked
                 store()
             }
         }
         monthlyPanel.addView(monthlySwitch)
+        monthlyPanel.addView(verticalGap(6))
         monthlyPanel.addView(textLine("Выберите числа месяца", 12f, muted))
-        val dayGrid = GridLayout(this).apply { columnCount = 7 }
-        for (selected in 1..31) {
-            val check = android.widget.CheckBox(this).apply {
-                text = selected.toString()
-                textSize = 11f
-                isChecked = selected in monthlyDays
-                setTextColor(ink)
-                setPadding(0, 0, 0, 0)
-                buttonTintList = android.content.res.ColorStateList.valueOf(accent)
-                setOnCheckedChangeListener { _, enabled ->
-                    if (enabled) monthlyDays.add(selected) else monthlyDays.remove(selected)
-                    store()
-                }
+        monthlyPanel.addView(verticalGap(8))
+        val selectionSummary = textLine("", 12f, muted)
+        fun refreshSelectionSummary() {
+            selectionSummary.text = if (monthlyDays.isEmpty()) "Выбрано: 0"
+                else "Выбрано: ${monthlyDays.size} · ${monthlyDays.sorted().joinToString(", ")}"
+        }
+        val dayGrid = GridLayout(this).apply {
+            columnCount = 7
+            layoutParams = LinearLayout.LayoutParams(-1, -2)
+        }
+        for (number in 1..31) {
+            val chip = recurringChoiceChip(number.toString(), "Число месяца $number",
+                number in monthlyDays) { enabled ->
+                if (enabled) monthlyDays.add(number) else monthlyDays.remove(number)
+                refreshSelectionSummary()
+                store()
             }
-            dayGrid.addView(check, GridLayout.LayoutParams().apply {
-                width = dp(((resources.configuration.screenWidthDp - 70) / 7).coerceIn(30, 44))
-                height = dp(48)
+            dayGrid.addView(chip, GridLayout.LayoutParams(
+                GridLayout.spec(GridLayout.UNDEFINED),
+                GridLayout.spec(GridLayout.UNDEFINED, 1f)
+            ).apply {
+                width = 0
+                height = dp(46)
+                setMargins(dp(2), dp(2), dp(2), dp(2))
             })
         }
         monthlyPanel.addView(dayGrid)
+        monthlyPanel.addView(verticalGap(8))
+        monthlyPanel.addView(selectionSummary)
+        refreshSelectionSummary()
         panel.addView(modeSpinner)
         panel.addView(verticalGap(8))
         panel.addView(datePanel)
@@ -6599,24 +6652,31 @@ class MainActivity : AppCompatActivity() {
         val weekdayRow = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
-        val columns = GridLayout(this).apply { columnCount = 4 }
+        weekdayRow.addView(textLine("Выберите дни недели", 12f, muted))
+        weekdayRow.addView(verticalGap(8))
+        val columns = GridLayout(this).apply {
+            columnCount = 4
+            layoutParams = LinearLayout.LayoutParams(-1, -2)
+        }
         for ((name, day) in listOf("Пн" to Calendar.MONDAY,
                 "Вт" to Calendar.TUESDAY, "Ср" to Calendar.WEDNESDAY,
                 "Чт" to Calendar.THURSDAY, "Пт" to Calendar.FRIDAY,
                 "Сб" to Calendar.SATURDAY, "Вс" to Calendar.SUNDAY)) {
-            val check = android.widget.CheckBox(this).apply {
-                text = name
-                textSize = 12f
-                setTextColor(ink)
-                isChecked = day in days
-                setOnCheckedChangeListener { _, enabled ->
-                    if (enabled) days.add(day) else days.remove(day)
-                    refresh()
-                }
+            val chip = recurringChoiceChip(name, "День недели $name", day in days) { enabled ->
+                if (enabled) days.add(day) else days.remove(day)
+                refresh()
             }
-            columns.addView(check)
+            columns.addView(chip, GridLayout.LayoutParams(
+                GridLayout.spec(GridLayout.UNDEFINED),
+                GridLayout.spec(GridLayout.UNDEFINED, 1f)
+            ).apply {
+                width = 0
+                height = dp(52)
+                setMargins(dp(3), dp(3), dp(3), dp(3))
+            })
         }
         weekdayRow.addView(columns)
+        weekdayRow.addView(verticalGap(10))
         weekdayRow.addView(textLine("Повторять через число недель", 12f, muted))
         weekdayRow.addView(weekInterval)
         weekInterval.addTextChangedListener(object : TextWatcher {
