@@ -5112,7 +5112,7 @@ class MainActivity : AppCompatActivity() {
                             occurrence.dueAt, date.timeInMillis)
                     }
                 } else {
-                    val start = maxOf(now + 1L, occurrence.dueAt)
+                    val start = now + 1L
                     val rule = PaymentBulkEdit(start,
                         if (scopeIndex == 1) occurrence.sourceDay else null,
                         sum, date.get(Calendar.HOUR_OF_DAY), date.get(Calendar.MINUTE),
