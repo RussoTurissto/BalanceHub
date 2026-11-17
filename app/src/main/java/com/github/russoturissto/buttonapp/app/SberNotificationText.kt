@@ -98,8 +98,16 @@ internal object SberNotificationText {
                     @Suppress("DEPRECATION")
                     val messages = extras.getParcelableArray(Notification.EXTRA_MESSAGES)
                     if (messages != null) {
-                        Notification.MessagingStyle.Message.getMessagesFromBundleArray(messages)
-                            .forEach { add(Field.MESSAGES, it.text) }
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                            Notification.MessagingStyle.Message.getMessagesFromBundleArray(
+                                messages).forEach { add(Field.MESSAGES, it.text) }
+                        } else {
+                            // API 24–29 serialize MessagingStyle.Message as a Bundle.
+                            // The public platform parser method requires API 30.
+                            messages.filterIsInstance<android.os.Bundle>().forEach {
+                                add(Field.MESSAGES, it.getCharSequence("text"))
+                            }
+                        }
                     }
                 } catch (_: RuntimeException) { /* no readable current messages */ }
             }
