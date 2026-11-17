@@ -67,11 +67,8 @@ class RecurringChoiceChipsEmulatorTest {
                     val monthHint = checkNotNull(findText(form, "Выберите числа месяца"))
                     val monthSummary = checkNotNull(findText(form, "Выбрано: 2 · 5, 15"))
                     val endHint = checkNotNull(findText(form, "Дата окончания не задана"))
-                    listOf(monthHint, monthSummary, endHint).forEach {
-                        assertCaptionAlignment(it, density)
-                    }
-                    assertCaptionsFit(form, listOf(monthHint, monthSummary, endHint),
-                        280, density)
+                    assertCaptionAlignment(form,
+                        listOf(monthHint, monthSummary, endHint), density)
                     monthHint.textSize = 20f
                     monthSummary.textSize = 20f
                     endHint.textSize = 20f
@@ -135,10 +132,40 @@ class RecurringChoiceChipsEmulatorTest {
         return null
     }
 
-    private fun assertCaptionAlignment(label: TextView, density: Float) {
-        val expected = (14 * density).toInt()
-        assertEquals("Caption left padding", expected, label.paddingLeft)
-        assertEquals("Caption right padding", expected, label.paddingRight)
+    /** Compare the visible text origin, including every enclosing panel's padding. */
+    private fun textStartX(form: LinearLayout, label: TextView): Int {
+        var offset = label.paddingLeft
+        var current: View = label
+        while (current !== form) {
+            offset += current.left
+            current = current.parent as? View
+                ?: error("Label is not inside the recurrence form")
+        }
+        return offset
+    }
+
+    private fun findSpinner(view: View): Spinner? {
+        if (view is Spinner) return view
+        if (view is ViewGroup) for (i in 0 until view.childCount) {
+            findSpinner(view.getChildAt(i))?.let { return it }
+        }
+        return null
+    }
+
+    private fun assertCaptionAlignment(
+        form: LinearLayout, captions: List<TextView>, density: Float
+    ) {
+        assertCaptionsFit(form, captions, 280, density)
+        val modeText = checkNotNull(findSpinner(form)?.selectedView as? TextView)
+        val actualModeStart = textStartX(form, modeText)
+        val expectedStart = (14 * density + 0.5f).toInt()
+        assertTrue("Custom mode text should align to the 14dp form grid",
+            kotlin.math.abs(actualModeStart - expectedStart) <= 1)
+        for (caption in captions) {
+            val actualStart = textStartX(form, caption)
+            assertTrue("Caption '${caption.text}' should align with custom mode text",
+                kotlin.math.abs(actualStart - actualModeStart) <= 1)
+        }
     }
 
     private fun assertCaptionsFit(form: LinearLayout, labels: List<TextView>,
@@ -189,9 +216,7 @@ class RecurringChoiceChipsEmulatorTest {
                 val density = activity.resources.displayMetrics.density
                 val weekHint = checkNotNull(findText(form, "Выберите дни недели"))
                 val endHint = checkNotNull(findText(form, "Без даты окончания"))
-                assertCaptionAlignment(weekHint, density)
-                assertCaptionAlignment(endHint, density)
-                assertCaptionsFit(form, listOf(weekHint, endHint), 280, density)
+                assertCaptionAlignment(form, listOf(weekHint, endHint), density)
                 val monday = checkNotNull(find(form, "День недели Пн, выбрано"))
                 val wednesday = checkNotNull(find(form, "День недели Ср, выбрано"))
                 val friday = checkNotNull(find(form, "День недели Пт, не выбрано"))
@@ -266,8 +291,7 @@ class RecurringChoiceChipsEmulatorTest {
                 val payDates = checkNotNull(findText(paymentForm, "Даты не выбраны"))
                 val payEnd = checkNotNull(findText(paymentForm,
                     "Дата окончания не задана"))
-                listOf(payDates, payEnd).forEach { assertCaptionAlignment(it, density) }
-                assertCaptionsFit(paymentForm, listOf(payDates, payEnd), 280, density)
+                assertCaptionAlignment(paymentForm, listOf(payDates, payEnd), density)
 
                 val eventForm = LinearLayout(activity).apply {
                     orientation = LinearLayout.VERTICAL
@@ -287,10 +311,7 @@ class RecurringChoiceChipsEmulatorTest {
                         Calendar.getInstance(), { _: EventPlan -> })
                 val eventDates = checkNotNull(findText(eventForm, "Даты не выбраны"))
                 val eventEnd = checkNotNull(findText(eventForm, "Без даты окончания"))
-                listOf(eventDates, eventEnd).forEach {
-                    assertCaptionAlignment(it, density)
-                }
-                assertCaptionsFit(eventForm, listOf(eventDates, eventEnd), 280, density)
+                assertCaptionAlignment(eventForm, listOf(eventDates, eventEnd), density)
             }
         }
     }
