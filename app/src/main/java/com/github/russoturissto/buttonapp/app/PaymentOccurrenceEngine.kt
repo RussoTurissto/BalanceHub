@@ -401,7 +401,7 @@ internal object PaymentPlanCodec {
             }
         })
         put("bulkEdits", JSONArray().apply {
-            plan.bulkEdits.forEach { r ->
+            for (r in plan.bulkEdits) {
                 put(JSONObject().apply {
                     put("from", r.from)
                     put("sourceDay", r.sourceDay ?: JSONObject.NULL)
@@ -416,7 +416,7 @@ internal object PaymentPlanCodec {
             }
         })
         put("history", JSONArray().apply {
-            plan.history.forEach { h ->
+            for (h in plan.history) {
                 put(JSONObject().apply {
                     put("sourceId", h.sourceId)
                     put("action", h.action)
