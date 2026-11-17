@@ -183,8 +183,7 @@ class PaymentOccurrenceReceiver : BroadcastReceiver() {
                 item.reminderMinute == target.reminderMinute &&
                 item.firstReminderAt() <= now &&
                 item.reminderOnDay(expected)?.let {
-                    kotlin.math.abs(it - expected) <= 60_000L ||
-                        (expected > it && expected - it < 60_000L)
+                    it <= now && DailyReminderPolicy.dayKey(it) == expectedDay
                 } == true
         }
         val group = (candidates + target).distinctBy { it.id }
