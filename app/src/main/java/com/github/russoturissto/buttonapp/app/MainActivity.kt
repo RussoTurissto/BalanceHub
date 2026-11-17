@@ -2129,12 +2129,12 @@ class MainActivity : AppCompatActivity() {
         }
         val modeSpinner = styledSpinner(
             listOf("Конкретные даты", "Числа каждого месяца"),
-            if (mode == "monthly") 1 else 0
+            if (mode == "monthly") 1 else 0, horizontalInsetDp = 7
         )
         val datePanel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val monthlyPanel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val dateInfo = customRecurrenceCaption()
-        val endInfo = customRecurrenceCaption()
+        val dateInfo = customRecurrenceCaption(horizontalInsetDp = 7)
+        val endInfo = customRecurrenceCaption(horizontalInsetDp = 7)
         fun store() {
             pendingPaymentPlan = PaymentPlan(
                 mode, dates.toSet(), monthlyDays.toSet(), monthlyEnabled,
@@ -2174,7 +2174,7 @@ class MainActivity : AppCompatActivity() {
             textSize = 14f
             isChecked = monthlyEnabled
             setTextColor(ink)
-            setPadding(dp(4), dp(8), dp(4), dp(8))
+            setPadding(dp(7), dp(8), dp(4), dp(8))
             thumbTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
             trackTintList = android.content.res.ColorStateList(
                 arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
@@ -2188,9 +2188,9 @@ class MainActivity : AppCompatActivity() {
         }
         monthlyPanel.addView(monthlySwitch)
         monthlyPanel.addView(verticalGap(6))
-        monthlyPanel.addView(customRecurrenceCaption("Выберите числа месяца"))
+        monthlyPanel.addView(customRecurrenceCaption("Выберите числа месяца", horizontalInsetDp = 7))
         monthlyPanel.addView(verticalGap(8))
-        val selectionSummary = customRecurrenceCaption()
+        val selectionSummary = customRecurrenceCaption(horizontalInsetDp = 7)
         fun refreshSelectionSummary() {
             selectionSummary.text = if (monthlyDays.isEmpty()) "Выбрано: 0"
                 else "Выбрано: ${monthlyDays.size} · ${monthlyDays.sorted().joinToString(", ")}"
@@ -2305,16 +2305,16 @@ class MainActivity : AppCompatActivity() {
         }
         val recOptions = listOf("Единоразовый", "Еженедельный", "Ежемесячный", "Пользовательское")
         recurrenceInput = styledSpinner(recOptions)
-        form.addView(textLine("Название", 13f, muted))
+        form.addView(formFieldCaption("Название"))
         form.addView(titleInput)
-        form.addView(verticalGap(9))
-        form.addView(textLine("Иконка", 13f, muted))
+        form.addView(verticalGap(10))
+        form.addView(formFieldCaption("Иконка"))
         form.addView(iconRow)
-        form.addView(verticalGap(9))
-        form.addView(textLine("Сумма", 13f, muted))
+        form.addView(verticalGap(10))
+        form.addView(formFieldCaption("Сумма"))
         form.addView(amountInput)
-        form.addView(verticalGap(9))
-        form.addView(textLine("Валюта", 13f, muted))
+        form.addView(verticalGap(10))
+        form.addView(formFieldCaption("Валюта"))
         form.addView(currencyInput)
         form.addView(verticalGap(12))
         val paymentDateTime = LinearLayout(this).apply {
@@ -2325,12 +2325,12 @@ class MainActivity : AppCompatActivity() {
         paymentDateTime.addView(timeButton, LinearLayout.LayoutParams(0, dp(50), 2f))
         form.addView(paymentDateTime)
         form.addView(verticalGap(12))
-        form.addView(textLine("Повторение платежа", 13f, muted))
+        form.addView(formFieldCaption("Повторение платежа"))
         form.addView(verticalGap(6))
         form.addView(recurrenceInput)
         installCustomPaymentControls(form, recurrenceInput, null)
         form.addView(verticalGap(12))
-        form.addView(textLine("Напомнить за сколько дней", 13f, muted))
+        form.addView(formFieldCaption("Напомнить за сколько дней"))
         form.addView(leadDaysInput)
         val dialog = themedDialogBuilder().setTitle("Новый платёж")
             .setView(android.widget.ScrollView(this).apply {
@@ -5971,16 +5971,16 @@ class MainActivity : AppCompatActivity() {
             setSelection(listOf("once", "weekly", "monthly", "custom")
                 .indexOf(payment.recurrence).coerceAtLeast(0))
         }
-        editor.addView(textLine("Название", 13f, muted))
+        editor.addView(formFieldCaption("Название"))
         editor.addView(name)
-        editor.addView(verticalGap(8))
-        editor.addView(textLine("Иконка", 13f, muted))
+        editor.addView(verticalGap(10))
+        editor.addView(formFieldCaption("Иконка"))
         editor.addView(iconRow)
-        editor.addView(verticalGap(8))
-        editor.addView(textLine("Сумма", 13f, muted))
+        editor.addView(verticalGap(10))
+        editor.addView(formFieldCaption("Сумма"))
         editor.addView(amount)
-        editor.addView(verticalGap(8))
-        editor.addView(textLine("Валюта", 13f, muted))
+        editor.addView(verticalGap(10))
+        editor.addView(formFieldCaption("Валюта"))
         editor.addView(currency)
         editor.addView(verticalGap(12))
         val paymentDateTime = LinearLayout(this).apply {
@@ -5991,12 +5991,12 @@ class MainActivity : AppCompatActivity() {
         paymentDateTime.addView(timeControl, LinearLayout.LayoutParams(0, dp(48), 2f))
         editor.addView(paymentDateTime)
         editor.addView(verticalGap(12))
-        editor.addView(textLine("Повторение", 13f, muted))
+        editor.addView(formFieldCaption("Повторение"))
         editor.addView(verticalGap(6))
         editor.addView(recurrence)
         installCustomPaymentControls(editor, recurrence, payment.plan)
         editor.addView(verticalGap(12))
-        editor.addView(textLine("Напомнить за (дней)", 13f, muted))
+        editor.addView(formFieldCaption("Напомнить за (дней)"))
         editor.addView(days)
         val dialog = themedDialogBuilder()
             .setCustomTitle(textLine("Изменить платёж", 21f, ink, true).apply {
@@ -6098,13 +6098,21 @@ class MainActivity : AppCompatActivity() {
             contentDescription = IconRegistry.find(id)?.label ?: "Иконка"
         }
 
-    /** Captions inside custom recurrence panels align with their spinner titles. */
-    private fun customRecurrenceCaption(value: String = "") =
-        textLine(value, 12f, muted).apply {
-            setPadding(dp(14), 0, dp(14), 0)
+    /** Keep the left edge of field labels aligned with native EditText content. */
+    private fun formFieldCaption(value: String) =
+        textLine(value, 13f, muted).apply {
+            setPadding(dp(4), 0, dp(4), 0)
         }
 
-    private fun styledSpinner(options: List<String>, selected: Int = 0): Spinner =
+    /** Custom panel captions match the selected spinner text across nesting levels. */
+    private fun customRecurrenceCaption(value: String = "", horizontalInsetDp: Int = 14) =
+        textLine(value, 12f, muted).apply {
+            setPadding(dp(horizontalInsetDp), 0, dp(horizontalInsetDp), 0)
+        }
+
+    private fun styledSpinner(
+        options: List<String>, selected: Int = 0, horizontalInsetDp: Int = 14
+    ): Spinner =
         Spinner(this).apply {
             adapter = object : ArrayAdapter<String>(
                 this@MainActivity, android.R.layout.simple_spinner_item, options
@@ -6112,7 +6120,7 @@ class MainActivity : AppCompatActivity() {
                 override fun getView(position: Int, convertView: View?,
                     parent: android.view.ViewGroup): View =
                     textLine(options[position], 16f, ink).apply {
-                        setPadding(dp(14), dp(12), dp(14), dp(12))
+                        setPadding(dp(horizontalInsetDp), dp(12), dp(horizontalInsetDp), dp(12))
                     }
                 override fun getDropDownView(position: Int, convertView: View?,
                     parent: android.view.ViewGroup): View =
@@ -6663,12 +6671,12 @@ class MainActivity : AppCompatActivity() {
             setPadding(dp(8), dp(8), dp(8), dp(8))
         }
         val modeSpinner = styledSpinner(listOf("По дням недели", "Конкретные даты"),
-            if (mode == "dates") 1 else 0)
+            if (mode == "dates") 1 else 0, horizontalInsetDp = 6)
         val weekdayPanel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val datePanel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val dateText = customRecurrenceCaption()
+        val dateText = customRecurrenceCaption(horizontalInsetDp = 6)
 
-        val endText = customRecurrenceCaption()
+        val endText = customRecurrenceCaption(horizontalInsetDp = 6)
         fun value() = EventPlan(mode, days.toSet(), weeks.coerceIn(1, 104),
             selected.toSet(), endsAt,
             initial?.anchorAt?.takeIf { it > 0 } ?: startAt.timeInMillis,
@@ -6689,7 +6697,7 @@ class MainActivity : AppCompatActivity() {
         val weekdayRow = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
-        weekdayRow.addView(customRecurrenceCaption("Выберите дни недели"))
+        weekdayRow.addView(customRecurrenceCaption("Выберите дни недели", horizontalInsetDp = 6))
         weekdayRow.addView(verticalGap(8))
         val columns = recurringChoiceRows(
             listOf(
@@ -6816,28 +6824,29 @@ class MainActivity : AppCompatActivity() {
         val lead = styledSpinner(listOf(
             "В момент события", "За 10 минут", "За 1 час", "За 1 день", "За 3 дня"
         ), leadValues.indexOf(original?.leadMinutes ?: 60).coerceAtLeast(0))
-        editor.addView(textLine("Название", 13f, muted))
+        editor.addView(formFieldCaption("Название"))
         editor.addView(name)
         editor.addView(verticalGap(10))
-        editor.addView(textLine("Иконка", 13f, muted))
+        editor.addView(formFieldCaption("Иконка"))
         editor.addView(iconRow)
         editor.addView(verticalGap(10))
-        editor.addView(textLine("Описание", 13f, muted))
+        editor.addView(formFieldCaption("Описание"))
         editor.addView(details)
-        editor.addView(verticalGap(11))
+        editor.addView(verticalGap(12))
         val dateTime = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         dateTime.addView(dateButton, LinearLayout.LayoutParams(0, dp(48), 3f))
         dateTime.addView(View(this), LinearLayout.LayoutParams(dp(7), 1))
         dateTime.addView(timeButton, LinearLayout.LayoutParams(0, dp(48), 2f))
         editor.addView(dateTime)
-        editor.addView(verticalGap(11))
-        editor.addView(textLine("Повторение", 13f, muted))
+        editor.addView(verticalGap(12))
+        editor.addView(formFieldCaption("Повторение"))
+        editor.addView(verticalGap(6))
         editor.addView(recurrence)
         installCustomEventControls(editor, recurrence, original?.plan, date) {
             editedEventPlan = it
         }
-        editor.addView(verticalGap(10))
-        editor.addView(textLine("Напомнить", 13f, muted))
+        editor.addView(verticalGap(12))
+        editor.addView(formFieldCaption("Напомнить"))
         editor.addView(lead)
         val dialog = themedDialogBuilder()
             .setTitle(if (original == null) "Новое событие" else "Изменить событие")
