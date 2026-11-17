@@ -3,6 +3,7 @@
 set -euo pipefail
 bash -n scripts/prepare-release-version.sh
 bash -n scripts/publish-verified-release.sh
+bash -n scripts/resume-verified-rc.sh
 bash -n scripts/require-app-changes.sh
 bash -n scripts/test-release-versioning.sh
 
