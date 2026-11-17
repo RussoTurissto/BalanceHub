@@ -1,5 +1,6 @@
 package com.github.russoturissto.buttonapp.app
 
+import android.annotation.SuppressLint
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
@@ -14,6 +15,7 @@ import java.util.Date
 import java.util.Locale
 
 /** Index of already-visible payment bundle IDs; never generates a fresh alert. */
+@SuppressLint("UseKtx", "ApplySharedPref")
 internal object PaymentNotificationRefresh {
     private const val PREFS = "balancehub_visible_payment_bundles_v2"
 
@@ -34,14 +36,12 @@ internal object PaymentNotificationRefresh {
     }
 
     private fun active(context: Context): Set<Int> {
-        if (Build.VERSION.SDK_INT < 23) return emptySet()
         val system = context.getSystemService(Context.NOTIFICATION_SERVICE)
             as NotificationManager
         return system.activeNotifications.map { it.id }.toSet()
     }
 
     fun refresh(context: Context, payment: PaymentReminder) {
-        if (Build.VERSION.SDK_INT < 23) return
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val stored = try { JSONArray(prefs.getString(payment.id, "[]")) }
             catch (_: Exception) { JSONArray() }
