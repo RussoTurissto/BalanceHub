@@ -2244,7 +2244,9 @@ class MainActivity : AppCompatActivity() {
                 panel.visibility = if (position == 3) View.VISIBLE else View.GONE
             }
         }
-        form.addView(panel)
+        form.addView(panel, LinearLayout.LayoutParams(-1, -2).apply {
+            topMargin = dp(10)
+        })
         panel.visibility = if (recurrence.selectedItemPosition == 3) View.VISIBLE else View.GONE
         refresh()
     }
@@ -6747,7 +6749,9 @@ class MainActivity : AppCompatActivity() {
                 panel.visibility = if (position == 5) View.VISIBLE else View.GONE
             }
         }
-        form.addView(panel)
+        form.addView(panel, LinearLayout.LayoutParams(-1, -2).apply {
+            topMargin = dp(10)
+        })
         panel.visibility = if (recurrence.selectedItemPosition == 5)
             View.VISIBLE else View.GONE
         refresh()

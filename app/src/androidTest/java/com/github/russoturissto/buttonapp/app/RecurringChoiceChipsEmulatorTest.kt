@@ -60,6 +60,9 @@ class RecurringChoiceChipsEmulatorTest {
                     method.invoke(activity, form, recurrence, PaymentPlan(
                         mode = "monthly", monthlyDays = setOf(5, 15),
                         monthlyEnabled = true))
+                    assertEquals((10 * activity.resources.displayMetrics.density).toInt(),
+                        (form.getChildAt(form.childCount - 1).layoutParams
+                            as LinearLayout.LayoutParams).topMargin)
                     val checked = checkNotNull(find(form, "Число месяца 15, выбрано"))
                     assertTrue(checked.isSelected)
                     assertNotNull(checked.background)
@@ -146,6 +149,9 @@ class RecurringChoiceChipsEmulatorTest {
                 method.isAccessible = true
                 method.invoke(activity, form, recurrence, initial,
                     Calendar.getInstance(), { plan: EventPlan -> updated = plan })
+                assertEquals((10 * activity.resources.displayMetrics.density).toInt(),
+                    (form.getChildAt(form.childCount - 1).layoutParams
+                        as LinearLayout.LayoutParams).topMargin)
                 val monday = checkNotNull(find(form, "День недели Пн, выбрано"))
                 val wednesday = checkNotNull(find(form, "День недели Ср, выбрано"))
                 val friday = checkNotNull(find(form, "День недели Пт, не выбрано"))
