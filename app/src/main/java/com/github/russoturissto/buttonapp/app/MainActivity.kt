@@ -5966,10 +5966,143 @@ class MainActivity : AppCompatActivity() {
             }.show()
     }
 
+
+    private fun installCustomEventControls(
+        form: LinearLayout, recurrence: Spinner, initial: EventPlan?,
+        startAt: Calendar, onChange: (EventPlan) -> Unit
+    ) {
+        var mode = initial?.mode ?: "weekdays"
+        val days = initial?.weekdays?.toMutableSet() ?: linkedSetOf()
+        val selected = initial?.explicitDates?.toMutableSet() ?: linkedSetOf()
+        var weeks = initial?.intervalWeeks ?: 1
+        var endsAt = initial?.endsAt
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(softAccent, 12)
+            setPadding(dp(8), dp(8), dp(8), dp(8))
+        }
+        val modeSpinner = styledSpinner(listOf("По дням недели", "Конкретные даты"),
+            if (mode == "dates") 1 else 0)
+        val weekdayPanel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val datePanel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val dateText = textLine("", 12f, muted)
+        val weekInterval = field("Интервал в неделях").apply {
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            setText(weeks.toString())
+        }
+        val endText = textLine("", 12f, muted)
+        fun value() = EventPlan(mode, days.toSet(), weeks.coerceIn(1, 104),
+            selected.toSet(), endsAt,
+            initial?.anchorAt?.takeIf { it > 0 } ?: startAt.timeInMillis,
+            initial?.edits ?: emptyMap(), initial?.history ?: emptyList())
+        fun refresh() {
+            weekdayPanel.visibility = if (mode == "weekdays") View.VISIBLE else View.GONE
+            datePanel.visibility = if (mode == "dates") View.VISIBLE else View.GONE
+            dateText.text = if (selected.isEmpty()) "Даты не выбраны"
+                else selected.sorted().joinToString(", ") {
+                    DateFormat.getDateInstance(DateFormat.SHORT).format(Date(it))
+                }
+            endText.text = endsAt?.let {
+                "Дата окончания: " + DateFormat.getDateInstance(DateFormat.MEDIUM)
+                    .format(Date(it))
+            } ?: "Без даты окончания"
+            onChange(value())
+        }
+        val weekdayRow = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        val columns = GridLayout(this).apply { columnCount = 4 }
+        for ((name, day) in listOf("Пн" to Calendar.MONDAY,
+                "Вт" to Calendar.TUESDAY, "Ср" to Calendar.WEDNESDAY,
+                "Чт" to Calendar.THURSDAY, "Пт" to Calendar.FRIDAY,
+                "Сб" to Calendar.SATURDAY, "Вс" to Calendar.SUNDAY)) {
+            val check = android.widget.CheckBox(this).apply {
+                text = name
+                textSize = 12f
+                setTextColor(ink)
+                isChecked = day in days
+                setOnCheckedChangeListener { _, enabled ->
+                    if (enabled) days.add(day) else days.remove(day)
+                    refresh()
+                }
+            }
+            columns.addView(check)
+        }
+        weekdayRow.addView(columns)
+        weekdayRow.addView(textLine("Повторять через число недель", 12f, muted))
+        weekdayRow.addView(weekInterval)
+        weekInterval.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int,
+                count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int,
+                before: Int, count: Int) {
+                weeks = s?.toString()?.toIntOrNull()?.coerceIn(1, 104) ?: 1
+                refresh()
+            }
+            override fun afterTextChanged(s: Editable?) = Unit
+        })
+        weekdayPanel.addView(weekdayRow)
+        datePanel.addView(dateText)
+        datePanel.addView(secondaryButton("＋ Добавить дату") {
+            val date = Calendar.getInstance()
+            showThemedCalendar(date) {
+                selected.add(PaymentOccurrenceEngine.day(date.timeInMillis))
+                refresh()
+            }
+        })
+        datePanel.addView(verticalGap(5))
+        datePanel.addView(secondaryButton("Очистить выбранные даты") {
+            selected.clear()
+            refresh()
+        })
+        panel.addView(modeSpinner)
+        panel.addView(verticalGap(8))
+        panel.addView(weekdayPanel)
+        panel.addView(datePanel)
+        panel.addView(verticalGap(8))
+        panel.addView(endText)
+        panel.addView(secondaryButton("Дата окончания") {
+            val end = Calendar.getInstance().apply {
+                timeInMillis = endsAt ?: System.currentTimeMillis()
+            }
+            showThemedCalendar(end) {
+                endsAt = PaymentOccurrenceEngine.day(end.timeInMillis)
+                refresh()
+            }
+        })
+        panel.addView(verticalGap(4))
+        panel.addView(secondaryButton("Без ограничения срока") {
+            endsAt = null
+            refresh()
+        })
+        modeSpinner.onItemSelectedListener = object :
+            android.widget.AdapterView.OnItemSelectedListener {
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) = Unit
+            override fun onItemSelected(parent: android.widget.AdapterView<*>?,
+                view: View?, position: Int, id: Long) {
+                mode = if (position == 1) "dates" else "weekdays"
+                refresh()
+            }
+        }
+        recurrence.onItemSelectedListener = object :
+            android.widget.AdapterView.OnItemSelectedListener {
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) = Unit
+            override fun onItemSelected(parent: android.widget.AdapterView<*>?,
+                view: View?, position: Int, id: Long) {
+                panel.visibility = if (position == 5) View.VISIBLE else View.GONE
+            }
+        }
+        form.addView(panel)
+        panel.visibility = if (recurrence.selectedItemPosition == 5)
+            View.VISIBLE else View.GONE
+        refresh()
+    }
+
     private fun showEventEditor(original: PlannedEvent? = null) {
         val date = if (original == null) ReminderDateTimePolicy.atOpening()
             else Calendar.getInstance().apply { timeInMillis = original.dueAt }
         var manualIcon = original?.iconId
+        var editedEventPlan: EventPlan? = original?.plan
         val editor = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(10), dp(18), dp(12))
@@ -6009,9 +6142,10 @@ class MainActivity : AppCompatActivity() {
                     java.text.SimpleDateFormat("HH:mm", Locale("ru")).format(date.time)
             }
         }
-        val recurrenceValues = listOf("once", "daily", "weekly", "monthly", "yearly")
+        val recurrenceValues = listOf("once", "daily", "weekly", "monthly", "yearly", "custom")
         val recurrence = styledSpinner(listOf(
-            "Не повторяется", "Ежедневно", "Еженедельно", "Ежемесячно", "Ежегодно"
+            "Не повторяется", "Ежедневно", "Еженедельно", "Ежемесячно", "Ежегодно",
+            "Пользовательское"
         ), recurrenceValues.indexOf(original?.recurrence ?: "once").coerceAtLeast(0))
         val leadValues = listOf(0, 10, 60, 1_440, 4_320)
         val lead = styledSpinner(listOf(
@@ -6034,6 +6168,9 @@ class MainActivity : AppCompatActivity() {
         editor.addView(verticalGap(11))
         editor.addView(textLine("Повторение", 13f, muted))
         editor.addView(recurrence)
+        installCustomEventControls(editor, recurrence, original?.plan, date) {
+            editedEventPlan = it
+        }
         editor.addView(verticalGap(10))
         editor.addView(textLine("Напомнить", 13f, muted))
         editor.addView(lead)
@@ -6056,10 +6193,48 @@ class MainActivity : AppCompatActivity() {
                         Toast.LENGTH_LONG).show()
                     return@setOnClickListener
                 }
-                val item = PlannedEvent(original?.id ?: UUID.randomUUID().toString(),
+                val cycle = recurrenceValues[recurrence.selectedItemPosition]
+                val plan = editedEventPlan
+                if (cycle == "custom" &&
+                    (plan == null || (plan.mode == "weekdays" && plan.weekdays.isEmpty()) ||
+                        (plan.mode == "dates" && plan.explicitDates.isEmpty()))) {
+                    Toast.makeText(this, "Выберите дни недели или конкретные даты",
+                        Toast.LENGTH_LONG).show()
+                    return@setOnClickListener
+                }
+                var item = PlannedEvent(original?.id ?: UUID.randomUUID().toString(),
                     title, details.text.toString().trim().take(2_000),
                     date.timeInMillis, leadValues[lead.selectedItemPosition],
-                    recurrenceValues[recurrence.selectedItemPosition], manualIcon)
+                    cycle, manualIcon,
+                    plan?.copy(anchorAt = original?.plan?.anchorAt
+                        ?.takeIf { it > 0 } ?: date.timeInMillis))
+                if (cycle == "custom") {
+                    val next = EventOccurrenceEngine.next(item,
+                        System.currentTimeMillis() - 1L)?.dueAt
+                    if (next == null) {
+                        Toast.makeText(this, "Нет будущих посещений по этому расписанию",
+                            Toast.LENGTH_LONG).show()
+                        return@setOnClickListener
+                    }
+                    item = item.copy(dueAt = next)
+                }
+                if (original != null) {
+                    themedDialogBuilder().setTitle("Применить изменения?")
+                        .setMessage("Новое расписание заменит общее. Индивидуальные " +
+                            "пропуски и переносы сохранятся. Подтвердите применение.")
+                        .setNegativeButton("Отмена", null)
+                        .setPositiveButton("Применить") { _, _ ->
+                            if (EventStore.save(this, item)) {
+                                EventScheduler.cancel(this, original.id)
+                                EventScheduler.schedule(this, item)
+                                expandedEventId = item.id
+                                renderTab()
+                                dialog.dismiss()
+                            } else Toast.makeText(this, "Не удалось сохранить событие",
+                                Toast.LENGTH_LONG).show()
+                        }.show()
+                    return@setOnClickListener
+                }
                 if (EventStore.save(this, item)) {
                     if (original != null) EventScheduler.cancel(this, original.id)
                     EventScheduler.schedule(this, item)
