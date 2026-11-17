@@ -5831,7 +5831,7 @@ class MainActivity : AppCompatActivity() {
                     .setNeutralButton("Сбросить исключения") { _, _ ->
                         val revised = updated.copy(plan = updated.plan?.copy(
                             edits = emptyMap(), bulkEdits = emptyList(),
-                            history = updated.plan.history + PaymentHistoryEntry(
+                            history = (updated.plan?.history ?: emptyList()) + PaymentHistoryEntry(
                                 "", "reset_exceptions", System.currentTimeMillis(),
                                 payment.dueAt, updated.dueAt)))
                         commitChange(revised)
