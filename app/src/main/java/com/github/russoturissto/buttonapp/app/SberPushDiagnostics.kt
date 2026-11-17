@@ -9,7 +9,8 @@ import java.io.File
 /** Bounded metadata only: no text, banking amount, card number or sender is stored. */
 internal object SberPushDiagnostics {
     enum class Outcome {
-        UPDATED, NO_BALANCE, AMBIGUOUS_BALANCE, AMBIGUOUS_ACCOUNT,
+        UPDATED, NO_BALANCE, NO_RUBLE_AMOUNT, NO_BALANCE_LABEL,
+        HISTORIC_ONLY, AMBIGUOUS_BALANCE, AMBIGUOUS_ACCOUNT,
         INVALID_BALANCE, OLD_NOTIFICATION, SAVE_FAILED, EMPTY_NOTIFICATION,
         TITLE_ONLY, SYSTEM_REDACTED, POSSIBLY_REDACTED, IGNORED_GROUP, IGNORED_ONGOING
     }
@@ -124,10 +125,11 @@ internal object SberPushDiagnostics {
         Outcome.SYSTEM_REDACTED -> 6
         Outcome.AMBIGUOUS_BALANCE, Outcome.AMBIGUOUS_ACCOUNT,
         Outcome.INVALID_BALANCE -> 5
-        Outcome.POSSIBLY_REDACTED, Outcome.NO_BALANCE -> 4
+        Outcome.POSSIBLY_REDACTED, Outcome.NO_BALANCE,
+        Outcome.NO_RUBLE_AMOUNT, Outcome.NO_BALANCE_LABEL -> 4
         Outcome.OLD_NOTIFICATION, Outcome.SAVE_FAILED -> 3
         Outcome.TITLE_ONLY -> 2
-        Outcome.EMPTY_NOTIFICATION, Outcome.IGNORED_GROUP,
+        Outcome.EMPTY_NOTIFICATION, Outcome.HISTORIC_ONLY, Outcome.IGNORED_GROUP,
         Outcome.IGNORED_ONGOING -> 1
     }
     fun clear(context: Context) = synchronized(lock) { storage(context).delete() }

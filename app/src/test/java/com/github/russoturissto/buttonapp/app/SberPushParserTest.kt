@@ -95,4 +95,48 @@ class SberPushParserTest {
     @Test fun doesNotMistakeReceiptForBalanceWithoutLabel() {
         assertNull(SberPushParser.parse(bank, "+ 10 ₽ — перевод на счёт ••9667"))
     }
+
+    @Test fun positiveStyleWithFormalAddress() {
+        val result = SberPushParser.parse(bank,
+            "Радость! Зарплата пришла 🎉\n+ 5 000 ₽ — Теперь у вас: 24 750,60 ₽\nПлат. счёт ••4321")
+        assertEquals(2_475_060L, result?.kopecks)
+        assertEquals("4321", result?.lastFour)
+    }
+
+    @Test fun animeEmojisDoNotInterfereWithMoney() {
+        val result = SberPushParser.parse(bank,
+            "Тинь-динь (⌒▽⌒)☆ перевод +200 ₽. Доступно: 1 400,05 ₽ карта **5678")
+        assertEquals(140_005L, result?.kopecks)
+        assertEquals("5678", result?.lastFour)
+    }
+
+    @Test fun linkedBalancesFromTwoAccountsStaySeparate() {
+        val result = SberPushParser.analyze(bank,
+            "Баланс карты **1234: 100 ₽. Баланс карты **5678: 250 ₽")
+        assertEquals(SberPushParser.Reason.ACCEPTED, result.reason)
+        assertNull(result.result)
+        assertEquals(2, result.balances.size)
+        assertEquals(mapOf("1234" to 10_000L, "5678" to 25_000L),
+            result.balances.associate { it.lastFour to it.kopecks })
+    }
+
+    @Test fun transferWithTwoCardsWithoutBalanceLinkIsAmbiguous() {
+        val result = SberPushParser.analyze(bank,
+            "Перевод с карты **1234 на карту **5678. Остаток: 200 ₽")
+        assertEquals(SberPushParser.Reason.AMBIGUOUS_ACCOUNT, result.reason)
+    }
+
+    @Test fun creditLimitAndBonusesCannotRefreshCashBalance() {
+        assertNull(SberPushParser.parse(bank, "Баланс бонусов Спасибо: 50 ₽"))
+        assertNull(SberPushParser.parse(bank, "Кредитный лимит: 15 000 ₽"))
+        assertNull(SberPushParser.parse(bank, "Задолженность 3 500 ₽"))
+    }
+
+    @Test fun purchaseWithoutBalanceIsNeverFabricated() {
+        assertNull(SberPushParser.parse(bank,
+            "Оплата прошла (⌒▽⌒)☆ 500 ₽. Карта **1234"))
+        assertNull(SberPushParser.parse(bank,
+            "Баланс распушился — перевод +10 ₽"))
+    }
+
 }

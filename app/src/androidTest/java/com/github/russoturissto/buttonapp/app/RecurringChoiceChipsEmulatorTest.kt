@@ -79,6 +79,11 @@ class RecurringChoiceChipsEmulatorTest {
                     assertTrue(plan.monthlyEnabled)
                     assertEquals("monthly", plan.mode)
                     assertTrue(checkNotNull(find(form, "Число месяца 5, выбрано")).isSelected)
+                    assertChipRowsFit(form, listOf(
+                        "Число месяца 1, не выбрано",
+                        "Число месяца 25, выбрано",
+                        "Число месяца 31, не выбрано"
+                    ), 280, activity.resources.displayMetrics.density)
                     val monthlySwitch = findSwitch(form)
                     assertTrue(checkNotNull(monthlySwitch).isChecked)
                     monthlySwitch.toggle()
@@ -142,4 +147,55 @@ class RecurringChoiceChipsEmulatorTest {
             }
         }
     }
+
+    private fun assertChipRowsFit(
+        container: LinearLayout, labels: List<String>, widthDp: Int, density: Float
+    ) {
+        val px = (widthDp * density).toInt()
+        container.measure(
+            View.MeasureSpec.makeMeasureSpec(px, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        )
+        container.layout(0, 0, px, container.measuredHeight)
+        for (label in labels) {
+            val chip = checkNotNull(find(container, label))
+            val row = chip.parent as LinearLayout
+            assertTrue("Chip $label has no width", chip.width > 0)
+            assertTrue("Chip $label overflows its row", chip.right <= row.width)
+            assertTrue("Chip $label starts outside its row", chip.left >= 0)
+            assertTrue("Row must fit its container", row.width <= px)
+        }
+    }
+
+    @Test fun eventWeekdayRowsFitNarrowDialogsAndLargeText() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val form = LinearLayout(activity).apply {
+                    orientation = LinearLayout.VERTICAL
+                }
+                val recurrence = Spinner(activity).apply {
+                    adapter = ArrayAdapter(activity, android.R.layout.simple_spinner_item,
+                        listOf("a", "b", "c", "d", "e", "custom"))
+                    setSelection(5)
+                }
+                val method = MainActivity::class.java.getDeclaredMethod(
+                    "installCustomEventControls",
+                    LinearLayout::class.java, Spinner::class.java,
+                    EventPlan::class.java, Calendar::class.java,
+                    kotlin.jvm.functions.Function1::class.java)
+                method.isAccessible = true
+                method.invoke(activity, form, recurrence,
+                    EventPlan(mode = "weekdays"), Calendar.getInstance(),
+                    { _: EventPlan -> })
+                val labels = listOf("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")
+                    .map { "День недели $it, не выбрано" }
+                // 20sp instead of the normal 14sp to exercise large text.
+                labels.forEach { checkNotNull(find(form, it)).textSize = 20f }
+                val density = activity.resources.displayMetrics.density
+                assertChipRowsFit(form, labels, 280, density)
+                assertChipRowsFit(form, labels, 360, density)
+            }
+        }
+    }
+
 }

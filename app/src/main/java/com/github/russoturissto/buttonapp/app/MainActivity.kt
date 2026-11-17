@@ -560,6 +560,39 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+
+    /**
+     * LinearLayout weights are measured against each dialog row's actual width.
+     * GridLayout's undefined specs with width=0 were overflowing in ScrollView
+     * on some OEM displays and large font scales.
+     */
+    private fun recurringChoiceRows(
+        choices: List<Pair<String, Int>>, columns: Int,
+        descriptionPrefix: String, selected: Set<Int>,
+        onChanged: (Int, Boolean) -> Unit
+    ): LinearLayout = LinearLayout(this).apply {
+        require(columns > 0)
+        orientation = LinearLayout.VERTICAL
+        for (chunk in choices.chunked(columns)) {
+            val row = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+            }
+            for ((label, value) in chunk) {
+                val chip = recurringChoiceChip(
+                    label, "$descriptionPrefix $label", value in selected
+                ) { enabled -> onChanged(value, enabled) }
+                row.addView(chip, LinearLayout.LayoutParams(0, dp(50), 1f).apply {
+                    setMargins(dp(2), dp(2), dp(2), dp(2))
+                })
+            }
+            repeat(columns - chunk.size) {
+                row.addView(View(this@MainActivity),
+                    LinearLayout.LayoutParams(0, dp(50), 1f))
+            }
+            addView(row, LinearLayout.LayoutParams(-1, -2))
+        }
+    }
+
     private fun secondaryButton(label: String, action: () -> Unit) = Button(this).apply {
         text = label
         isAllCaps = false
@@ -2162,25 +2195,13 @@ class MainActivity : AppCompatActivity() {
             selectionSummary.text = if (monthlyDays.isEmpty()) "Выбрано: 0"
                 else "Выбрано: ${monthlyDays.size} · ${monthlyDays.sorted().joinToString(", ")}"
         }
-        val dayGrid = GridLayout(this).apply {
-            columnCount = 7
-            layoutParams = LinearLayout.LayoutParams(-1, -2)
-        }
-        for (number in 1..31) {
-            val chip = recurringChoiceChip(number.toString(), "Число месяца $number",
-                number in monthlyDays) { enabled ->
-                if (enabled) monthlyDays.add(number) else monthlyDays.remove(number)
-                refreshSelectionSummary()
-                store()
-            }
-            dayGrid.addView(chip, GridLayout.LayoutParams(
-                GridLayout.spec(GridLayout.UNDEFINED),
-                GridLayout.spec(GridLayout.UNDEFINED, 1f)
-            ).apply {
-                width = 0
-                height = dp(46)
-                setMargins(dp(2), dp(2), dp(2), dp(2))
-            })
+        val dayGrid = recurringChoiceRows(
+            (1..31).map { it.toString() to it }, 7,
+            "Число месяца", monthlyDays
+        ) { number, enabled ->
+            if (enabled) monthlyDays.add(number) else monthlyDays.remove(number)
+            refreshSelectionSummary()
+            store()
         }
         monthlyPanel.addView(dayGrid)
         monthlyPanel.addView(verticalGap(8))
@@ -4559,6 +4580,12 @@ class MainActivity : AppCompatActivity() {
                 SberPushDiagnostics.Outcome.POSSIBLY_REDACTED ->
                     "Возможна системная фильтрация (не доказана)"
                 SberPushDiagnostics.Outcome.NO_BALANCE -> "Остаток в тексте не найден"
+                SberPushDiagnostics.Outcome.NO_RUBLE_AMOUNT ->
+                    "Не обнаружена подтверждённая сумма в рублях"
+                SberPushDiagnostics.Outcome.NO_BALANCE_LABEL ->
+                    "Есть сумма операции, но нет признака остатка"
+                SberPushDiagnostics.Outcome.HISTORIC_ONLY ->
+                    "Доступна лишь история сообщений, не текущая операция"
                 SberPushDiagnostics.Outcome.AMBIGUOUS_BALANCE ->
                     "Неоднозначные суммы остатка"
                 SberPushDiagnostics.Outcome.AMBIGUOUS_ACCOUNT ->
@@ -4600,6 +4627,9 @@ class MainActivity : AppCompatActivity() {
                         SberPushDiagnostics.Outcome.POSSIBLY_REDACTED ->
                             "вероятная фильтрация"
                         SberPushDiagnostics.Outcome.NO_BALANCE -> "остаток не найден"
+                        SberPushDiagnostics.Outcome.NO_RUBLE_AMOUNT -> "нет суммы в рублях"
+                        SberPushDiagnostics.Outcome.NO_BALANCE_LABEL -> "нет признака остатка"
+                        SberPushDiagnostics.Outcome.HISTORIC_ONLY -> "только история"
                         SberPushDiagnostics.Outcome.IGNORED_GROUP -> "группа"
                         else -> item.outcome.name.lowercase(Locale.ROOT)
                     }
@@ -4646,7 +4676,7 @@ class MainActivity : AppCompatActivity() {
         help.addView(verticalGap(7))
         help.addView(textLine(
             "При следующем уведомлении с «Остаток», «Баланс», «Доступно», " +
-                "«На лапках», «Теперь у тебя» или другой распознанной фразой покажем " +
+                "«На лапках», «Теперь у тебя», «Теперь у вас» или другой фразой покажем " +
                 "подтверждённую сумму. Сумма самой операции никогда не " +
                 "подставляется вместо остатка. Если данные отсутствуют или " +
                 "неоднозначны, прежний баланс сохраняется.",
@@ -6654,26 +6684,16 @@ class MainActivity : AppCompatActivity() {
         }
         weekdayRow.addView(textLine("Выберите дни недели", 12f, muted))
         weekdayRow.addView(verticalGap(8))
-        val columns = GridLayout(this).apply {
-            columnCount = 4
-            layoutParams = LinearLayout.LayoutParams(-1, -2)
-        }
-        for ((name, day) in listOf("Пн" to Calendar.MONDAY,
-                "Вт" to Calendar.TUESDAY, "Ср" to Calendar.WEDNESDAY,
-                "Чт" to Calendar.THURSDAY, "Пт" to Calendar.FRIDAY,
-                "Сб" to Calendar.SATURDAY, "Вс" to Calendar.SUNDAY)) {
-            val chip = recurringChoiceChip(name, "День недели $name", day in days) { enabled ->
-                if (enabled) days.add(day) else days.remove(day)
-                refresh()
-            }
-            columns.addView(chip, GridLayout.LayoutParams(
-                GridLayout.spec(GridLayout.UNDEFINED),
-                GridLayout.spec(GridLayout.UNDEFINED, 1f)
-            ).apply {
-                width = 0
-                height = dp(52)
-                setMargins(dp(3), dp(3), dp(3), dp(3))
-            })
+        val columns = recurringChoiceRows(
+            listOf(
+                "Пн" to Calendar.MONDAY, "Вт" to Calendar.TUESDAY,
+                "Ср" to Calendar.WEDNESDAY, "Чт" to Calendar.THURSDAY,
+                "Пт" to Calendar.FRIDAY, "Сб" to Calendar.SATURDAY,
+                "Вс" to Calendar.SUNDAY
+            ), 4, "День недели", days
+        ) { day, enabled ->
+            if (enabled) days.add(day) else days.remove(day)
+            refresh()
         }
         weekdayRow.addView(columns)
         weekdayRow.addView(verticalGap(10))

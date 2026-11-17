@@ -111,52 +111,58 @@ class SberPushNotificationListener : NotificationListenerService() {
             processOtherBankNotification(sbn, other)
             return
         }
-        // Preserve the established Sber branch and its strict parser unchanged.
         if (!SberBalanceStore.isEnabled(this) ||
             sbn.packageName != SberPushParser.SBER_PACKAGE) return
         val n = sbn.notification
         val remoteFlags = (if (n.contentView != null) 1 else 0) or
             (if (n.bigContentView != null) 2 else 0) or
             (if (n.headsUpContentView != null) 4 else 0)
-        val ignored = when {
-            (n.flags and Notification.FLAG_GROUP_SUMMARY) != 0 ->
-                SberPushDiagnostics.Outcome.IGNORED_GROUP
-            (n.flags and Notification.FLAG_ONGOING_EVENT) != 0 ->
-                SberPushDiagnostics.Outcome.IGNORED_ONGOING
-            else -> null
-        }
-        val payload = if (ignored != null) SberNotificationText.Payload(
+        val ongoing = (n.flags and Notification.FLAG_ONGOING_EVENT) != 0
+        val groupSummary = (n.flags and Notification.FLAG_GROUP_SUMMARY) != 0
+        val payload = if (ongoing) SberNotificationText.Payload(
             emptyList(), emptyList(), 0
         ) else SberNotificationText.extract(n)
-        val privacy = if (ignored != null) SberNotificationPrivacy.Evidence.NONE
+        val privacy = if (ongoing) SberNotificationPrivacy.Evidence.NONE
             else SberNotificationPrivacy.detect(
                 payload.titles, payload.bodies, payload.rubleFieldsMask,
                 payload.cueFieldsMask, payload.accountFieldsMask,
                 SberNotificationPrivacy.localizedSystemMessage()
             )
-        val result = if (ignored != null || privacy ==
+        val assessment = if (ongoing || privacy ==
             SberNotificationPrivacy.Evidence.SYSTEM_REDACTION) null
             else SberPushEvaluation.analyze(sbn.packageName, payload)
+        // A group summary may contain a single genuine balance; summaries with
+        // multiple operations are never interpreted as a fresh balance.
+        val groupWithoutSingleBalance = groupSummary &&
+            assessment?.balances?.size != 1
+        val saveResults = if (!ongoing && !groupWithoutSingleBalance &&
+            assessment?.reason == SberPushParser.Reason.ACCEPTED) {
+            assessment.balances.map { SberBalanceStore.save(this, it, sbn.postTime) }
+        } else emptyList()
         val outcome = when {
-            ignored != null -> ignored
+            ongoing -> SberPushDiagnostics.Outcome.IGNORED_ONGOING
             privacy == SberNotificationPrivacy.Evidence.SYSTEM_REDACTION ->
                 SberPushDiagnostics.Outcome.SYSTEM_REDACTED
+            !payload.hasReadableText && payload.hasHistoricMessages ->
+                SberPushDiagnostics.Outcome.HISTORIC_ONLY
+            groupWithoutSingleBalance -> SberPushDiagnostics.Outcome.IGNORED_GROUP
             !payload.hasReadableText -> SberPushDiagnostics.Outcome.EMPTY_NOTIFICATION
-            !payload.hasBody && result?.result == null ->
-                SberPushDiagnostics.Outcome.TITLE_ONLY
-            result?.reason == SberPushParser.Reason.AMBIGUOUS_BALANCE ->
+            assessment?.reason == SberPushParser.Reason.AMBIGUOUS_BALANCE ->
                 SberPushDiagnostics.Outcome.AMBIGUOUS_BALANCE
-            result?.reason == SberPushParser.Reason.AMBIGUOUS_ACCOUNT ->
+            assessment?.reason == SberPushParser.Reason.AMBIGUOUS_ACCOUNT ->
                 SberPushDiagnostics.Outcome.AMBIGUOUS_ACCOUNT
-            result?.reason == SberPushParser.Reason.INVALID_BALANCE ->
+            assessment?.reason == SberPushParser.Reason.INVALID_BALANCE ->
                 SberPushDiagnostics.Outcome.INVALID_BALANCE
-            result?.result == null &&
-                privacy == SberNotificationPrivacy.Evidence.POSSIBLE_REDACTION ->
+            saveResults.any { it } -> SberPushDiagnostics.Outcome.UPDATED
+            saveResults.isNotEmpty() -> SberPushDiagnostics.Outcome.OLD_NOTIFICATION
+            !payload.hasBody -> SberPushDiagnostics.Outcome.TITLE_ONLY
+            privacy == SberNotificationPrivacy.Evidence.POSSIBLE_REDACTION ->
                 SberPushDiagnostics.Outcome.POSSIBLY_REDACTED
-            result?.result == null -> SberPushDiagnostics.Outcome.NO_BALANCE
-            SberBalanceStore.save(this, result.result, sbn.postTime) ->
-                SberPushDiagnostics.Outcome.UPDATED
-            else -> SberPushDiagnostics.Outcome.OLD_NOTIFICATION
+            payload.rubleFieldsMask == 0 ->
+                SberPushDiagnostics.Outcome.NO_RUBLE_AMOUNT
+            payload.cueFieldsMask == 0 ->
+                SberPushDiagnostics.Outcome.NO_BALANCE_LABEL
+            else -> SberPushDiagnostics.Outcome.NO_BALANCE
         }
         SberPushDiagnostics.record(this, sbn.postTime, outcome,
             payload.fieldsMask, payload.rubleFieldsMask, payload.cueFieldsMask,

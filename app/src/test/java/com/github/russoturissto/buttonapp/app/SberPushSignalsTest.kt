@@ -31,4 +31,12 @@ class SberPushSignalsTest {
         assertTrue(signals.balanceCue)
         assertFalse(signals.money)
     }
+
+    @Test fun formalAddressAndLineBreaksAreUnderstood() {
+        val text = "Теперь\u200B у вас:\n1\u202f234,50 ₽"
+        assertTrue(SberPushSignals.inspect(text).balanceCue)
+        assertEquals("Теперь у вас:\n1 234,50 ₽",
+            SberPushSignals.normalizeLines(text))
+    }
+
 }

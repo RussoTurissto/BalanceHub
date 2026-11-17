@@ -77,4 +77,51 @@ class SberPushEvaluationTest {
         val message = payload(bodies = listOf("Поступило + 10 ₽", "Баланс бонусов: 500 ₽"))
         assertNull(SberPushEvaluation.analyze(bank, message).result)
     }
+
+    @Test fun titleCueAndUnsignedAmountCanBeJoinedSafely() {
+        val message = payload(
+            titles = listOf("Теперь у вас:"),
+            bodies = listOf("1 250,70 ₽ Плат. счёт ••4444")
+        )
+        val result = SberPushEvaluation.analyze(bank, message)
+        assertEquals(125_070L, result.result?.kopecks)
+        assertEquals("4444", result.result?.lastFour)
+    }
+
+    @Test fun ambiguousTitleDoesNotTurnIncomingTransferIntoBalance() {
+        val message = payload(
+            titles = listOf("Баланс распушился 😺"),
+            bodies = listOf("+10 ₽ — перевод успешно зачислен")
+        )
+        assertNull(SberPushEvaluation.analyze(bank, message).result)
+    }
+
+    @Test fun independentAccountsInSeparateFieldsAreKeptSeparate() {
+        val message = payload(bodies = listOf(
+            "Остаток карты **1001: 100 ₽",
+            "Остаток карты **2002: 200 ₽"
+        ))
+        val result = SberPushEvaluation.analyze(bank, message)
+        assertEquals(SberPushParser.Reason.ACCEPTED, result.reason)
+        assertNull(result.result)
+        assertEquals(2, result.balances.size)
+    }
+
+    @Test fun aHistoricalOnlyMarkerCannotBecomeCurrentBalance() {
+        val message = SberNotificationText.Payload(
+            emptyList(), emptyList(),
+            SberNotificationText.Field.HISTORIC.mask,
+            hasHistoricMessages = true
+        )
+        assertNull(SberPushEvaluation.analyze(bank, message).result)
+    }
+
+    @Test fun explicitBalanceWinsWhenAmountOfOperationDiffers() {
+        val message = payload(bodies = listOf(
+            "Оплата 500 ₽. Доступно: 2 000 ₽ карта ••3456",
+            "Оплата 500 ₽"
+        ))
+        assertEquals(200_000L, SberPushEvaluation.analyze(bank, message).result?.kopecks)
+    }
+
 }

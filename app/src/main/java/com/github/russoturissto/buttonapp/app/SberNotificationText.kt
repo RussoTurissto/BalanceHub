@@ -17,7 +17,10 @@ internal object SberNotificationText {
         SUB_TEXT(32, "Дополнительный текст"),
         SUMMARY(64, "Сводка"),
         TICKER(128, "Краткое сообщение"),
-        MESSAGES(256, "Сообщения")
+        MESSAGES(256, "Сообщения"),
+        INFO(512, "Информация"),
+        HISTORIC(1024, "Исторические сообщения"),
+        TEMPLATE(2048, "Шаблон Android")
     }
 
     data class Payload(
@@ -27,7 +30,8 @@ internal object SberNotificationText {
         val rubleFieldsMask: Int = 0,
         val cueFieldsMask: Int = 0,
         val accountFieldsMask: Int = 0,
-        val fieldLengths: List<Int> = emptyList()
+        val fieldLengths: List<Int> = emptyList(),
+        val hasHistoricMessages: Boolean = false
     ) {
         val hasReadableText: Boolean get() = titles.isNotEmpty() || bodies.isNotEmpty()
         val hasBody: Boolean get() = bodies.isNotEmpty()
@@ -41,6 +45,7 @@ internal object SberNotificationText {
         var cue = 0
         var account = 0
         val lengths = IntArray(Field.entries.size)
+        var historic = false
 
         fun add(field: Field, value: CharSequence?, isTitle: Boolean = false) {
             val text = value?.toString()?.trim().orEmpty()
@@ -78,7 +83,17 @@ internal object SberNotificationText {
             } catch (_: RuntimeException) { /* unreadable lines */ }
             safe(Field.SUB_TEXT) { extras.getCharSequence(Notification.EXTRA_SUB_TEXT) }
             safe(Field.SUMMARY) { extras.getCharSequence(Notification.EXTRA_SUMMARY_TEXT) }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            safe(Field.INFO) { extras.getCharSequence(Notification.EXTRA_INFO_TEXT) }
+            // Template is metadata, not a financial statement.
+            try {
+                val template = extras.getString(Notification.EXTRA_TEMPLATE)
+                if (!template.isNullOrBlank()) {
+                    mask = mask or Field.TEMPLATE.mask
+                    lengths[Field.TEMPLATE.ordinal] = template.length.coerceAtMost(8_192)
+                }
+            } catch (_: RuntimeException) { /* malformed template metadata */ }
+            // MessagingStyle is supported since Android 7 (API 24), not only Android 11.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                 try {
                     @Suppress("DEPRECATION")
                     val messages = extras.getParcelableArray(Notification.EXTRA_MESSAGES)
@@ -86,11 +101,24 @@ internal object SberNotificationText {
                         Notification.MessagingStyle.Message.getMessagesFromBundleArray(messages)
                             .forEach { add(Field.MESSAGES, it.text) }
                     }
-                } catch (_: RuntimeException) { /* no readable messages */ }
+                } catch (_: RuntimeException) { /* no readable current messages */ }
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                try {
+                    @Suppress("DEPRECATION")
+                    val previous = extras.getParcelableArray(
+                        Notification.EXTRA_HISTORIC_MESSAGES)
+                    if (!previous.isNullOrEmpty()) {
+                        historic = true
+                        mask = mask or Field.HISTORIC.mask
+                        // Historical content must NEVER become a new balance.
+                        lengths[Field.HISTORIC.ordinal] = previous.size.coerceAtMost(8_192)
+                    }
+                } catch (_: RuntimeException) { /* no historical metadata */ }
             }
         }
         add(Field.TICKER, notification.tickerText)
         return Payload(titles.distinct(), bodies.distinct(), mask, ruble, cue, account,
-            lengths.toList())
+            lengths.toList(), historic)
     }
 }
