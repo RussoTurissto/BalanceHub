@@ -301,7 +301,7 @@ internal object PaymentOccurrenceEngine {
         val last = occurrences(payment, from, until).maxOfOrNull { it.dueAt }
         val moved = plan.edits.values.mapNotNull { it.movedAt }.maxOrNull()
         // Skipping the last date does not advance the end of its calendar day.
-        return listOfNotNull(last, moved, boundary).maxOrNull()
+        return listOfNotNull(last, moved).maxOrNull() ?: boundary
     }
 }
 
