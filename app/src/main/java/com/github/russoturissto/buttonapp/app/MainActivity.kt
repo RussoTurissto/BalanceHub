@@ -6045,6 +6045,11 @@ class MainActivity : AppCompatActivity() {
             if (next != null) updated = updated.copy(dueAt = next.dueAt)
         }
         if (EventStore.save(this, updated)) {
+            val oldDue = event.dueAt
+            androidx.core.app.NotificationManagerCompat.from(this).cancel(
+                ReminderNoticeIds.event(event.id, oldDue,
+                    DailyReminderPolicy.dayKey(now)))
+            DailyReminderLedger.invalidate(this, "event", event.id)
             EventScheduler.cancel(this, event.id)
             EventScheduler.schedule(this, updated)
             renderTab()
