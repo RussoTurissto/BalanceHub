@@ -202,14 +202,14 @@ internal object EventPlanCodec {
         put("endsAt", plan.endsAt ?: JSONObject.NULL)
         put("anchorAt", plan.anchorAt)
         put("edits", JSONArray().apply {
-            plan.edits.values.forEach { e ->
+            for (e in plan.edits.values) {
                 put(JSONObject().put("sourceId", e.sourceId)
                     .put("movedAt", e.movedAt ?: JSONObject.NULL)
                     .put("skipped", e.skipped))
             }
         })
         put("history", JSONArray().apply {
-            plan.history.forEach { h ->
+            for (h in plan.history) {
                 put(JSONObject().put("sourceId", h.sourceId)
                     .put("operation", h.operation).put("timestamp", h.timestamp)
                     .put("oldDate", h.oldDate ?: JSONObject.NULL)
