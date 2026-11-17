@@ -6325,12 +6325,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun scheduleReminder(payment: PaymentReminder) {
-        PaymentAlarmScheduler.schedule(this, payment.id, payment.title, payment.amount,
-            payment.currency, payment.dueAt, payment.leadDays, payment.recurrence)
+        PaymentOccurrenceScheduler.schedule(this, payment)
     }
 
     private fun cancelReminder(payment: PaymentReminder) {
-        PaymentAlarmScheduler.cancel(this, payment.id)
+        PaymentOccurrenceScheduler.cancel(this, payment.id)
     }
 
     private fun scheduleDiagnosticReminder(category: String) {
