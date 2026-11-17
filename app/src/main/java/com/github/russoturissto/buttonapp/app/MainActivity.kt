@@ -252,6 +252,7 @@ class MainActivity : AppCompatActivity() {
         for (sim in T2Balance.sims(this)) syncMobilePayment(sim)
         BalanceNotificationSounds.ensureDefaultChannels(this)
         showDashboard()
+        openNotificationTarget(intent)
         if (currentTab == 4) dashboardScroll.post {
             dashboardScroll.scrollTo(0, settingsScrollPositions[settingsScreen()] ?: 0)
         }
@@ -6884,20 +6885,43 @@ class MainActivity : AppCompatActivity() {
         dialog.show()
     }
 
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        setIntent(intent)
-        when (intent.getIntExtra("open_tab", -1)) {
-            3 -> if (currentTab == 3) renderTab() else selectTab(3)
+    private fun openNotificationTarget(incoming: Intent) {
+        when (incoming.getIntExtra("open_tab", -1)) {
+            2 -> {
+                val id = incoming.getStringExtra("open_payment_id")
+                if (id != null && payments.any { it.id == id }) {
+                    archiveOpen = false
+                    expandedPaymentId = id
+                    upcomingListExpanded = true
+                    if (currentTab == 2) renderTab() else selectTab(2)
+                }
+            }
+            3 -> {
+                val id = incoming.getStringExtra("open_event_id")
+                if (id != null && EventStore.active(this).any { it.id == id }) {
+                    eventArchiveExpanded = false
+                    expandedEventId = id
+                    eventListExpanded = true
+                    if (currentTab == 3) renderTab() else selectTab(3)
+                }
+            }
             4 -> {
                 if (currentTab != 4) selectTab(4)
-                if (intent.getBooleanExtra("show_update", false)) {
+                if (incoming.getBooleanExtra("show_update", false)) {
                     GithubUpdateEngine.cached(this)?.let { showGithubUpdateDialog(it) }
                         ?: checkGithubUpdate(manual = true, offer = true)
                 }
             }
         }
     }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        openNotificationTarget(intent)
+    }
+
+    /* Navigation targets always resolve against the latest active store. */
 
     private fun recurrenceLabel(value: String) = when (value) {
         "weekly" -> "Каждую неделю"
