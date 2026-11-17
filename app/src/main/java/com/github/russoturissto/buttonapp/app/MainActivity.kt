@@ -1008,7 +1008,7 @@ class MainActivity : AppCompatActivity() {
                 thisMonthCharges.map { it.amount to it.currency })
             addView(textLine(amount, if (amount.length > 17) 12f else 15f,
                 ink, true).apply {
-                maxLines = 2
+                maxLines = 6
                 ellipsize = android.text.TextUtils.TruncateAt.END
             })
             addView(verticalGap(2))
@@ -2128,7 +2128,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             dayGrid.addView(check, GridLayout.LayoutParams().apply {
-                width = dp(44)
+                width = dp(((resources.configuration.screenWidthDp - 70) / 7).coerceIn(30, 44))
                 height = dp(48)
             })
         }
@@ -5101,8 +5101,10 @@ class MainActivity : AppCompatActivity() {
                         val edit = old.copy(amount = sum,
                             movedAt = if (undo.isChecked) null
                                 else if (moved) date.timeInMillis else old.movedAt,
-                            paymentHour = date.get(Calendar.HOUR_OF_DAY),
-                            paymentMinute = date.get(Calendar.MINUTE),
+                            paymentHour = if (undo.isChecked) null else
+                                date.get(Calendar.HOUR_OF_DAY),
+                            paymentMinute = if (undo.isChecked) null else
+                                date.get(Calendar.MINUTE),
                             reminderHour = reminder.get(Calendar.HOUR_OF_DAY),
                             reminderMinute = reminder.get(Calendar.MINUTE),
                             leadDays = days, skipped = skip.isChecked,
@@ -5448,7 +5450,7 @@ class MainActivity : AppCompatActivity() {
             val dueLabel = DateFormat.getDateInstance(DateFormat.MEDIUM)
                 .format(Date(entry.dueAt))
             val status = if (entry.reason == PaymentArchiveStore.COMPLETED)
-                "Срок истёк" else "Удалено вручную"
+                "Срок истёк" else "Удалён пользователем"
             val glyph = entry.iconId ?: IconRegistry.select(entry.title, "credit-card")
             rows.add(settingsRow(glyph, entry.title,
                 "$amount · $dueLabel · $status") {
