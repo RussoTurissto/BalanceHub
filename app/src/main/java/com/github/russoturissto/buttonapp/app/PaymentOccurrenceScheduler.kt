@@ -269,6 +269,8 @@ class PaymentOccurrenceReceiver : BroadcastReceiver() {
             context, BalanceNotificationSounds.PAYMENT, builder)
         try {
             notifications.notify(noticeId, builder.build())
+            PaymentNotificationRefresh.remember(context, cardId, noticeId,
+                target.reminderHour, target.reminderMinute)
             val edit = ledger.edit()
             unseen.forEach { edit.putInt(cardId + "|" + it.id, day) }
             edit.commit()
