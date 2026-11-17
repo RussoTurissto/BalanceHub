@@ -75,9 +75,12 @@ internal object PaymentOccurrenceScheduler {
             }.timeInMillis else defaultEnd,
             selectedEnd + 86_400_000L)
         val keys = JSONArray()
-        for (occ in PaymentOccurrenceEngine.occurrences(payment,
-                PaymentOccurrenceEngine.day(now), end)) {
-            if (occ.skipped || occ.dueAt <= now) continue
+        val projected = PaymentOccurrenceEngine.occurrences(payment,
+            PaymentOccurrenceEngine.day(now), end)
+            .filter { !it.skipped && it.dueAt > now }
+            .sortedBy { it.firstReminderAt() }
+            .take(24)
+        for (occ in projected) {
             val trigger = nextTrigger(occ, now) ?: continue
             val source = occ.id
             val p = pending(context, payment.id, source, trigger)
@@ -90,6 +93,7 @@ internal object PaymentOccurrenceScheduler {
         val deadline = PaymentArchiveStore.archiveDeadline(payment)
         if (last != null && deadline != null)
             PaymentArchiveScheduler.scheduleDeadline(context, payment.id, deadline, last)
+        PaymentScheduleMaintenance.schedule(context)
     }
 
     fun nextTrigger(occ: PaymentOccurrence, now: Long): Long? {
@@ -146,6 +150,33 @@ internal object PaymentOccurrenceScheduler {
     }
 }
 
+
+/** One shared weekly maintenance alarm replenishes bounded occurrence horizons. */
+internal object PaymentScheduleMaintenance {
+    fun schedule(context: Context) {
+        val next = Calendar.getInstance().apply {
+            add(Calendar.DAY_OF_YEAR, 7)
+        }.timeInMillis
+        val intent = Intent(context, PaymentScheduleMaintenanceReceiver::class.java)
+        val pending = PendingIntent.getBroadcast(context, 73571, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        ExactReminderAlarms.schedule(context, next, pending)
+    }
+}
+
+class PaymentScheduleMaintenanceReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        PaymentArchiveStore.archiveDue(context)
+        val entries = PaymentArchiveStore.activeSnapshot(context) ?: return
+        for (i in 0 until entries.length()) {
+            val item = entries.optJSONObject(i) ?: continue
+            PaymentReminderCodec.decode(item)?.let {
+                PaymentOccurrenceScheduler.schedule(context, it)
+            }
+        }
+        PaymentScheduleMaintenance.schedule(context)
+    }
+}
 class PaymentOccurrenceReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val cardId = intent.getStringExtra("card_id") ?: return
