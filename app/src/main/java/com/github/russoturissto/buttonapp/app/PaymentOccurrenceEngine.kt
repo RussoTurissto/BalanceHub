@@ -230,7 +230,13 @@ internal object PaymentOccurrenceEngine {
             val source = dateForSource(id) ?: return@mapNotNull null
             val sourceDay = id.substringAfterLast('-').toIntOrNull() ?: return@mapNotNull null
             val selectedRule = schedule?.bulkEdits?.lastOrNull { rule ->
-                (edit?.movedAt ?: originalAt) >= rule.from &&
+                val actual = edit?.movedAt ?: originalAt
+                val changedTime = Calendar.getInstance().apply {
+                    timeInMillis = actual
+                    rule.paymentHour?.let { set(Calendar.HOUR_OF_DAY, it) }
+                    rule.paymentMinute?.let { set(Calendar.MINUTE, it) }
+                }.timeInMillis
+                actual >= rule.from && changedTime >= rule.from &&
                     (rule.sourceDay == null || rule.sourceDay == sourceDay) &&
                     (edit?.skipped != true || rule.includeSkipped)
             }
