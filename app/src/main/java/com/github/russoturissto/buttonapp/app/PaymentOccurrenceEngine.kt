@@ -28,7 +28,8 @@ internal data class PaymentHistoryEntry(
     val action: String,
     val timestamp: Long,
     val previousAt: Long?,
-    val currentAt: Long?
+    val currentAt: Long?,
+    val details: String? = null
 )
 
 internal data class PaymentBulkEdit(
@@ -57,7 +58,9 @@ internal data class PaymentPlan(
     fun withEdit(edit: PaymentOccurrenceEdit, action: String, oldAt: Long?,
         newAt: Long?, now: Long = System.currentTimeMillis()): PaymentPlan =
         copy(edits = edits + (edit.sourceId to edit),
-            history = history + PaymentHistoryEntry(edit.sourceId, action, now, oldAt, newAt))
+            history = history + PaymentHistoryEntry(edit.sourceId, action, now, oldAt, newAt,
+                "До: " + (edits[edit.sourceId]?.toString() ?: "по расписанию") +
+                "; после: " + edit.toString()))
 }
 
 internal data class PaymentOccurrence(
@@ -338,7 +341,8 @@ internal object PaymentPlanCodec {
                 PaymentHistoryEntry(h.optString("sourceId"),
                     h.optString("action"), h.optLong("timestamp"),
                     h.optLong("previousAt").takeIf { h.has("previousAt") && !h.isNull("previousAt") },
-                    h.optLong("currentAt").takeIf { h.has("currentAt") && !h.isNull("currentAt") })
+                    h.optLong("currentAt").takeIf { h.has("currentAt") && !h.isNull("currentAt") },
+                    h.optString("details").takeIf { h.has("details") && !h.isNull("details") })
             }
             val bulk = (0 until bulkArray.length()).mapNotNull { i ->
                 val e = bulkArray.optJSONObject(i) ?: return@mapNotNull null
@@ -411,6 +415,7 @@ internal object PaymentPlanCodec {
                     put("timestamp", h.timestamp)
                     put("previousAt", h.previousAt ?: JSONObject.NULL)
                     put("currentAt", h.currentAt ?: JSONObject.NULL)
+                    put("details", h.details ?: JSONObject.NULL)
                 })
             }
         })
