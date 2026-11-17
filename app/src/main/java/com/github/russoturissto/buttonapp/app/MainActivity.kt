@@ -5784,24 +5784,61 @@ class MainActivity : AppCompatActivity() {
                     Toast.makeText(this, "Проверьте данные платежа", Toast.LENGTH_LONG).show()
                     return@setOnClickListener
                 }
-                cancelReminder(payment)
-                payments.removeAll { it.id == payment.id }
+                val newCycle = listOf("once", "weekly", "monthly", "custom")[
+                    recurrence.selectedItemPosition]
+                if (newCycle == "custom" && !validCustomPaymentPlan(pendingPaymentPlan)) {
+                    Toast.makeText(this, "Выберите даты или числа месяца",
+                        Toast.LENGTH_LONG).show()
+                    return@setOnClickListener
+                }
                 val updated = payment.copy(title = newTitle, amount = newAmount,
                     currency = newCurrency, dueAt = date.timeInMillis,
-                    leadDays = newDays,
-                    recurrence = listOf("once", "weekly", "monthly", "custom")[recurrence.selectedItemPosition],
+                    leadDays = newDays, recurrence = newCycle,
                     iconId = chosenIcon,
                     plan = pendingPaymentPlan?.copy(startsAt = payment.plan?.startsAt
                         ?.takeIf { it > 0L } ?: date.timeInMillis))
-                payments.add(updated)
-                if (!persistPayments()) {
-                    payments.clear()
-                    loadPayments()
-                    return@setOnClickListener
+                val oldPreview = PaymentOccurrenceEngine.upcoming(
+                    payment, System.currentTimeMillis(), 4)
+                    .joinToString(", ") {
+                        DateFormat.getDateInstance(DateFormat.SHORT).format(Date(it.dueAt))
+                    }
+                val newPreview = PaymentOccurrenceEngine.upcoming(
+                    updated, System.currentTimeMillis(), 4)
+                    .joinToString(", ") {
+                        DateFormat.getDateInstance(DateFormat.SHORT).format(Date(it.dueAt))
+                    }
+                fun commitChange(value: PaymentReminder) {
+                    val index = payments.indexOfFirst { it.id == payment.id }
+                    if (index < 0) return
+                    payments[index] = value
+                    if (!persistPayments()) {
+                        payments.clear()
+                        loadPayments()
+                        return
+                    }
+                    scheduleReminder(value)
+                    renderPayments()
+                    dialog.dismiss()
                 }
-                scheduleReminder(updated)
-                renderPayments()
-                dialog.dismiss()
+                val preview = "Ближайшие даты до изменения: " +
+                    oldPreview.ifBlank { "нет" } + "\nПосле изменения: " +
+                    newPreview.ifBlank { "нет" } +
+                    "\n\nСохранить индивидуальные изменения, пропуски и ручные переносы?"
+                themedDialogBuilder()
+                    .setTitle("Проверить новое расписание")
+                    .setMessage(preview)
+                    .setNegativeButton("Отмена", null)
+                    .setNeutralButton("Сбросить исключения") { _, _ ->
+                        val revised = updated.copy(plan = updated.plan?.copy(
+                            edits = emptyMap(), bulkEdits = emptyList(),
+                            history = updated.plan.history + PaymentHistoryEntry(
+                                "", "reset_exceptions", System.currentTimeMillis(),
+                                payment.dueAt, updated.dueAt)))
+                        commitChange(revised)
+                    }
+                    .setPositiveButton("Сохранить исключения") { _, _ ->
+                        commitChange(updated)
+                    }.show()
             }
         }
         dialog.show()
