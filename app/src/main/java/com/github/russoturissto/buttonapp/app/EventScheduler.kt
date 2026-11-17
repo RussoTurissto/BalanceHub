@@ -38,6 +38,11 @@ internal object EventScheduler {
     fun schedule(context: Context, event: PlannedEvent) {
         cancel(context, event.id)
         val now = System.currentTimeMillis()
+        if (event.recurrence == "custom" &&
+            EventOccurrenceEngine.next(event, now - 1L)?.dueAt != event.dueAt) {
+            // Do not alert for a skipped or obsolete current visit.
+            return
+        }
         val manager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         // Keep a separate one-minute grace period so due-time reminder
         // notifications can fire before the one-off event is archived.
@@ -118,6 +123,7 @@ class EventReminderReceiver : BroadcastReceiver() {
             Intent(context, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
                 putExtra("open_tab", 3)
+                putExtra("open_event_id", id)
             }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val message = event.details.ifBlank { "Запланированное событие" }
         val builder = NotificationCompat.Builder(context, channelId)

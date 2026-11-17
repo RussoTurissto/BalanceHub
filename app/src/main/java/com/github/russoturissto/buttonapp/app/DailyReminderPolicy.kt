@@ -77,6 +77,13 @@ internal object DailyReminderLedger {
         return Reservation(previous, previous?.substringAfterLast('|')?.toIntOrNull(), value)
     }
 
+    /** An explicit skip/move invalidates the old occurrence notice key. */
+    @Synchronized
+    fun invalidate(context: Context, category: String, id: String) {
+        context.getSharedPreferences(NAME, Context.MODE_PRIVATE).edit()
+            .remove(category + "|" + id).commit()
+    }
+
     @Synchronized
     fun rollback(context: Context, category: String, id: String,
         reservation: Reservation) {

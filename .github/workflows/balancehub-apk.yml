@@ -188,6 +188,47 @@ jobs:
           fi
           echo "APK signing certificate SHA-256 verified: $APK_SHA"
 
+      - name: Verify new APK can replace the v1.2.1 stable APK
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/previous-stable"
+          gh release download v1.2.1 --repo "$GITHUB_REPOSITORY" \
+            --pattern BalanceHub.apk --dir "$RUNNER_TEMP/previous-stable"
+          STABLE="$RUNNER_TEMP/previous-stable/BalanceHub.apk"
+          NEW="app/build/outputs/apk/release/app-release.apk"
+          test -s "$STABLE"
+          test -s "$NEW"
+          EXPECTED="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/v1.2.1" \
+            --jq '.assets[] | select(.name == "BalanceHub.apk") | .digest')"
+          ACTUAL="sha256:$(sha256sum "$STABLE" | awk '{print $1}')"
+          [[ "$EXPECTED" == "$ACTUAL" ]] || {
+            echo "::error::Stable v1.2.1 asset checksum mismatch"
+            exit 1
+          }
+          BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          "$BUILD_TOOLS/apksigner" verify --print-certs "$STABLE" > "$RUNNER_TEMP/old-signer.txt"
+          "$BUILD_TOOLS/apksigner" verify --print-certs "$NEW" > "$RUNNER_TEMP/new-signer.txt"
+          OLD_FP="$(grep -m1 'certificate SHA-256 digest:' "$RUNNER_TEMP/old-signer.txt" | sed -E 's/.*digest: //' | tr -d ':[:space:]' | tr '[:upper:]' '[:lower:]')"
+          NEW_FP="$(grep -m1 'certificate SHA-256 digest:' "$RUNNER_TEMP/new-signer.txt" | sed -E 's/.*digest: //' | tr -d ':[:space:]' | tr '[:upper:]' '[:lower:]')"
+          [[ -n "$OLD_FP" && "$OLD_FP" == "$NEW_FP" ]] || {
+            echo "::error::Signature differs from installed stable v1.2.1"
+            exit 1
+          }
+          OLD_PACKAGE="$("$BUILD_TOOLS/aapt" dump badging "$STABLE" | grep '^package:')"
+          NEW_PACKAGE="$("$BUILD_TOOLS/aapt" dump badging "$NEW" | grep '^package:')"
+          [[ "$OLD_PACKAGE" == *"name='com.github.russoturissto.buttonapp.app'"* ]]
+          [[ "$NEW_PACKAGE" == *"name='com.github.russoturissto.buttonapp.app'"* ]]
+          [[ "$OLD_PACKAGE" == *"versionCode='722'"* ]]
+          [[ "$NEW_PACKAGE" == *"versionCode='$(( ${{ github.run_number }} + 300 ))'"* ]]
+          [[ $(( ${{ github.run_number }} + 300 )) -gt 722 ]] || {
+            echo "::error::New versionCode must exceed stable 722"
+            exit 1
+          }
+          echo "Upgrade package, versionCode and stable signing certificate verified."
+
       - name: Rename APK to BalanceHub.apk
         shell: bash
         run: cp app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/release/BalanceHub.apk
