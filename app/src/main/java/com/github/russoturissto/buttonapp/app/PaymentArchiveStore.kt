@@ -5,6 +5,7 @@ import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Calendar
+import java.util.UUID
 
 /**
  * Active and archived payment records are kept in one SharedPreferences transaction.
@@ -41,6 +42,27 @@ internal object PaymentArchiveStore {
     fun shouldArchive(recurrence: String, dueAt: Long, now: Long): Boolean =
         recurrence == "once" && dueAt > 0L && now >= dueAt &&
             now - dueAt >= PaymentDeliveryPolicy.LATE_GRACE_MS
+
+    fun archiveDeadline(payment: PaymentReminder): Long? {
+        if (payment.recurrence != "custom") return if (payment.recurrence == "once")
+            payment.dueAt + PaymentDeliveryPolicy.LATE_GRACE_MS else null
+        val last = PaymentOccurrenceEngine.lastScheduledAt(payment) ?: return null
+        val start = PaymentOccurrenceEngine.day(last)
+        val nextDay = Calendar.getInstance().apply {
+            timeInMillis = start
+            add(Calendar.DAY_OF_YEAR, 1)
+        }.timeInMillis
+        val lastDayCharges = PaymentOccurrenceEngine.occurrences(payment, start, nextDay)
+        return if (lastDayCharges.isNotEmpty() && lastDayCharges.all { it.skipped })
+            nextDay else last + PaymentDeliveryPolicy.LATE_GRACE_MS
+    }
+
+    fun shouldArchive(record: JSONObject, now: Long): Boolean {
+        val payment = PaymentReminderCodec.decode(record) ?: return false
+        return if (payment.recurrence == "custom")
+            archiveDeadline(payment)?.let { now >= it } ?: false
+        else shouldArchive(payment.recurrence, payment.dueAt, now)
+    }
 
     private fun readArray(raw: String?): JSONArray? = try {
         JSONArray(raw ?: "[]")
@@ -143,7 +165,7 @@ internal object PaymentArchiveStore {
                 val due = record.optLong("dueAt", -1L)
                 if (found != null || (expectedDue != null && due != expectedDue) ||
                     (reason == COMPLETED &&
-                        !shouldArchive(record.optString("recurrence", "once"), due, now))
+                        !shouldArchive(record, now))
                 ) return false
                 found = JSONObject(record.toString())
             } else remaining.put(record)
@@ -171,8 +193,7 @@ internal object PaymentArchiveStore {
         val moved = mutableListOf<String>()
         for (i in 0 until active.length()) {
             val record = active.optJSONObject(i) ?: return emptyList()
-            if (shouldArchive(record.optString("recurrence", "once"),
-                    record.optLong("dueAt", Long.MAX_VALUE), now)) {
+            if (shouldArchive(record, now)) {
                 val id = record.optString("id")
                 if (id.isBlank()) return emptyList()
                 val item = JSONObject(record.toString())
@@ -203,17 +224,17 @@ internal object PaymentArchiveStore {
             if (active.optJSONObject(i)?.optString("id") == id) return null
         }
         var selected: JSONObject? = null
-        val remaining = JSONArray()
         for (i in 0 until archive.length()) {
             val entry = archive.optJSONObject(i) ?: return null
             if (entry.optString("id") == id) {
                 if (selected != null) return null
                 selected = JSONObject(entry.toString())
-            } else remaining.put(entry)
+            }
         }
         val record = selected ?: return null
+        val newId = UUID.randomUUID().toString()
         val original = ArchivedPayment(
-            id, record.getString("title"), record.getString("amount"),
+            newId, record.getString("title"), record.getString("amount"),
             record.getString("currency"), nextDueAt, record.getInt("leadDays"),
             record.optString("recurrence", "once"),
             record.optLong("archivedAt", 0L),
@@ -221,10 +242,18 @@ internal object PaymentArchiveStore {
         )
         record.remove("archivedAt")
         record.remove("archiveReason")
+        record.put("id", newId)
         record.put("dueAt", nextDueAt)
+        if (record.optString("recurrence") == "custom") {
+            val plan = PaymentPlanCodec.decode(record.optJSONObject("scheduleV2"))
+            if (plan != null) record.put("scheduleV2", PaymentPlanCodec.encode(
+                plan.copy(startsAt = nextDueAt,
+                    history = plan.history + PaymentHistoryEntry(
+                        "", "restored_copy", System.currentTimeMillis(), null, nextDueAt))))
+        }
         active.put(record)
         val saved = prefs.edit().putString(ACTIVE, active.toString())
-            .putString(ARCHIVE, remaining.toString()).commit()
+            .commit()
         return if (saved) original else null
     }
 
