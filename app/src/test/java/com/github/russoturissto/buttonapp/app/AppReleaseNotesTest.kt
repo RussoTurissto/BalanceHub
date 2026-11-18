@@ -34,6 +34,18 @@ class AppReleaseNotesTest {
         assertTrue(stable.none { it in oldStable })
     }
 
+    @Test fun stable123ConsolidatesAllSecurityAndCalendarChanges() {
+        val stable = AppReleaseNotes.forVersion("1.2.3").map { it.title }
+        val first = AppReleaseNotes.forVersion("1.2.3-rc1").map { it.title }
+        val second = AppReleaseNotes.forVersion("1.2.3-rc2").map { it.title }
+        assertEquals(first + second, stable)
+        assertEquals(stable, AppReleaseNotes.forStableRelease("1.2.3")
+            .map { it.title })
+        assertEquals(stable.size, stable.distinct().size)
+        assertEquals("1.2.3", AppReleaseNotes.offlineStableHistory("1.2.3").first())
+        assertEquals("1.2.2", AppReleaseNotes.offlineStableHistory("1.2.3-rc2").first())
+    }
+
     @Test fun stable122HasExactlyThreeApprovedNotesWithoutUpdatesSection() {
         val expected = listOf(
             "Платежи: улучшено выравнивание элементов.",
@@ -65,7 +77,7 @@ class AppReleaseNotesTest {
 
     @Test fun unknownVersionsNeverSilentlyReuseOldReleaseNotes() {
         assertTrue(AppReleaseNotes.forVersion("1.2.1-rc5").isEmpty())
-        assertTrue(AppReleaseNotes.forVersion("1.2.3").isEmpty())
+        assertFalse(AppReleaseNotes.forVersion("1.2.3").isEmpty())
         assertTrue(AppReleaseNotes.forVersion(null).isEmpty())
         assertFalse(AppReleaseNotes.forVersion("1.2.0").isEmpty())
     }
@@ -79,7 +91,8 @@ class AppReleaseNotesTest {
     }
 
     @Test fun userTextContainsNoBuildOrLayoutImplementationDetails() {
-        val versions = listOf("1.2.0", "1.2.1", "1.2.2", "1.2.3-rc1", "1.2.3-rc2", "1.2.1-rc1",
+        val versions = listOf("1.2.0", "1.2.1", "1.2.2", "1.2.3",
+            "1.2.3-rc1", "1.2.3-rc2", "1.2.1-rc1",
             "1.2.1-rc2", "1.2.1-rc3", "1.2.1-rc4")
         for (version in versions) {
             for (note in AppReleaseNotes.forVersion(version)) {

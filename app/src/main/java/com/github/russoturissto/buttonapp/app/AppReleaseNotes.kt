@@ -43,6 +43,8 @@ internal object AppReleaseNotes {
         note("calendar-days", "Платежи и события получили компактные списки и календари.")
     )
 
+    private val stable123 = (securityRc1 + securityRc2).distinctBy { it.title }
+
     private val stable122 = listOf(
         note("wallet", "Платежи: улучшено выравнивание элементов."),
         note("calendar-days", "События: унифицировано оформление полей и повторений."),
@@ -78,6 +80,7 @@ internal object AppReleaseNotes {
     )
 
     private val stableNotes = linkedMapOf(
+        "1.2.3" to stable123,
         "1.2.2" to stable122,
         "1.2.1" to stable121(),
         "1.2.0" to stable120,
@@ -115,7 +118,8 @@ internal object AppReleaseNotes {
             "1.2.0", "1.1.2", "1.1.1", "1.1.0", "1.0.144", "1.0.142"
         )
         return when (installedVersionName) {
-            "1.2.3-rc1" -> listOf("1.2.2", "1.2.1") + published
+            "1.2.3" -> listOf("1.2.3", "1.2.2", "1.2.1") + published
+            "1.2.3-rc1", "1.2.3-rc2" -> listOf("1.2.2", "1.2.1") + published
             "1.2.2" -> listOf("1.2.2", "1.2.1") + published
             "1.2.1" -> listOf("1.2.1") + published
             else -> published
