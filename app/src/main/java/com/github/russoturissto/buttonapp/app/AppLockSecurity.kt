@@ -4,6 +4,7 @@ import android.content.Context
 import android.hardware.fingerprint.FingerprintManager
 import android.os.Build
 import android.os.CancellationSignal
+import androidx.core.content.edit
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import java.security.KeyStore
@@ -49,7 +50,7 @@ internal object AppLockSecurity {
     fun setRelock(context: Context, mode: String) {
         require(mode in listOf(AppLockPolicy.IMMEDIATE, AppLockPolicy.ONE_MINUTE,
             AppLockPolicy.FIVE_MINUTES, AppLockPolicy.DEVICE_LOCK))
-        prefs(context).edit().putString(RELOCK, mode).apply()
+        prefs(context).edit { putString(RELOCK, mode) }
     }
 
     private fun keystore(): KeyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
@@ -77,11 +78,15 @@ internal object AppLockSecurity {
             val salt = ByteArray(24).also { SecureRandom().nextBytes(it) }
             val value = verifier(pin, salt)
             val encoder = android.util.Base64.NO_WRAP
-            prefs(context).edit()
-                .putString(SALT, android.util.Base64.encodeToString(salt, encoder))
-                .putString(VERIFIER, android.util.Base64.encodeToString(value, encoder))
-                .putBoolean(ENABLED, true)
-                .putInt(FAILURES, 0).putLong(BLOCK_UNTIL, 0L).commit()
+            // Commit synchronously so a confirmed PIN never disappears after a crash.
+            prefs(context).edit(commit = true) {
+                putString(SALT, android.util.Base64.encodeToString(salt, encoder))
+                putString(VERIFIER, android.util.Base64.encodeToString(value, encoder))
+                putBoolean(ENABLED, true)
+                putInt(FAILURES, 0)
+                putLong(BLOCK_UNTIL, 0L)
+            }
+            true
         } catch (_: Exception) { false }
     }
 
@@ -97,14 +102,16 @@ internal object AppLockSecurity {
             val expected = android.util.Base64.decode(
                 prefs(context).getString(VERIFIER, ""), encoder)
             if (MessageDigest.isEqual(expected, verifier(pin, salt))) {
-                prefs(context).edit().putInt(FAILURES, 0).putLong(BLOCK_UNTIL, 0L).apply()
+                prefs(context).edit { putInt(FAILURES, 0); putLong(BLOCK_UNTIL, 0L) }
                 PinResult.SUCCESS
             } else {
                 val count = prefs(context).getInt(FAILURES, 0) + 1
                 val wait = AppLockPolicy.lockoutMillis(count)
-                prefs(context).edit().putInt(FAILURES, count)
-                    .putLong(BLOCK_UNTIL, if (wait > 0L) System.currentTimeMillis() + wait
-                        else 0L).apply()
+                prefs(context).edit {
+                    putInt(FAILURES, count)
+                    putLong(BLOCK_UNTIL, if (wait > 0L) System.currentTimeMillis() + wait
+                        else 0L)
+                }
                 PinResult.WRONG
             }
         } catch (_: Exception) { PinResult.ERROR }
@@ -112,8 +119,10 @@ internal object AppLockSecurity {
 
     fun disable(context: Context) {
         disableFingerprint(context)
-        prefs(context).edit().remove(SALT).remove(VERIFIER).remove(ENABLED)
-            .remove(FAILURES).remove(BLOCK_UNTIL).apply()
+        prefs(context).edit {
+            remove(SALT); remove(VERIFIER); remove(ENABLED)
+            remove(FAILURES); remove(BLOCK_UNTIL)
+        }
         // Deleting a key is deliberately not coupled to existing finance data.
         try { keystore().deleteEntry(PIN_KEY) } catch (_: Exception) {}
     }
@@ -122,8 +131,7 @@ internal object AppLockSecurity {
     fun fingerprintAvailable(context: Context): Boolean {
         if (!supported()) return false
         return try {
-            val manager = context.getSystemService(Context.FINGERPRINT_SERVICE)
-                as? FingerprintManager
+            val manager = context.getSystemService(FingerprintManager::class.java)
             manager != null && manager.isHardwareDetected && manager.hasEnrolledFingerprints()
         } catch (_: Exception) { false }
     }
@@ -164,7 +172,7 @@ internal object AppLockSecurity {
     }
 
     fun setFingerprintEnabled(context: Context, enabled: Boolean) {
-        prefs(context).edit().putBoolean(FINGER_ENABLED, enabled).apply()
+        prefs(context).edit { putBoolean(FINGER_ENABLED, enabled) }
         if (!enabled) try { keystore().deleteEntry(FINGER_KEY) } catch (_: Exception) {}
     }
 
@@ -196,15 +204,16 @@ internal object AppLockSecurity {
         }
         return try {
             val signal = CancellationSignal()
-            val manager = context.getSystemService(Context.FINGERPRINT_SERVICE)
-                as FingerprintManager
+            val manager = context.getSystemService(FingerprintManager::class.java)
+                ?: throw IllegalStateException("Fingerprint service unavailable")
             manager.authenticate(token, signal, 0,
                 object : FingerprintManager.AuthenticationCallback() {
                     override fun onAuthenticationSucceeded(
                         result: FingerprintManager.AuthenticationResult
                     ) {
-                        if (enrolling) prefs(context).edit()
-                            .putBoolean(FINGER_ENABLED, true).apply()
+                        if (enrolling) prefs(context).edit {
+                            putBoolean(FINGER_ENABLED, true)
+                        }
                         onSuccess()
                     }
 
