@@ -112,6 +112,7 @@ class MainActivity : AppCompatActivity() {
     private var welcomeShowing = false
     private var appLockUnlocked = false
     private var appLockScreenVisible = false
+    private var appLockMandatoryScreen = false
     private var appLockBackgroundAt = 0L
     private var appLockScreenTurnedOff = false
     private var fingerprintSignal: CancellationSignal? = null
@@ -417,7 +418,8 @@ class MainActivity : AppCompatActivity() {
                     elapsed, lockedByDevice)) appLockUnlocked = false
             if (!appLockUnlocked) {
                 applyAppLockWindowPrivacy()
-                if (!appLockScreenVisible) showLockedScreen()
+                // A PIN setup/settings screen is not a valid unlock screen.
+                if (!appLockScreenVisible || !appLockMandatoryScreen) showLockedScreen()
                 return
             }
         }
@@ -7497,8 +7499,27 @@ class MainActivity : AppCompatActivity() {
         fingerprintSignal = null
         appLockUnlocked = true
         appLockScreenVisible = false
+        appLockMandatoryScreen = false
         appLockBackgroundAt = 0L
         appLockScreenTurnedOff = false
+        // Reconcile events and reminders missed while the UI was locked.
+        PaymentArchiveStore.archiveDue(this)
+        val archivedIds = PaymentArchiveStore.archived(this).map { it.id }.toSet()
+        if (archivedIds.isNotEmpty()) payments.removeAll { it.id in archivedIds }
+        val beforeEvents = EventStore.active(this).associate { it.id to it.dueAt }
+        EventStore.reconcileElapsed(this)
+        val exact = ExactReminderAlarms.allowed(this)
+        val permissionChanged = lastExactAlarmState != exact
+        lastExactAlarmState = exact
+        if (permissionChanged) payments.forEach(::scheduleReminder)
+        for (event in EventStore.active(this)) {
+            if (permissionChanged || beforeEvents[event.id] != event.dueAt)
+                EventScheduler.schedule(this, event)
+        }
+        if (pendingGithubInstall && GithubApkInstaller.allowedToInstall(this)) {
+            pendingGithubInstall = false
+            GithubUpdateEngine.cached(this)?.let { tryInstallUpdate(it) }
+        }
         showDashboard()
         openNotificationTarget(intent)
         if (currentTab == 4) dashboardScroll.post {
@@ -7513,12 +7534,14 @@ class MainActivity : AppCompatActivity() {
         cancel: (() -> Unit)? = null, onPin: (String) -> Unit
     ) {
         appLockScreenVisible = true
+        appLockMandatoryScreen = cancel == null &&
+            AppLockSecurity.enabled(this) && !appLockUnlocked
         fingerprintSignal?.cancel()
         fingerprintSignal = null
         val main = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(dp(24), dp(22), dp(24), dp(20))
+            setPadding(dp(24), headerTopPadding, dp(24), dp(20))
             background = screenGradient()
         }
         val scroller = android.widget.ScrollView(this).apply {
@@ -7704,7 +7727,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun restoreAfterSecurityFlow() {
+        if (AppLockSecurity.enabled(this) && !appLockUnlocked) {
+            // Cancel/back after a background lock must never reopen financial data.
+            showLockedScreen()
+            return
+        }
         appLockScreenVisible = false
+        appLockMandatoryScreen = false
         appLockUnlocked = true
         applyAppLockWindowPrivacy()
         showDashboard()
