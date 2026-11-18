@@ -47,6 +47,14 @@ class AppReleaseNotesTest {
         assertEquals("1.2.2", AppReleaseNotes.offlineStableHistory("1.2.2").first())
     }
 
+    @Test fun securityCandidateNotesDescribeOnlyApprovedProtection() {
+        val notes = AppReleaseNotes.forVersion("1.2.3-rc1").map { it.title }
+        assertEquals(4, notes.size)
+        assertTrue(notes.any { "четырёхзначным кодом" in it })
+        assertTrue(notes.any { "отпечатку пальца" in it })
+        assertTrue(notes.none { "распознавание лица" in it })
+    }
+
     @Test fun unknownVersionsNeverSilentlyReuseOldReleaseNotes() {
         assertTrue(AppReleaseNotes.forVersion("1.2.1-rc5").isEmpty())
         assertTrue(AppReleaseNotes.forVersion("1.2.3").isEmpty())
@@ -63,7 +71,7 @@ class AppReleaseNotesTest {
     }
 
     @Test fun userTextContainsNoBuildOrLayoutImplementationDetails() {
-        val versions = listOf("1.2.0", "1.2.1", "1.2.2", "1.2.1-rc1",
+        val versions = listOf("1.2.0", "1.2.1", "1.2.2", "1.2.3-rc1", "1.2.1-rc1",
             "1.2.1-rc2", "1.2.1-rc3", "1.2.1-rc4")
         for (version in versions) {
             for (note in AppReleaseNotes.forVersion(version)) {

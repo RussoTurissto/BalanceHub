@@ -27,6 +27,8 @@ import android.app.DownloadManager
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.os.CancellationSignal
+import android.view.WindowManager
 import androidx.appcompat.widget.SwitchCompat
 import androidx.core.content.pm.PackageInfoCompat
 import androidx.appcompat.app.AlertDialog
@@ -108,6 +110,20 @@ class MainActivity : AppCompatActivity() {
     private var expandedEventId: String? = null
     private var selectedPaymentIcon: String? = null
     private var welcomeShowing = false
+    private var appLockUnlocked = false
+    private var appLockScreenVisible = false
+    private var appLockBackgroundAt = 0L
+    private var appLockScreenTurnedOff = false
+    private var fingerprintSignal: CancellationSignal? = null
+    private val lockScreenOffReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == Intent.ACTION_SCREEN_OFF) {
+                // Conservative on Android 11: a screen-off is treated as a lock
+                // when the user selected "after locking the device".
+                appLockScreenTurnedOff = true
+            }
+        }
+    }
     private var checkingGithubUpdates = false
     private var updateDialogOpen = false
     private var pendingGithubInstall = false
@@ -126,7 +142,8 @@ class MainActivity : AppCompatActivity() {
             if (prefs.getLong("completed_download_offer", 0L) >= release.code) return
             prefs.edit { putLong("completed_download_offer", release.code) }
             if (updateDialogOpen) return // The visible dialog is already polling progress.
-            if (welcomeShowing) deferredUpdate = release
+            if (welcomeShowing || !appLockUnlocked || appLockScreenVisible)
+                deferredUpdate = release
             else window.decorView.post { showGithubUpdateDialog(release) }
         }
     }
@@ -203,6 +220,9 @@ class MainActivity : AppCompatActivity() {
         }
         AppCompatDelegate.setDefaultNightMode(mode)
         super.onCreate(savedInstanceState)
+        if (AppLockSecurity.supported()) {
+            registerReceiver(lockScreenOffReceiver, IntentFilter(Intent.ACTION_SCREEN_OFF))
+        }
         WindowCompat.setDecorFitsSystemWindows(window, false)
         currentTab = (savedInstanceState?.getInt("current_tab")
             ?: intent.getIntExtra("open_tab", 0)).coerceIn(0, 4)
@@ -261,21 +281,24 @@ class MainActivity : AppCompatActivity() {
         loadPayments()
         for (sim in T2Balance.sims(this)) syncMobilePayment(sim)
         BalanceNotificationSounds.ensureDefaultChannels(this)
-        showDashboard()
-        openNotificationTarget(intent)
-        if (currentTab == 4) dashboardScroll.post {
-            dashboardScroll.scrollTo(0, settingsScrollPositions[settingsScreen()] ?: 0)
-        }
+        appLockUnlocked = !AppLockSecurity.enabled(this)
+        applyAppLockWindowPrivacy()
+        if (appLockUnlocked) {
+            showDashboard()
+            openNotificationTarget(intent)
+            if (currentTab == 4) dashboardScroll.post {
+                dashboardScroll.scrollTo(0, settingsScrollPositions[settingsScreen()] ?: 0)
+            }
+        } else showLockedScreen()
         GithubApkInstaller.cleanOld(this)
         GithubUpdateEngine.schedule(this)
         window.decorView.post {
-            showWhatsNewIfNeeded()
-            checkGithubUpdate(manual = false,
-                offer = true)
+            if (appLockUnlocked) afterAppLockUnlocked()
         }
         onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 when {
+                    appLockScreenVisible -> moveTaskToBack(true)
                     archiveOpen && currentTab == 2 -> {
                         archiveOpen = false
                         expandedArchivePaymentId = null
@@ -365,6 +388,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onStop() {
+        if (appLockUnlocked && AppLockSecurity.enabled(this)) {
+            appLockBackgroundAt = SystemClock.elapsedRealtime()
+        }
+        fingerprintSignal?.cancel()
+        fingerprintSignal = null
         closeEngineeringMenu()
         BalanceNotificationSounds.stopPreview()
         unregisterReceiver(bankUpdateReceiver)
@@ -377,6 +405,22 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        if (AppLockSecurity.enabled(this)) {
+            val elapsed = if (appLockBackgroundAt > 0L)
+                (SystemClock.elapsedRealtime() - appLockBackgroundAt).coerceAtLeast(0L)
+            else 0L
+            val lockedByDevice = appLockScreenTurnedOff ||
+                (getSystemService(Context.KEYGUARD_SERVICE) as android.app.KeyguardManager)
+                    .isDeviceLocked
+            if (appLockBackgroundAt > 0L &&
+                AppLockPolicy.shouldRelock(AppLockSecurity.relock(this),
+                    elapsed, lockedByDevice)) appLockUnlocked = false
+            if (!appLockUnlocked) {
+                applyAppLockWindowPrivacy()
+                if (!appLockScreenVisible) showLockedScreen()
+                return
+            }
+        }
         PaymentArchiveStore.archiveDue(this)
         // The background receiver may already have archived a payment while the
         // activity was paused. Always reconcile the in-memory list with history.
@@ -398,6 +442,13 @@ class MainActivity : AppCompatActivity() {
         }
         if (::contentContainer.isInitialized &&
             (currentTab == 0 || currentTab == 1 || currentTab == 3 || currentTab == 4)) renderTab()
+    }
+
+    override fun onDestroy() {
+        fingerprintSignal?.cancel()
+        fingerprintSignal = null
+        if (AppLockSecurity.supported()) unregisterReceiver(lockScreenOffReceiver)
+        super.onDestroy()
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -899,6 +950,10 @@ class MainActivity : AppCompatActivity() {
         preferences.edit().putBoolean("onboarding_completed", true).apply()
         tutorialStep = -1
         renderTab()
+        window.decorView.post {
+            showWhatsNewIfNeeded()
+            if (!welcomeShowing) maybeOfferAppLock()
+        }
     }
 
     private fun restartTutorial() {
@@ -2506,6 +2561,7 @@ class MainActivity : AppCompatActivity() {
         }
         when (settingsScreen()) {
             "appearance" -> renderAppearanceSettings()
+            "security" -> renderSecuritySettings()
             "banks" -> renderBanksSettings()
             "notifications" -> renderNotificationsMenu()
             "payment", "event", "update_sound" -> renderNotificationCategory()
@@ -2542,6 +2598,13 @@ class MainActivity : AppCompatActivity() {
         settingsGroup(settingsPanel(
             settingsRow("settings", "Оформление", "Авто, светлая или тёмная") {
                 openSettingsPage("appearance")
+            },
+            settingsRow("shield-check", "Безопасность",
+                if (AppLockSecurity.supported()) "Код доступа и отпечаток пальца"
+                else "Доступно с Android 11") {
+                if (AppLockSecurity.supported()) openSettingsPage("security")
+                else Toast.makeText(this, "Защита доступна с Android 11",
+                    Toast.LENGTH_LONG).show()
             },
             settingsRow("smartphone", "Мобильная связь", "SIM, баланс и абонентская плата") {
                 openSettingsPage("mobile")
@@ -7116,6 +7179,7 @@ class MainActivity : AppCompatActivity() {
         val notes = AppReleaseNotes.forVersion(packageInfo.versionName)
         if (notes.isEmpty()) {
             preferences.edit().putLong("release_welcome_version", versionCode).apply()
+            maybeOfferAppLock()
             return
         }
         welcomeShowing = true
@@ -7161,10 +7225,7 @@ class MainActivity : AppCompatActivity() {
             // Mark as shown even if the user closes the window with Back.
             preferences.edit().putLong("release_welcome_version", versionCode).apply()
             welcomeShowing = false
-            deferredUpdate?.let {
-                deferredUpdate = null
-                window.decorView.post { showGithubUpdateDialog(it) }
-            }
+            if (!maybeOfferAppLock()) showDeferredAppLockUpdate()
         }
         dialog.setOnShowListener { dialog.window?.setBackgroundDrawable(dialogGradient()) }
         dialog.show()
@@ -7203,7 +7264,7 @@ class MainActivity : AppCompatActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        openNotificationTarget(intent)
+        if (appLockUnlocked) openNotificationTarget(intent)
     }
 
     /* Navigation targets always resolve against the latest active store. */
@@ -7343,6 +7404,450 @@ class MainActivity : AppCompatActivity() {
             checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
             ActivityCompat.requestPermissions(this, arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1001)
+        }
+    }
+
+
+    /** Keep the financial task invisible in the app switcher while protection is active. */
+    private fun applyAppLockWindowPrivacy() {
+        if (AppLockSecurity.enabled(this)) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
+    }
+
+    private fun afterAppLockUnlocked() {
+        if (!appLockUnlocked) return
+        showWhatsNewIfNeeded()
+        checkGithubUpdate(manual = false, offer = true)
+    }
+
+    private fun showDeferredAppLockUpdate() {
+        deferredUpdate?.let {
+            deferredUpdate = null
+            window.decorView.post { showGithubUpdateDialog(it) }
+        }
+    }
+
+    private fun maybeOfferAppLock(): Boolean {
+        if (!AppLockSecurity.supported() || !appLockUnlocked || welcomeShowing ||
+            tutorialStep >= 0 || AppLockSecurity.enabled(this) ||
+            preferences.getBoolean("app_lock_offer_seen", false) || isFinishing) return false
+        preferences.edit().putBoolean("app_lock_offer_seen", true).apply()
+        val body = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(18), dp(12), dp(18), dp(16))
+            addView(ImageView(this@MainActivity).apply {
+                setImageResource(R.mipmap.ic_launcher)
+                contentDescription = "Иконка BalanceHub"
+            }, LinearLayout.LayoutParams(dp(72), dp(72)))
+            addView(verticalGap(12))
+            addView(textLine("Защитить BalanceHub?", 21f, ink, true).apply {
+                gravity = Gravity.CENTER
+            })
+            addView(verticalGap(10))
+            addView(textLine(
+                "Установите 4-значный код доступа. Дополнительно можно включить " +
+                    "вход по отпечатку пальца, сохранённому в Android.",
+                14f, muted).apply { gravity = Gravity.CENTER })
+            addView(verticalGap(10))
+            addView(textLine("Защиту можно включить позже в настройках.",
+                12f, muted).apply { gravity = Gravity.CENTER })
+        }
+        val dialog = themedDialogBuilder().setView(body)
+            .setNegativeButton("Не сейчас") { _, _ -> showDeferredAppLockUpdate() }
+            .setPositiveButton("Установить код") { _, _ -> beginPinCreation() }
+            .create()
+        dialog.setOnShowListener { dialog.window?.setBackgroundDrawable(dialogGradient()) }
+        dialog.show()
+        return true
+    }
+
+    private fun lockErrorMessage(result: AppLockSecurity.PinResult): String = when (result) {
+        AppLockSecurity.PinResult.WRONG -> {
+            val delay = AppLockSecurity.remainingLockout(this)
+            if (delay > 0L) "Слишком много попыток. Подождите " +
+                ((delay + 999L) / 1000L) + " сек." else "Неверный код. Попробуйте ещё раз."
+        }
+        AppLockSecurity.PinResult.BLOCKED ->
+            "Подождите " + ((AppLockSecurity.remainingLockout(this) + 999L) / 1000L) + " сек."
+        AppLockSecurity.PinResult.ERROR -> "Не удалось проверить код доступа."
+        AppLockSecurity.PinResult.SUCCESS -> ""
+    }
+
+    private fun showLockedScreen(message: String = "") {
+        if (!AppLockSecurity.enabled(this)) return
+        appLockUnlocked = false
+        applyAppLockWindowPrivacy()
+        showPinPad("Введите код доступа",
+            if (message.isNotBlank()) message else "Разблокируйте BalanceHub",
+            fingerprint = AppLockSecurity.fingerprintEnabled(this),
+            cancel = null) { pin ->
+            when (val result = AppLockSecurity.verifyPin(this, pin)) {
+                AppLockSecurity.PinResult.SUCCESS -> finishAppUnlock()
+                else -> showLockedScreen(lockErrorMessage(result))
+            }
+        }
+    }
+
+    private fun finishAppUnlock() {
+        fingerprintSignal?.cancel()
+        fingerprintSignal = null
+        appLockUnlocked = true
+        appLockScreenVisible = false
+        appLockBackgroundAt = 0L
+        appLockScreenTurnedOff = false
+        showDashboard()
+        openNotificationTarget(intent)
+        if (currentTab == 4) dashboardScroll.post {
+            dashboardScroll.scrollTo(0, settingsScrollPositions[settingsScreen()] ?: 0)
+        }
+        window.decorView.post { afterAppLockUnlocked() }
+    }
+
+    /** Real app icon and exact BalanceHub gradients; no credential input from Android UI. */
+    private fun showPinPad(
+        title: String, subtitle: String, fingerprint: Boolean = false,
+        cancel: (() -> Unit)? = null, onPin: (String) -> Unit
+    ) {
+        appLockScreenVisible = true
+        fingerprintSignal?.cancel()
+        fingerprintSignal = null
+        val main = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(24), dp(22), dp(24), dp(20))
+            background = screenGradient()
+        }
+        val scroller = android.widget.ScrollView(this).apply {
+            isFillViewport = true
+            isVerticalScrollBarEnabled = false
+        }
+        val body = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+        }
+        body.addView(textLine(if (cancel == null) "BalanceHub" else "‹  Назад",
+            17f, accent, true).apply {
+            gravity = Gravity.CENTER
+            if (cancel != null) setOnClickListener { cancel() }
+        }, LinearLayout.LayoutParams(-1, dp(44)))
+        body.addView(verticalGap(10))
+        body.addView(ImageView(this).apply {
+            setImageResource(R.mipmap.ic_launcher)
+            contentDescription = "Иконка BalanceHub"
+        }, LinearLayout.LayoutParams(dp(76), dp(76)))
+        body.addView(verticalGap(17))
+        body.addView(textLine(title, 22f, ink, true).apply {
+            gravity = Gravity.CENTER
+        })
+        body.addView(verticalGap(8))
+        val hint = textLine(subtitle, 14f, muted).apply { gravity = Gravity.CENTER }
+        body.addView(hint)
+        body.addView(verticalGap(23))
+
+        val indicators = LinearLayout(this).apply {
+            gravity = Gravity.CENTER
+            orientation = LinearLayout.HORIZONTAL
+        }
+        val dots = (0 until 4).map {
+            textLine("○", 28f, accent, true).apply {
+                gravity = Gravity.CENTER
+                indicators.addView(this, LinearLayout.LayoutParams(dp(32), dp(38)))
+            }
+        }
+        body.addView(indicators)
+        body.addView(verticalGap(25))
+
+        val keyboard = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val rows = listOf(listOf("1", "2", "3"), listOf("4", "5", "6"),
+            listOf("7", "8", "9"),
+            listOf(if (fingerprint) "Отпечаток" else "", "0", "⌫"))
+        val input = StringBuilder()
+        var processing = false
+        fun updateDots() {
+            dots.forEachIndexed { index, dot ->
+                dot.text = if (index < input.length) "●" else "○"
+            }
+        }
+        rows.forEach { values ->
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            values.forEach { value ->
+                val key = textLine(
+                    if (value == "Отпечаток") "◎" else value,
+                    if (value == "Отпечаток") 30f else 25f, ink, true
+                ).apply {
+                    gravity = Gravity.CENTER
+                    background = cardGradient()
+                    isClickable = value.isNotEmpty()
+                    isFocusable = value.isNotEmpty()
+                    contentDescription = if (value == "Отпечаток")
+                        "Разблокировать отпечатком пальца" else value
+                    setOnClickListener {
+                        if (processing) return@setOnClickListener
+                        when (value) {
+                            "Отпечаток" -> promptFingerprint(enrolling = false) {
+                                finishAppUnlock()
+                            }
+                            "⌫" -> {
+                                if (input.isNotEmpty()) input.deleteCharAt(input.length - 1)
+                                updateDots()
+                            }
+                            else -> {
+                                if (value.isNotEmpty() && input.length < 4) {
+                                    input.append(value)
+                                    updateDots()
+                                    if (input.length == 4) {
+                                        processing = true
+                                        val entered = input.toString()
+                                        post { onPin(entered) }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                row.addView(key, LinearLayout.LayoutParams(0, dp(63), 1f).apply {
+                    setMargins(dp(4), dp(4), dp(4), dp(4))
+                })
+            }
+            keyboard.addView(row)
+        }
+        body.addView(keyboard, LinearLayout.LayoutParams(-1, -2))
+        body.addView(verticalGap(12))
+        if (cancel == null) {
+            body.addView(textLine("Забыли код?", 13f, accent, true).apply {
+                gravity = Gravity.CENTER
+                setPadding(dp(8), dp(6), dp(8), dp(6))
+                isClickable = true
+                setOnClickListener {
+                    themedDialogBuilder().setTitle("Забыли код доступа?")
+                        .setMessage("Если вход по отпечатку включён, разблокируйте " +
+                            "приложение отпечатком и восстановите код в настройках " +
+                            "безопасности. Если оба способа недоступны, восстановить " +
+                            "доступ можно только через очистку данных приложения; " +
+                            "при этом удаляются локальные платежи и настройки.")
+                        .setPositiveButton("Понятно", null).show()
+                }
+            })
+        }
+        body.addView(textLine(if (cancel == null) "Закрыть приложение" else "Отмена",
+            13f, muted, true).apply {
+            gravity = Gravity.CENTER
+            setPadding(dp(6), dp(10), dp(6), dp(10))
+            isClickable = true
+            setOnClickListener {
+                if (cancel != null) cancel() else moveTaskToBack(true)
+            }
+        })
+        scroller.addView(body)
+        main.addView(scroller, LinearLayout.LayoutParams(-1, 0, 1f))
+        setContentView(main)
+        window.statusBarColor = Color.TRANSPARENT
+        window.navigationBarColor = backdrop
+    }
+
+    private fun beginPinCreation() {
+        showPinPad("Создайте код доступа", "Придумайте код из четырёх цифр",
+            cancel = { restoreAfterSecurityFlow() }) { first ->
+            showPinPad("Повторите код", "Введите те же четыре цифры",
+                cancel = { beginPinCreation() }) { second ->
+                if (first != second) {
+                    showPinPad("Коды не совпадают", "Попробуйте создать код ещё раз",
+                        cancel = { restoreAfterSecurityFlow() }) { retry ->
+                        showPinPad("Повторите код", "Подтвердите новый код",
+                            cancel = { beginPinCreation() }) { again ->
+                            completePinCreation(retry, again)
+                        }
+                    }
+                } else completePinCreation(first, second)
+            }
+        }
+    }
+
+    private fun completePinCreation(first: String, second: String) {
+        if (first != second) {
+            Toast.makeText(this, "Коды не совпадают. Повторите установку.",
+                Toast.LENGTH_LONG).show()
+            beginPinCreation()
+            return
+        }
+        if (!AppLockSecurity.savePin(this, first)) {
+            Toast.makeText(this, "Не удалось безопасно сохранить код.",
+                Toast.LENGTH_LONG).show()
+            restoreAfterSecurityFlow()
+            return
+        }
+        appLockUnlocked = true
+        appLockScreenVisible = false
+        applyAppLockWindowPrivacy()
+        showDashboard()
+        themedDialogBuilder()
+            .setTitle("Защита включена")
+            .setMessage("Код доступа установлен. Включить вход по отпечатку пальца Android?")
+            .setNegativeButton("Позже", null)
+            .setPositiveButton("Включить") { _, _ ->
+                if (AppLockSecurity.fingerprintAvailable(this)) {
+                    promptFingerprint(enrolling = true) {
+                        refreshSecuritySettings()
+                        Toast.makeText(this, "Отпечаток пальца включён",
+                            Toast.LENGTH_SHORT).show()
+                    }
+                } else themedDialogBuilder()
+                    .setTitle("Отпечаток недоступен")
+                    .setMessage("Добавьте отпечаток в настройках Android и включите его " +
+                        "позже через Безопасность.")
+                    .setPositiveButton("Понятно", null).show()
+            }.show()
+    }
+
+    private fun restoreAfterSecurityFlow() {
+        appLockScreenVisible = false
+        appLockUnlocked = true
+        applyAppLockWindowPrivacy()
+        showDashboard()
+    }
+
+    private fun confirmExistingPin(action: () -> Unit) {
+        showPinPad("Подтвердите код", "Введите действующий код BalanceHub",
+            cancel = { restoreAfterSecurityFlow() }) { pin ->
+            when (val result = AppLockSecurity.verifyPin(this, pin)) {
+                AppLockSecurity.PinResult.SUCCESS -> action()
+                else -> showPinPad("Подтвердите код", lockErrorMessage(result),
+                    cancel = { restoreAfterSecurityFlow() }) { retry ->
+                    when (val r = AppLockSecurity.verifyPin(this, retry)) {
+                        AppLockSecurity.PinResult.SUCCESS -> action()
+                        else -> {
+                            Toast.makeText(this, lockErrorMessage(r), Toast.LENGTH_LONG).show()
+                            confirmExistingPin(action)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun refreshSecuritySettings() {
+        if (!appLockUnlocked && AppLockSecurity.enabled(this)) {
+            // A failed or invalidated fingerprint must never restore the dashboard.
+            showLockedScreen("Используйте код BalanceHub для входа")
+        } else if (appLockScreenVisible) restoreAfterSecurityFlow()
+        else if (currentTab == 4) renderTab()
+    }
+
+    @Suppress("DEPRECATION")
+    private fun promptFingerprint(enrolling: Boolean, success: () -> Unit) {
+        if (!AppLockSecurity.fingerprintAvailable(this)) {
+            Toast.makeText(this, "Отпечаток пальца недоступен в Android",
+                Toast.LENGTH_LONG).show()
+            return
+        }
+        var complete = false
+        var signal: CancellationSignal? = null
+        val dialog = themedDialogBuilder()
+            .setTitle("Отпечаток пальца")
+            .setMessage("Приложите палец к системному сканеру Android.")
+            .setNegativeButton("Отмена", null)
+            .create()
+        dialog.setOnShowListener { dialog.window?.setBackgroundDrawable(dialogGradient()) }
+        dialog.setOnDismissListener {
+            if (!complete) signal?.cancel()
+            fingerprintSignal = null
+        }
+        dialog.show()
+        signal = AppLockSecurity.authenticateFingerprint(this, enrolling,
+            onSuccess = {
+                complete = true
+                dialog.dismiss()
+                success()
+            },
+            onError = { error ->
+                if (!complete && dialog.isShowing) {
+                    complete = true
+                    dialog.dismiss()
+                    Toast.makeText(this, error, Toast.LENGTH_LONG).show()
+                    refreshSecuritySettings()
+                }
+            },
+            onMismatch = {
+                if (dialog.isShowing) Toast.makeText(this, "Отпечаток не распознан",
+                    Toast.LENGTH_SHORT).show()
+            })
+        fingerprintSignal = signal
+    }
+
+    private fun renderSecuritySettings() {
+        settingsHeader("Безопасность", "Код доступа и отпечаток пальца")
+        if (!AppLockSecurity.supported()) {
+            settingsGroup(settingsPanel(settingsRow("shield-check",
+                "Доступно с Android 11", "На этом устройстве функция недоступна")))
+            return
+        }
+        val active = AppLockSecurity.enabled(this)
+        val rows = mutableListOf<View>(
+            settingsSwitch("shield-check", "Защита приложения",
+                "Запрашивать код доступа при открытии", active) { enable ->
+                if (enable && !active) beginPinCreation()
+                else if (!enable && active) confirmExistingPin {
+                    AppLockSecurity.disable(this)
+                    restoreAfterSecurityFlow()
+                    Toast.makeText(this, "Защита отключена", Toast.LENGTH_SHORT).show()
+                }
+            }
+        )
+        if (active) {
+            rows.add(settingsRow("key", "Изменить код доступа",
+                "Четырёхзначный код BalanceHub") {
+                confirmExistingPin { beginPinCreation() }
+            })
+            rows.add(settingsSwitch("shield-check", "Вход по отпечатку пальца",
+                if (AppLockSecurity.fingerprintAvailable(this))
+                    "Системный отпечаток Android" else "Отпечаток в Android не настроен",
+                AppLockSecurity.fingerprintEnabled(this)) { enable ->
+                if (enable) {
+                    confirmExistingPin {
+                        restoreAfterSecurityFlow()
+                        promptFingerprint(enrolling = true) {
+                            refreshSecuritySettings()
+                        }
+                    }
+                } else {
+                    confirmExistingPin {
+                        AppLockSecurity.disableFingerprint(this)
+                        restoreAfterSecurityFlow()
+                    }
+                }
+            })
+            val options = listOf(
+                AppLockPolicy.IMMEDIATE to "Сразу после сворачивания",
+                AppLockPolicy.ONE_MINUTE to "Через 1 минуту",
+                AppLockPolicy.FIVE_MINUTES to "Через 5 минут",
+                AppLockPolicy.DEVICE_LOCK to "После блокировки устройства"
+            )
+            if (AppLockSecurity.fingerprintEnabled(this)) {
+                rows.add(settingsRow("key", "Восстановить код по отпечатку",
+                    "Если забыли код, подтвердите системный отпечаток") {
+                    promptFingerprint(enrolling = false) { beginPinCreation() }
+                })
+            }
+            rows.add(settingsRow("alarm-clock", "Повторная блокировка",
+                options.firstOrNull { it.first == AppLockSecurity.relock(this) }?.second ?: "") {
+                val index = options.indexOfFirst { it.first == AppLockSecurity.relock(this) }
+                    .coerceAtLeast(0)
+                showThemedChoices("Повторная блокировка", options.map { it.second }, index) {
+                    chosen -> AppLockSecurity.setRelock(this, options[chosen].first)
+                    renderTab()
+                }
+            })
+        }
+        settingsGroup(settingsPanel(*rows.toTypedArray()))
+        if (active) {
+            contentContainer.addView(textLine(
+                "Отпечатки хранятся только в Android. При их изменении вход " +
+                    "по отпечатку нужно включить повторно, подтвердив код BalanceHub.",
+                12f, muted))
         }
     }
 

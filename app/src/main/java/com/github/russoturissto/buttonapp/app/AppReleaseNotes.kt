@@ -30,6 +30,13 @@ internal object AppReleaseNotes {
         note("clock", "Добавлена история изменений по версиям.")
     )
 
+    private val securityRc1 = listOf(
+        note("shield-check", "Добавлена защита приложения четырёхзначным кодом."),
+        note("shield-check", "Можно включить вход по отпечатку пальца Android."),
+        note("alarm-clock", "Добавлены настройки повторной блокировки."),
+        note("settings", "В настройках появился раздел «Безопасность».")
+    )
+
     private val stable122 = listOf(
         note("wallet", "Платежи: улучшено выравнивание элементов."),
         note("calendar-days", "События: унифицировано оформление полей и повторений."),
@@ -80,6 +87,7 @@ internal object AppReleaseNotes {
         (rc2 + rc3 + rc4).distinctBy { it.title }
 
     fun forVersion(versionName: String?): List<ReleaseNote> = when (versionName) {
+        "1.2.3-rc1" -> securityRc1
         "1.2.1-rc1" -> rc1
         "1.2.1-rc2" -> rc2
         "1.2.1-rc3" -> rc3
@@ -100,6 +108,7 @@ internal object AppReleaseNotes {
             "1.2.0", "1.1.2", "1.1.1", "1.1.0", "1.0.144", "1.0.142"
         )
         return when (installedVersionName) {
+            "1.2.3-rc1" -> listOf("1.2.2", "1.2.1") + published
             "1.2.2" -> listOf("1.2.2", "1.2.1") + published
             "1.2.1" -> listOf("1.2.1") + published
             else -> published

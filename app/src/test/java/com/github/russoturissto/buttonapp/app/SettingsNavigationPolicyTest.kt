@@ -7,7 +7,7 @@ import org.junit.Test
 
 class SettingsNavigationPolicyTest {
     @Test fun topLevelSectionsOpenFromRoot() {
-        for (page in listOf("appearance", "mobile", "banks", "notifications",
+        for (page in listOf("appearance", "security", "mobile", "banks", "notifications",
             "updates", "help", "about")) {
             assertTrue(SettingsNavigationPolicy.canOpen("root", page))
         }

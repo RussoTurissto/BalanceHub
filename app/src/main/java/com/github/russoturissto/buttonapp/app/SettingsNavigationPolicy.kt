@@ -4,7 +4,7 @@ package com.github.russoturissto.buttonapp.app
 internal object SettingsNavigationPolicy {
     const val ROOT = "root"
     private val parents = mapOf(
-        "appearance" to ROOT, "mobile" to ROOT, "banks" to ROOT,
+        "appearance" to ROOT, "security" to ROOT, "mobile" to ROOT, "banks" to ROOT,
         "notifications" to ROOT, "updates" to ROOT,
         "help" to ROOT, "about" to ROOT, "history" to "updates",
         "payment" to "notifications", "event" to "notifications",
