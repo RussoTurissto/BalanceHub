@@ -7670,6 +7670,10 @@ class MainActivity : AppCompatActivity() {
         setContentView(main)
         window.statusBarColor = Color.TRANSPARENT
         window.navigationBarColor = backdrop
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            isAppearanceLightStatusBars = !isNight
+            isAppearanceLightNavigationBars = !isNight
+        }
     }
 
     private fun beginPinCreation() {
@@ -7691,6 +7695,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun completePinCreation(first: String, second: String) {
+        if (AppLockSecurity.enabled(this) && !appLockUnlocked) {
+            showLockedScreen()
+            return
+        }
         if (first != second) {
             Toast.makeText(this, "Коды не совпадают. Повторите установку.",
                 Toast.LENGTH_LONG).show()
