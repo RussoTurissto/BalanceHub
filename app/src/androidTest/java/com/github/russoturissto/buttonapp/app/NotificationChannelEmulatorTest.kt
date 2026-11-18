@@ -361,12 +361,12 @@ class NotificationChannelEmulatorTest {
         val context = app
         val uri = BalanceSystemToneStore.uri(context, "crystal", 100)
         assertNotNull(uri)
-        if (Build.VERSION.SDK_INT == 29) {
-            // Android 10's shell uid is not given arbitrary access to the
-            // user's public audio collection. Exercise the platform ringtone
+        if (Build.VERSION.SDK_INT <= 30) {
+            // Android 10/11 shell UID cannot reliably read the user's public
+            // audio collection under scoped storage. Exercise the platform ringtone
             // resolver instead of assuming shell storage permissions.
             val ringtone = android.media.RingtoneManager.getRingtone(context, uri)
-            assertNotNull("Android 10 ringtone resolver cannot open system tone", ringtone)
+            assertNotNull("Android 10/11 ringtone resolver cannot open system tone", ringtone)
             ringtone?.stop()
             return
         }
