@@ -55,6 +55,14 @@ class AppReleaseNotesTest {
         assertTrue(notes.none { "распознавание лица" in it })
     }
 
+    @Test fun securityRc2NotesDescribeCalendarAndBiometricUpdates() {
+        val notes = AppReleaseNotes.forVersion("1.2.3-rc2").map { it.title }
+        assertEquals(3, notes.size)
+        assertTrue(notes.any { "автоматически" in it })
+        assertTrue(notes.any { "снимков экрана" in it })
+        assertTrue(notes.any { "календари" in it })
+    }
+
     @Test fun unknownVersionsNeverSilentlyReuseOldReleaseNotes() {
         assertTrue(AppReleaseNotes.forVersion("1.2.1-rc5").isEmpty())
         assertTrue(AppReleaseNotes.forVersion("1.2.3").isEmpty())
@@ -71,7 +79,7 @@ class AppReleaseNotesTest {
     }
 
     @Test fun userTextContainsNoBuildOrLayoutImplementationDetails() {
-        val versions = listOf("1.2.0", "1.2.1", "1.2.2", "1.2.3-rc1", "1.2.1-rc1",
+        val versions = listOf("1.2.0", "1.2.1", "1.2.2", "1.2.3-rc1", "1.2.3-rc2", "1.2.1-rc1",
             "1.2.1-rc2", "1.2.1-rc3", "1.2.1-rc4")
         for (version in versions) {
             for (note in AppReleaseNotes.forVersion(version)) {

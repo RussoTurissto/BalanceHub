@@ -37,6 +37,12 @@ internal object AppReleaseNotes {
         note("settings", "В настройках появился раздел «Безопасность».")
     )
 
+    private val securityRc2 = listOf(
+        note("fingerprint", "Отпечаток пальца запрашивается при входе автоматически."),
+        note("shield-check", "Добавлено управление разрешением снимков экрана."),
+        note("calendar-days", "Платежи и события получили компактные списки и календари.")
+    )
+
     private val stable122 = listOf(
         note("wallet", "Платежи: улучшено выравнивание элементов."),
         note("calendar-days", "События: унифицировано оформление полей и повторений."),
@@ -88,6 +94,7 @@ internal object AppReleaseNotes {
 
     fun forVersion(versionName: String?): List<ReleaseNote> = when (versionName) {
         "1.2.3-rc1" -> securityRc1
+        "1.2.3-rc2" -> securityRc2
         "1.2.1-rc1" -> rc1
         "1.2.1-rc2" -> rc2
         "1.2.1-rc3" -> rc3

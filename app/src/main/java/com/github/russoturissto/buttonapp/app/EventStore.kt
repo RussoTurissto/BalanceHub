@@ -91,11 +91,9 @@ internal object EventStore {
         val original = active(context)
         val selected = original.firstOrNull { it.id == id } ?: return null
         val now = System.currentTimeMillis()
-        val next = if (nextForRepeated) {
-            if (selected.recurrence == "custom")
-                EventOccurrenceEngine.next(selected, maxOf(now, selected.dueAt))?.dueAt
-            else EventDateRules.nextOccurrence(selected.dueAt, selected.recurrence, now)
-        } else null
+        val next = if (nextForRepeated)
+            EventOccurrenceEngine.next(selected, maxOf(now, selected.dueAt))?.dueAt
+        else null
         val kept = original.filterNot { it.id == id } +
             listOfNotNull(next?.let { selected.copy(dueAt = it) })
         val jsonActive = JSONArray().also { a -> kept.forEach { a.put(encode(it)) } }
@@ -157,10 +155,7 @@ internal object EventStore {
         val original = active(context)
         val old = original.firstOrNull { it.id == id && it.dueAt == expectedDue }
             ?: return null
-        val next = (if (old.recurrence == "custom")
-            EventOccurrenceEngine.next(old, now)?.dueAt
-        else EventDateRules.nextOccurrence(old.dueAt, old.recurrence, now))
-            ?: return null
+        val next = EventOccurrenceEngine.next(old, now)?.dueAt ?: return null
         val updated = old.copy(dueAt = next)
         return updated.takeIf { save(context, updated) }
     }

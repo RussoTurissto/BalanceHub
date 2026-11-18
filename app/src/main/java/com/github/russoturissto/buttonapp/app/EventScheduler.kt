@@ -38,7 +38,8 @@ internal object EventScheduler {
     fun schedule(context: Context, event: PlannedEvent) {
         cancel(context, event.id)
         val now = System.currentTimeMillis()
-        if (event.recurrence == "custom" &&
+        if ((event.recurrence == "custom" ||
+                event.plan?.edits?.isNotEmpty() == true) &&
             EventOccurrenceEngine.next(event, now - 1L)?.dueAt != event.dueAt) {
             // Do not alert for a skipped or obsolete current visit.
             return

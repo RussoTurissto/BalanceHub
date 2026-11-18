@@ -116,6 +116,7 @@ class MainActivity : AppCompatActivity() {
     private var appLockBackgroundAt = 0L
     private var appLockScreenTurnedOff = false
     private var fingerprintSignal: CancellationSignal? = null
+    private var fingerprintDialog: AlertDialog? = null
     private val lockScreenOffReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == Intent.ACTION_SCREEN_OFF) {
@@ -394,6 +395,9 @@ class MainActivity : AppCompatActivity() {
         }
         fingerprintSignal?.cancel()
         fingerprintSignal = null
+        fingerprintDialog?.dismiss()
+        fingerprintDialog = null
+        if (appLockMandatoryScreen) appLockScreenVisible = false
         closeEngineeringMenu()
         BalanceNotificationSounds.stopPreview()
         unregisterReceiver(bankUpdateReceiver)
@@ -5317,12 +5321,368 @@ class MainActivity : AppCompatActivity() {
         dialog.show()
     }
 
+
+    /** A shared compact row for payments and events, including long names. */
+    private fun compactScheduleRow(iconId: String, title: String, trailing: String,
+        onOpen: () -> Unit): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        setPadding(dp(14), dp(10), dp(14), dp(10))
+        isClickable = true
+        isFocusable = true
+        contentDescription = title + ", " + trailing + ", открыть календарь"
+        addView(iconTile(iconId, 38), LinearLayout.LayoutParams(dp(38), dp(38)))
+        addView(View(this@MainActivity), LinearLayout.LayoutParams(dp(10), 1))
+        addView(textLine(title, 14f, ink, true).apply {
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }, LinearLayout.LayoutParams(0, -2, 1f))
+        addView(View(this@MainActivity), LinearLayout.LayoutParams(dp(8), 1))
+        addView(textLine(trailing, 14f, ink, true).apply {
+            gravity = Gravity.END
+            maxLines = 1
+        })
+        addView(View(this@MainActivity), LinearLayout.LayoutParams(dp(8), 1))
+        addView(iconTile("chevron-right", 24),
+            LinearLayout.LayoutParams(dp(24), dp(24)))
+        setOnClickListener { onOpen() }
+    }
+
+    private data class PlannedCalendarEntry(
+        val sourceId: String, val at: Long, val caption: String, val skipped: Boolean
+    )
+
+    /** Both sections use exactly the same month grid, spacing and actions. */
+    private fun showPlannedCalendar(
+        title: String, summary: String, initialAt: Long,
+        monthEntries: (Long, Long) -> List<PlannedCalendarEntry>,
+        onEntry: (PlannedCalendarEntry) -> Unit,
+        actions: List<Pair<String, () -> Unit>>
+    ) {
+        val visible = Calendar.getInstance().apply {
+            timeInMillis = initialAt
+            set(Calendar.DAY_OF_MONTH, 1)
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        val wrapper = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(16), dp(18), dp(14))
+            background = dialogGradient()
+        }
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(softAccent, 16)
+            setPadding(dp(13), dp(12), dp(13), dp(12))
+            addView(textLine(title, 18f, ink, true))
+            addView(verticalGap(5))
+            addView(textLine(summary, 12f, muted))
+        }
+        wrapper.addView(header)
+        wrapper.addView(verticalGap(14))
+        val controls = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val previous = secondaryButton("‹") {}
+        val monthLabel = textLine("", 16f, ink, true).apply {
+            gravity = Gravity.CENTER
+        }
+        val following = secondaryButton("›") {}
+        controls.addView(previous, LinearLayout.LayoutParams(dp(46), dp(46)))
+        controls.addView(monthLabel, LinearLayout.LayoutParams(0, dp(46), 1f))
+        controls.addView(following, LinearLayout.LayoutParams(dp(46), dp(46)))
+        wrapper.addView(controls)
+        wrapper.addView(verticalGap(9))
+        val grid = GridLayout(this).apply { columnCount = 7 }
+        wrapper.addView(grid)
+        wrapper.addView(verticalGap(11))
+        val hint = textLine("", 12f, muted)
+        wrapper.addView(hint)
+        wrapper.addView(verticalGap(12))
+        val actionPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        wrapper.addView(actionPanel)
+        val dialog = themedDialogBuilder()
+            .setView(android.widget.ScrollView(this).apply { addView(wrapper) })
+            .setNegativeButton("Закрыть", null).create()
+        val dateFormat = SimpleDateFormat("dd.MM.yyyy", Locale("ru"))
+
+        fun refreshMonth() {
+            monthLabel.text = SimpleDateFormat("LLLL yyyy", Locale("ru"))
+                .format(visible.time).replaceFirstChar { it.uppercase() }
+            grid.removeAllViews()
+            val start = visible.timeInMillis
+            val until = (visible.clone() as Calendar).apply {
+                add(Calendar.MONTH, 1)
+            }.timeInMillis
+            val entries = monthEntries(start, until)
+            val byDay = entries.groupBy { PaymentOccurrenceEngine.day(it.at) }
+            hint.text = "Запланировано: " + entries.count { !it.skipped } +
+                " · Нажмите выделенную дату для изменения или пропуска"
+            val width = (resources.displayMetrics.widthPixels - dp(94))
+                .coerceAtMost(dp(350)) / 7
+            val names = listOf("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")
+            names.forEachIndexed { index, name ->
+                grid.addView(textLine(name, 12f,
+                    if (index >= 5) accent else muted, true).apply {
+                    gravity = Gravity.CENTER
+                }, android.view.ViewGroup.LayoutParams(width, dp(34)))
+            }
+            val offset = (visible.get(Calendar.DAY_OF_WEEK) + 5) % 7
+            repeat(offset) {
+                grid.addView(View(this), android.view.ViewGroup.LayoutParams(width, dp(44)))
+            }
+            for (dayNumber in 1..visible.getActualMaximum(Calendar.DAY_OF_MONTH)) {
+                val day = (visible.clone() as Calendar).apply {
+                    set(Calendar.DAY_OF_MONTH, dayNumber)
+                }.timeInMillis
+                val chosen = byDay[day].orEmpty()
+                val active = chosen.any { !it.skipped }
+                val skippedOnly = chosen.isNotEmpty() && !active
+                val weekend = (offset + dayNumber - 1) % 7 >= 5
+                val cell = LinearLayout(this).apply {
+                    gravity = Gravity.CENTER
+                    setPadding(dp(2), dp(2), dp(2), dp(2))
+                    isClickable = chosen.isNotEmpty()
+                    isFocusable = chosen.isNotEmpty()
+                    contentDescription = "Дата " + dateFormat.format(Date(day)) +
+                        if (chosen.isEmpty()) ", нет записей"
+                        else if (skippedOnly) ", пропущено" else ", запланировано"
+                }
+                cell.addView(textLine(dayNumber.toString(), 15f,
+                    if (active) Color.WHITE else if (weekend) accent else ink,
+                    active).apply {
+                    gravity = Gravity.CENTER
+                    background = rounded(when {
+                        active -> accent
+                        skippedOnly -> softAccent
+                        else -> surface
+                    }, 12)
+                }, LinearLayout.LayoutParams(-1, -1))
+                if (chosen.isNotEmpty()) cell.setOnClickListener {
+                    if (chosen.size == 1) {
+                        dialog.dismiss()
+                        onEntry(chosen.first())
+                    } else {
+                        themedDialogBuilder().setTitle("Записи на " +
+                            dateFormat.format(Date(day)))
+                            .setItems(chosen.map { it.caption }.toTypedArray()) { _, index ->
+                                dialog.dismiss()
+                                onEntry(chosen[index])
+                            }
+                            .setNegativeButton("Отмена", null).show()
+                    }
+                }
+                grid.addView(cell, android.view.ViewGroup.LayoutParams(width, dp(44)))
+            }
+        }
+
+        previous.setOnClickListener { visible.add(Calendar.MONTH, -1); refreshMonth() }
+        following.setOnClickListener { visible.add(Calendar.MONTH, 1); refreshMonth() }
+        for (group in actions.chunked(2)) {
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            group.forEachIndexed { index, action ->
+                if (index > 0) row.addView(View(this),
+                    LinearLayout.LayoutParams(dp(7), 1))
+                row.addView(secondaryButton(action.first) {
+                    dialog.dismiss()
+                    action.second()
+                }, LinearLayout.LayoutParams(0, dp(46), 1f))
+            }
+            actionPanel.addView(row)
+            actionPanel.addView(verticalGap(7))
+        }
+        refreshMonth()
+        dialog.setOnShowListener { dialog.window?.setBackgroundDrawable(dialogGradient()) }
+        dialog.show()
+    }
+
+    private fun showPaymentSchedule(payment: PaymentReminder) {
+        val auto = payment.id.startsWith("t2_subscription_") ||
+            payment.id.startsWith("mobile_subscription_")
+        val actions: List<Pair<String, () -> Unit>> = if (auto) listOf(
+            "Настроить" to {
+                val simId = payment.id.removePrefix("t2_subscription_")
+                    .removePrefix("mobile_subscription_").toIntOrNull()
+                if (simId != null) selectedOperatorId = simId
+                mobileSettingsOpen = true
+                selectTab(4)
+            },
+            "Отключить" to {
+                if (PaymentArchiveStore.archiveById(
+                        this, payment.id, PaymentArchiveStore.DELETED)) {
+                    val prefix = if (payment.id.startsWith("t2_subscription_"))
+                        "t2_payment_enabled_" else "mobile_payment_enabled_"
+                    val sim = payment.id.removePrefix("t2_subscription_")
+                        .removePrefix("mobile_subscription_")
+                    preferences.edit().putBoolean(prefix + sim, false).apply()
+                    cancelReminder(payment)
+                    payments.removeAll { it.id == payment.id }
+                    expandedPaymentId = null
+                    renderPayments()
+                } else Toast.makeText(this, "Не удалось сохранить в архив",
+                    Toast.LENGTH_LONG).show()
+            }
+        ) else listOf(
+            "Изменить платёж" to { showEditPaymentDialog(payment) },
+            "Удалить" to { showDeletePaymentDialog(payment) }
+        )
+        val next = PaymentOccurrenceEngine.upcoming(
+            payment, System.currentTimeMillis(), 1).firstOrNull()?.dueAt ?: payment.dueAt
+        showPlannedCalendar(payment.title,
+            PaymentCurrencyFormatter.amountWithCurrency(payment.amount, payment.currency) +
+                " · " + recurrenceLabel(payment.recurrence) +
+                " · Напомнить за " + payment.leadDays + " дн.",
+            next,
+            monthEntries = { from, until ->
+                PaymentOccurrenceEngine.occurrences(payment, from, until).map {
+                    PlannedCalendarEntry(it.id, it.dueAt,
+                        eventDateLabel(it.dueAt) + " · " +
+                            PaymentCurrencyFormatter.amountWithCurrency(
+                                it.amount, it.currency) +
+                            if (it.skipped) " · пропущено" else "", it.skipped)
+                }
+            },
+            onEntry = { entry ->
+                val from = PaymentOccurrenceEngine.day(entry.at)
+                val until = Calendar.getInstance().apply {
+                    timeInMillis = from
+                    add(Calendar.DAY_OF_YEAR, 1)
+                }.timeInMillis
+                PaymentOccurrenceEngine.occurrences(payment, from, until)
+                    .firstOrNull { it.id == entry.sourceId && it.dueAt == entry.at }
+                    ?.let { showPaymentChargeEditor(payment, it) }
+            },
+            actions = actions)
+    }
+
+    private fun showEventBulkActions(event: PlannedEvent) {
+        val from = Calendar.getInstance().apply {
+            add(Calendar.DAY_OF_YEAR, -7)
+        }.timeInMillis
+        val until = Calendar.getInstance().apply {
+            add(Calendar.YEAR, 2)
+        }.timeInMillis
+        val visits = EventOccurrenceEngine.between(event, from, until).take(24)
+        if (visits.isEmpty()) {
+            Toast.makeText(this, "Нет дат для изменения", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val chosen = mutableSetOf<String>()
+        val body = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(10), dp(18), dp(12))
+            addView(textLine("Выберите даты для пропуска или восстановления",
+                13f, muted))
+        }
+        for (visit in visits) {
+            body.addView(android.widget.CheckBox(this).apply {
+                text = eventDateLabel(visit.dueAt) +
+                    if (visit.skipped) " · пропущено" else ""
+                setTextColor(ink)
+                setOnCheckedChangeListener { _, checked ->
+                    if (checked) chosen.add(visit.sourceId)
+                    else chosen.remove(visit.sourceId)
+                }
+            })
+        }
+        val dialog = themedDialogBuilder().setTitle("Даты события")
+            .setView(android.widget.ScrollView(this).apply { addView(body) }).create()
+        val footer = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        footer.addView(secondaryButton("Пропустить") {
+            dialog.dismiss()
+            applyEventVisitChanges(event, chosen.toSet(), skip = true)
+        }, LinearLayout.LayoutParams(0, dp(46), 1f))
+        footer.addView(View(this), LinearLayout.LayoutParams(dp(7), 1))
+        footer.addView(secondaryButton("Восстановить") {
+            dialog.dismiss()
+            applyEventVisitChanges(event, chosen.toSet(), skip = false)
+        }, LinearLayout.LayoutParams(0, dp(46), 1f))
+        body.addView(verticalGap(10))
+        body.addView(footer)
+        dialog.setOnShowListener { dialog.window?.setBackgroundDrawable(dialogGradient()) }
+        dialog.show()
+    }
+
+    private fun showEventVisitActions(event: PlannedEvent, visit: EventOccurrence) {
+        val body = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(10), dp(18), dp(14))
+            addView(textLine(
+                eventRepeatLabel(event.recurrence) +
+                    if (visit.skipped) " · пропущено" else " · запланировано",
+                13f, muted))
+            addView(verticalGap(12))
+        }
+        val dialog = themedDialogBuilder()
+            .setTitle(eventDateLabel(visit.dueAt))
+            .setView(body).setNegativeButton("Закрыть", null).create()
+        fun action(name: String, run: () -> Unit) {
+            body.addView(secondaryButton(name) {
+                dialog.dismiss()
+                run()
+            }, LinearLayout.LayoutParams(-1, dp(46)))
+            body.addView(verticalGap(8))
+        }
+        action("Перенести дату") { moveEventVisit(event, visit) }
+        action(if (visit.skipped) "Восстановить дату" else "Пропустить дату") {
+            applyEventVisitChanges(event, setOf(visit.sourceId), skip = !visit.skipped)
+        }
+        if (visit.moved) action("Отменить перенос") {
+            applyEventVisitChanges(event, setOf(visit.sourceId), undoMove = true)
+        }
+        dialog.setOnShowListener { dialog.window?.setBackgroundDrawable(dialogGradient()) }
+        dialog.show()
+    }
+
+    private fun showEventSchedule(event: PlannedEvent) {
+        val next = EventOccurrenceEngine.next(
+            event, System.currentTimeMillis() - 1L)?.dueAt ?: event.dueAt
+        val lead = when (event.leadMinutes) {
+            0 -> "В момент события"
+            10 -> "За 10 минут"
+            60 -> "За 1 час"
+            1_440 -> "За 1 день"
+            4_320 -> "За 3 дня"
+            else -> "За " + event.leadMinutes + " минут"
+        }
+        showPlannedCalendar(event.title, eventRepeatLabel(event.recurrence) +
+            " · " + lead + if (event.details.isBlank()) "" else
+                " · " + event.details, next,
+            monthEntries = { from, until ->
+                EventOccurrenceEngine.between(event, from, until).map {
+                    PlannedCalendarEntry(it.sourceId, it.dueAt,
+                        eventDateLabel(it.dueAt) +
+                            if (it.skipped) " · пропущено" else "", it.skipped)
+                }
+            },
+            onEntry = { entry ->
+                val from = PaymentOccurrenceEngine.day(entry.at)
+                val until = Calendar.getInstance().apply {
+                    timeInMillis = from
+                    add(Calendar.DAY_OF_YEAR, 1)
+                }.timeInMillis
+                EventOccurrenceEngine.between(event, from, until)
+                    .firstOrNull { it.sourceId == entry.sourceId && it.dueAt == entry.at }
+                    ?.let { showEventVisitActions(event, it) }
+            },
+            actions = listOf(
+                "Изменить событие" to { showEventEditor(event) },
+                "Выбрать даты" to { showEventBulkActions(event) },
+                "Готово" to { completeEvent(event) },
+                "В архив" to { moveEventToArchive(event) }
+            ))
+    }
+
+
+
     private fun renderPayments() {
         if (!::listContainer.isInitialized || currentTab != 2 || archiveOpen) return
         listContainer.removeAllViews()
-        if (expandedPaymentId != null && payments.none { it.id == expandedPaymentId }) {
-            expandedPaymentId = null
-        }
         val sorted = payments.sortedBy {
             PaymentOccurrenceEngine.upcoming(it, System.currentTimeMillis(), 1)
                 .firstOrNull()?.dueAt ?: Long.MAX_VALUE
@@ -5340,225 +5700,59 @@ class MainActivity : AppCompatActivity() {
             isFocusable = true
             contentDescription = "Предстоящие платежи, " + sorted.size +
                 if (upcomingListExpanded) ", свернуть список" else ", раскрыть список"
-        }
-        header.addView(iconTile("calendar-days", 38),
-            LinearLayout.LayoutParams(dp(38), dp(38)))
-        header.addView(View(this), LinearLayout.LayoutParams(dp(10), 1))
-        header.addView(LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            addView(textLine("Предстоящие платежи", 17f, ink, true))
-            addView(verticalGap(3))
-            addView(textLine(
-                if (upcomingListExpanded) "Нажмите, чтобы свернуть · " + sorted.size
-                else "Нажмите, чтобы раскрыть · " + sorted.size,
-                12f, muted
-            ))
-        }, LinearLayout.LayoutParams(0, -2, 1f))
-        header.addView(iconTile(if (upcomingListExpanded)
-            "chevron-up" else "chevron-down", 32),
-            LinearLayout.LayoutParams(dp(32), dp(32)))
-        header.setOnClickListener {
-            upcomingListExpanded = PaymentListInteraction.toggleSection(upcomingListExpanded)
-            if (!upcomingListExpanded) expandedPaymentId = null
-            preferences.edit().putBoolean("payments_list_expanded", upcomingListExpanded).apply()
-            renderPayments()
+            addView(iconTile("calendar-days", 38),
+                LinearLayout.LayoutParams(dp(38), dp(38)))
+            addView(View(this@MainActivity), LinearLayout.LayoutParams(dp(10), 1))
+            addView(LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(textLine("Предстоящие платежи", 17f, ink, true))
+                addView(verticalGap(3))
+                addView(textLine(
+                    if (upcomingListExpanded) "Нажмите, чтобы свернуть · " + sorted.size
+                    else "Нажмите, чтобы раскрыть · " + sorted.size, 12f, muted))
+            }, LinearLayout.LayoutParams(0, -2, 1f))
+            addView(iconTile(if (upcomingListExpanded) "chevron-up" else
+                "chevron-down", 32), LinearLayout.LayoutParams(dp(32), dp(32)))
+            setOnClickListener {
+                upcomingListExpanded = !upcomingListExpanded
+                if (!upcomingListExpanded) expandedPaymentId = null
+                preferences.edit().putBoolean("payments_list_expanded", upcomingListExpanded).apply()
+                renderPayments()
+            }
         }
         section.addView(header)
-
         if (upcomingListExpanded) {
             section.addView(View(this).apply {
                 setBackgroundColor(if (isNight) Color.rgb(63, 100, 102)
                     else Color.rgb(201, 228, 224))
             }, LinearLayout.LayoutParams(-1, dp(1)))
-            if (sorted.isEmpty()) {
-                section.addView(textLine(
-                    "Пока нет напоминаний. Добавьте первый платёж выше.",
-                    13f, muted
-                ).apply { setPadding(dp(15), dp(17), dp(15), dp(17)) })
-            }
-            for ((index, payment) in sorted.withIndex()) {
-                val expanded = expandedPaymentId == payment.id
-                val item = LinearLayout(this).apply {
-                    orientation = LinearLayout.VERTICAL
-                    background = if (expanded) rounded(softAccent, 12)
-                        else rounded(Color.TRANSPARENT, 12)
-                }
-                val row = LinearLayout(this).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = Gravity.CENTER_VERTICAL
-                    setPadding(dp(14), dp(11), dp(14), dp(11))
-                    isClickable = true
-                    isFocusable = true
-                    contentDescription = "Платёж " + payment.title +
-                        if (expanded) ", свернуть подробности" else ", раскрыть подробности"
-                }
-                val titleAndDate = LinearLayout(this).apply {
-                    orientation = LinearLayout.VERTICAL
-                    addView(textLine(payment.title, 14f, ink, true).apply {
-                        maxLines = 2
-                        ellipsize = android.text.TextUtils.TruncateAt.END
-                    })
-                    addView(verticalGap(4))
-                    val nextFour = PaymentOccurrenceEngine.upcoming(
-                        payment, System.currentTimeMillis(), 4)
-                    for ((position, next) in nextFour.withIndex()) {
-                        addView(textLine(
-                            (if (position == 0) "Ближайшее: " else "Далее: ") +
-                            DateFormat.getDateInstance(DateFormat.SHORT)
-                                .format(Date(next.dueAt)) + " · " +
-                            PaymentCurrencyFormatter.amountWithCurrency(
-                                next.amount, next.currency), 11f, muted))
-                    }
-                    if (nextFour.isEmpty()) addView(textLine(
-                        "Нет будущих начислений", 11f, muted))
-                }
-                row.addView(iconTile(payment.iconId ?: IconRegistry.select(
-                    payment.title, "credit-card"), 38), LinearLayout.LayoutParams(dp(38), dp(38)))
-                row.addView(View(this), LinearLayout.LayoutParams(dp(10), 1))
-                row.addView(titleAndDate, LinearLayout.LayoutParams(0, -2, 1f))
-                row.addView(View(this), LinearLayout.LayoutParams(dp(8), 1))
-                val right = LinearLayout(this).apply {
-                    orientation = LinearLayout.VERTICAL
-                    gravity = Gravity.END
-                    addView(textLine(
-                        PaymentCurrencyFormatter.amountForList(payment.amount), 14f, ink, true
-                    ).apply { gravity = Gravity.END })
-                    addView(verticalGap(2))
-                    addView(iconTile(if (expanded)
-                        "chevron-up" else "chevron-down", 25),
-                        LinearLayout.LayoutParams(dp(25), dp(25)))
-                }
-                row.addView(right)
-                row.setOnClickListener {
-                    expandedPaymentId = PaymentListInteraction.toggleRow(
-                        expandedPaymentId, payment.id
-                    )
-                    renderPayments()
-                }
-                item.addView(row)
-
-                if (expanded) {
-                    val detail = LinearLayout(this).apply {
-                        orientation = LinearLayout.VERTICAL
-                        setPadding(dp(14), 0, dp(14), dp(12))
-                    }
-                    detail.addView(textLine(
-                        "Напомнить за " + payment.leadDays + " дн. · " +
-                            recurrenceLabel(payment.recurrence),
-                        13f, muted
-                    ))
-                    detail.addView(verticalGap(10))
-                    val from = Calendar.getInstance().apply {
-                        add(Calendar.DAY_OF_YEAR, -32)
-                    }.timeInMillis
-                    val until = Calendar.getInstance().apply {
-                        add(Calendar.YEAR, 3)
-                    }.timeInMillis
-                    val charges = PaymentOccurrenceEngine.occurrences(
-                        payment, from, until).take(45)
-                    for (charge in charges) {
-                        val info = eventDateLabel(charge.dueAt) + " · " +
-                            PaymentCurrencyFormatter.amountWithCurrency(
-                                charge.amount, charge.currency) +
-                            (if (charge.manuallyMoved) " · перенесено с " +
-                                DateFormat.getDateInstance(DateFormat.SHORT)
-                                    .format(Date(charge.originalAt)) +
-                                " (исходное " + charge.sourceDay + ")" else
-                                if (charge.automaticallyClamped)
-                                    " · исходное число " + charge.sourceDay else "") +
-                            (if (charge.skipped) " · пропущено" else "") +
-                            String.format(Locale.ROOT, " · напомнить %02d:%02d",
-                                charge.reminderHour, charge.reminderMinute)
-                        detail.addView(textLine(info, 12f,
-                            if (charge.skipped) muted else ink).apply {
-                            if (charge.skipped) paintFlags = paintFlags or
-                                android.graphics.Paint.STRIKE_THRU_TEXT_FLAG
-                            setPadding(0, dp(8), 0, dp(8))
-                            setOnClickListener { showPaymentChargeEditor(payment, charge) }
-                        })
-                        val rowActions = LinearLayout(this).apply {
-                            orientation = LinearLayout.HORIZONTAL
-                        }
-                        rowActions.addView(secondaryButton("Изменить") {
-                            showPaymentChargeEditor(payment, charge)
-                        }, LinearLayout.LayoutParams(0, dp(40), 1f))
-                        rowActions.addView(View(this),
-                            LinearLayout.LayoutParams(dp(6), 1))
-                        rowActions.addView(secondaryButton(
-                            if (charge.skipped) "Восстановить дату" else "Пропустить дату") {
-                            skipPaymentDate(payment, charge, !charge.skipped)
-                        }, LinearLayout.LayoutParams(0, dp(40), 1f))
-                        detail.addView(rowActions)
-                    }
-                    val actions = LinearLayout(this).apply {
-                        orientation = LinearLayout.HORIZONTAL
-                    }
-                    if (payment.id.startsWith("t2_subscription_") ||
-                        payment.id.startsWith("mobile_subscription_")) {
-                        actions.addView(secondaryButton("Настроить") {
-                            val simId = payment.id.removePrefix("t2_subscription_")
-                                .removePrefix("mobile_subscription_").toIntOrNull()
-                            if (simId != null) selectedOperatorId = simId
-                            mobileSettingsOpen = true
-                            selectTab(4)
-                        }, LinearLayout.LayoutParams(0, dp(45), 1f))
-                        actions.addView(View(this), LinearLayout.LayoutParams(dp(8), 1))
-                        actions.addView(secondaryButton("Отключить") {
-                            if (PaymentArchiveStore.archiveById(
-                                    this, payment.id, PaymentArchiveStore.DELETED
-                                )) {
-                                val prefix = if (payment.id.startsWith("t2_subscription_"))
-                                    "t2_payment_enabled_" else "mobile_payment_enabled_"
-                                val sim = payment.id.removePrefix("t2_subscription_")
-                                    .removePrefix("mobile_subscription_")
-                                preferences.edit().putBoolean(prefix + sim, false).apply()
-                                cancelReminder(payment)
-                                payments.removeAll { it.id == payment.id }
-                                expandedPaymentId = null
-                                renderPayments()
-                            } else {
-                                Toast.makeText(this, "Не удалось сохранить в архив",
-                                    Toast.LENGTH_LONG).show()
-                            }
-                        }, LinearLayout.LayoutParams(0, dp(45), 1f))
-                    } else {
-                        actions.addView(secondaryButton("Изменить") {
-                            showEditPaymentDialog(payment)
-                        }, LinearLayout.LayoutParams(0, dp(45), 1f))
-                        actions.addView(View(this), LinearLayout.LayoutParams(dp(8), 1))
-                        actions.addView(secondaryButton("Удалить") {
-                            showDeletePaymentDialog(payment)
-                        }, LinearLayout.LayoutParams(0, dp(45), 1f))
-                    }
-                    detail.addView(actions)
-                    detail.startAnimation(
-                        android.view.animation.AlphaAnimation(0.5f, 1f).apply {
-                            duration = 160L
-                        }
-                    )
-                    item.addView(detail)
-                }
-                section.addView(item)
-                if (index < sorted.lastIndex) {
-                    section.addView(View(this).apply {
-                        setBackgroundColor(if (isNight) Color.rgb(54, 84, 89)
-                            else Color.rgb(213, 231, 228))
-                    }, LinearLayout.LayoutParams(-1, dp(1)))
-                }
+            if (sorted.isEmpty()) section.addView(textLine(
+                "Пока нет напоминаний. Добавьте первый платёж выше.", 13f, muted
+            ).apply { setPadding(dp(15), dp(17), dp(15), dp(17)) })
+            sorted.forEachIndexed { index, payment ->
+                section.addView(compactScheduleRow(
+                    payment.iconId ?: IconRegistry.select(payment.title, "credit-card"),
+                    payment.title,
+                    PaymentCurrencyFormatter.amountForList(payment.amount)
+                ) { showPaymentSchedule(payment) })
+                if (index < sorted.lastIndex) section.addView(View(this).apply {
+                    setBackgroundColor(if (isNight) Color.rgb(54, 84, 89)
+                        else Color.rgb(213, 231, 228))
+                }, LinearLayout.LayoutParams(-1, dp(1)))
             }
         }
         listContainer.addView(section)
         val archivedCount = PaymentArchiveStore.archived(this).size
-        val folder = settingsPanel(settingsRow("archive", "Архив платежей",
-            "$archivedCount записей · завершённые и удалённые") {
+        listContainer.addView(verticalGap(14))
+        listContainer.addView(settingsPanel(settingsRow("archive", "Архив платежей",
+            archivedCount.toString() + " записей · завершённые и удалённые") {
             archiveOpen = true
             expandedArchivePaymentId = null
             renderTab()
-        })
-        listContainer.addView(verticalGap(14))
-        listContainer.addView(folder)
+        }))
         listContainer.addView(verticalGap(22))
     }
+
 
     /** One compact gradient panel with the same dividers as current payments. */
     private fun renderArchiveScreen() {
@@ -6315,10 +6509,17 @@ class MainActivity : AppCompatActivity() {
                     .firstOrNull { it.sourceId == id }?.dueAt, updated.movedAt)
         }
         var updated = event.copy(plan = plan)
-        if (event.recurrence == "custom") {
-            val next = EventOccurrenceEngine.next(updated, now - 1L)
-            if (next != null) updated = updated.copy(dueAt = next.dueAt)
+        val next = EventOccurrenceEngine.next(updated, now - 1L)
+        if (next == null) {
+            // The last/only occurrence was skipped: do not leave a stale alarm.
+            if (EventStore.archive(this, event.id, "skipped") != null) {
+                EventScheduler.cancel(this, event.id)
+                renderTab()
+            } else Toast.makeText(this, "Не удалось сохранить дату",
+                Toast.LENGTH_LONG).show()
+            return
         }
+        updated = updated.copy(dueAt = next.dueAt)
         if (EventStore.save(this, updated)) {
             val oldDue = event.dueAt
             androidx.core.app.NotificationManagerCompat.from(this).cancel(
@@ -6348,19 +6549,18 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+
     private fun renderEvents() {
         contentContainer.addView(textLine("События", 23f, ink, true))
         contentContainer.addView(verticalGap(6))
         contentContainer.addView(textLine(
-            "Важные даты и планы под вашим контролем", 13f, muted
-        ))
+            "Важные даты и планы под вашим контролем", 13f, muted))
         contentContainer.addView(verticalGap(13))
         contentContainer.addView(primaryButton("＋  Добавить событие") {
             showEventEditor()
         })
         contentContainer.addView(verticalGap(17))
 
-        // Reconcile also when switching tabs while the app has stayed open.
         EventStore.reconcileElapsed(this)
         val upcoming = EventStore.active(this)
         val list = LinearLayout(this).apply {
@@ -6383,8 +6583,8 @@ class MainActivity : AppCompatActivity() {
                 orientation = LinearLayout.VERTICAL
                 addView(textLine("Предстоящие события", 17f, ink, true))
                 addView(verticalGap(3))
-                addView(textLine(
-                    if (eventListExpanded) "Нажмите, чтобы свернуть · " + upcoming.size
+                addView(textLine(if (eventListExpanded)
+                    "Нажмите, чтобы свернуть · " + upcoming.size
                     else "Нажмите, чтобы раскрыть · " + upcoming.size, 12f, muted))
             }, LinearLayout.LayoutParams(0, -2, 1f))
             addView(iconTile(if (eventListExpanded) "chevron-up" else "chevron-down", 32),
@@ -6402,158 +6602,35 @@ class MainActivity : AppCompatActivity() {
                 setBackgroundColor(if (isNight) Color.rgb(63, 100, 102)
                     else Color.rgb(201, 228, 224))
             }, LinearLayout.LayoutParams(-1, dp(1)))
-            if (upcoming.isEmpty()) {
-                list.addView(textLine("Событий пока нет. Запланируйте первое событие.",
-                    13f, muted).apply { setPadding(dp(15), dp(17), dp(15), dp(17)) })
+            if (upcoming.isEmpty()) list.addView(textLine(
+                "Событий пока нет. Запланируйте первое событие.", 13f, muted
+            ).apply { setPadding(dp(15), dp(17), dp(15), dp(17)) })
+            upcoming.forEachIndexed { index, event ->
+                val date = DateFormat.getDateInstance(DateFormat.SHORT)
+                    .format(Date(event.dueAt))
+                list.addView(compactScheduleRow(
+                    event.iconId ?: IconRegistry.select(event.title, "calendar-days"),
+                    event.title, date
+                ) { showEventSchedule(event) })
+                if (index < upcoming.lastIndex) list.addView(View(this).apply {
+                    setBackgroundColor(if (isNight) Color.rgb(54, 84, 89)
+                        else Color.rgb(213, 231, 228))
+                }, LinearLayout.LayoutParams(-1, dp(1)))
             }
-        val now = System.currentTimeMillis()
-        for (event in upcoming) {
-            list.addView(verticalGap(12))
-            val expanded = expandedEventId == event.id
-            val icon = event.iconId ?: IconRegistry.select(event.title)
-            val row = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(dp(8), dp(9), dp(8), dp(9))
-                background = rounded(if (expanded) softAccent else Color.TRANSPARENT, 12)
-                addView(iconTile(icon, 44), LinearLayout.LayoutParams(dp(44), dp(44)))
-                addView(View(this@MainActivity), LinearLayout.LayoutParams(dp(12), 1))
-                addView(LinearLayout(this@MainActivity).apply {
-                    orientation = LinearLayout.VERTICAL
-                    addView(textLine(event.title, 15f, ink, true).apply {
-                        maxLines = 2
-                        ellipsize = android.text.TextUtils.TruncateAt.END
-                    })
-                    addView(verticalGap(3))
-                    addView(textLine(eventDateLabel(event.dueAt), 12f, muted))
-                }, LinearLayout.LayoutParams(0, -2, 1f))
-                val delta = PaymentCalendarMath.daysUntil(now, event.dueAt)
-                val status = when {
-                    event.dueAt < now -> "Просрочено"
-                    delta == 0 -> "Сегодня"
-                    delta == 1 -> "Завтра"
-                    else -> "Через " + delta + " дн."
-                }
-                addView(textLine(status, 11f,
-                    if (event.dueAt < now) Color.rgb(236, 140, 128) else accent, true))
-                setOnClickListener {
-                    expandedEventId = if (expanded) null else event.id
-                    renderTab()
-                }
-            }
-            list.addView(row)
-            if (expanded) {
-                val details = LinearLayout(this).apply {
-                    orientation = LinearLayout.VERTICAL
-                    setPadding(dp(10), dp(8), dp(10), dp(8))
-                }
-                if (event.details.isNotBlank()) {
-                    details.addView(textLine(event.details, 13f, muted))
-                    details.addView(verticalGap(5))
-                }
-                val lead = when (event.leadMinutes) {
-                    0 -> "В момент события"
-                    10 -> "За 10 минут"
-                    60 -> "За 1 час"
-                    1_440 -> "За 1 день"
-                    4_320 -> "За 3 дня"
-                    else -> "За " + event.leadMinutes + " минут"
-                }
-                details.addView(textLine(
-                    eventRepeatLabel(event.recurrence) + " · " + lead, 12f, muted))
-                details.addView(verticalGap(10))
-                if (event.recurrence == "custom") {
-                    val start = Calendar.getInstance().apply {
-                        add(Calendar.DAY_OF_YEAR, -7)
-                    }.timeInMillis
-                    val finish = Calendar.getInstance().apply {
-                        add(Calendar.YEAR, 2)
-                    }.timeInMillis
-                    val visits = EventOccurrenceEngine.between(event, start, finish)
-                        .take(24)
-                    val chosen = mutableSetOf<String>()
-                    details.addView(textLine("Посещения — выберите несколько дат " +
-                        "для пропуска или восстановления", 12f, muted))
-                    for (visit in visits) {
-                        val checkbox = android.widget.CheckBox(this).apply {
-                            text = eventDateLabel(visit.dueAt) +
-                                (if (visit.skipped) " · пропущено" else "") +
-                                (if (visit.moved) " · перенесено с " +
-                                    DateFormat.getDateInstance(DateFormat.SHORT)
-                                        .format(Date(visit.originalAt)) else "")
-                            isChecked = false
-                            setTextColor(if (visit.skipped) muted else ink)
-                            setOnCheckedChangeListener { _, selected ->
-                                if (selected) chosen.add(visit.sourceId)
-                                else chosen.remove(visit.sourceId)
-                            }
-                        }
-                        details.addView(checkbox)
-                        val controlsForVisit = LinearLayout(this).apply {
-                            orientation = LinearLayout.HORIZONTAL
-                        }
-                        controlsForVisit.addView(secondaryButton(
-                            if (visit.skipped) "Восстановить" else "Пропустить") {
-                            applyEventVisitChanges(event, setOf(visit.sourceId),
-                                skip = !visit.skipped)
-                        }, LinearLayout.LayoutParams(0, dp(42), 1f))
-                        controlsForVisit.addView(View(this),
-                            LinearLayout.LayoutParams(dp(5), 1))
-                        controlsForVisit.addView(secondaryButton(
-                            if (visit.moved) "Отмена переноса" else "Перенести") {
-                            if (visit.moved) applyEventVisitChanges(event,
-                                setOf(visit.sourceId), undoMove = true)
-                            else moveEventVisit(event, visit)
-                        }, LinearLayout.LayoutParams(0, dp(42), 1f))
-                        details.addView(controlsForVisit)
-                    }
-                    details.addView(verticalGap(10))
-                    val multi = LinearLayout(this).apply {
-                        orientation = LinearLayout.HORIZONTAL
-                    }
-                    multi.addView(secondaryButton("Пропустить выбранные") {
-                        applyEventVisitChanges(event, chosen, skip = true)
-                    }, LinearLayout.LayoutParams(0, dp(44), 1f))
-                    multi.addView(View(this), LinearLayout.LayoutParams(dp(5), 1))
-                    multi.addView(secondaryButton("Восстановить выбранные") {
-                        applyEventVisitChanges(event, chosen, skip = false)
-                    }, LinearLayout.LayoutParams(0, dp(44), 1f))
-                    details.addView(multi)
-                    details.addView(verticalGap(10))
-                }
-                val controls = LinearLayout(this).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                }
-                controls.addView(secondaryButton("Изменить") {
-                    showEventEditor(event)
-                }, LinearLayout.LayoutParams(0, dp(45), 1f))
-                controls.addView(View(this), LinearLayout.LayoutParams(dp(6), 1))
-                controls.addView(secondaryButton("Готово") {
-                    completeEvent(event)
-                }, LinearLayout.LayoutParams(0, dp(45), 1f))
-                controls.addView(View(this), LinearLayout.LayoutParams(dp(6), 1))
-                controls.addView(secondaryButton("В архив") {
-                    moveEventToArchive(event)
-                }, LinearLayout.LayoutParams(0, dp(45), 1f))
-                details.addView(controls)
-                list.addView(details)
-            }
-        }
         }
         contentContainer.addView(list)
         contentContainer.addView(verticalGap(14))
         val archivedCount = EventStore.archived(this).size
-        val folder = settingsPanel(settingsRow("archive", "Архив событий",
-            "$archivedCount записей · завершённые и удалённые") {
+        contentContainer.addView(settingsPanel(settingsRow("archive", "Архив событий",
+            archivedCount.toString() + " записей · завершённые и удалённые") {
             eventArchiveExpanded = true
             expandedArchiveEventId = null
             renderTab()
-        })
-        contentContainer.addView(folder)
+        }))
         contentContainer.addView(verticalGap(22))
     }
 
-    /** Mirror the payment archive: separate screen, compact rows, one expanded item. */
+
     private fun renderEventArchiveScreen() {
         contentContainer.addView(secondaryButton("‹  К событиям") {
             eventArchiveExpanded = false
@@ -7242,6 +7319,9 @@ class MainActivity : AppCompatActivity() {
                     expandedPaymentId = id
                     upcomingListExpanded = true
                     if (currentTab == 2) renderTab() else selectTab(2)
+                    window.decorView.post {
+                        payments.firstOrNull { it.id == id }?.let(::showPaymentSchedule)
+                    }
                 }
             }
             3 -> {
@@ -7251,6 +7331,10 @@ class MainActivity : AppCompatActivity() {
                     expandedEventId = id
                     eventListExpanded = true
                     if (currentTab == 3) renderTab() else selectTab(3)
+                    window.decorView.post {
+                        EventStore.active(this).firstOrNull { it.id == id }
+                            ?.let(::showEventSchedule)
+                    }
                 }
             }
             4 -> {
@@ -7412,7 +7496,8 @@ class MainActivity : AppCompatActivity() {
 
     /** Keep the financial task invisible in the app switcher while protection is active. */
     private fun applyAppLockWindowPrivacy() {
-        if (AppLockSecurity.enabled(this)) {
+        if (AppLockSecurity.enabled(this) &&
+            !AppLockSecurity.screenshotsAllowed(this)) {
             window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         } else {
             window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
@@ -7479,7 +7564,8 @@ class MainActivity : AppCompatActivity() {
         AppLockSecurity.PinResult.SUCCESS -> ""
     }
 
-    private fun showLockedScreen(message: String = "") {
+    private fun showLockedScreen(message: String = "",
+        automaticFingerprint: Boolean = true) {
         if (!AppLockSecurity.enabled(this)) return
         appLockUnlocked = false
         applyAppLockWindowPrivacy()
@@ -7489,7 +7575,19 @@ class MainActivity : AppCompatActivity() {
             cancel = null) { pin ->
             when (val result = AppLockSecurity.verifyPin(this, pin)) {
                 AppLockSecurity.PinResult.SUCCESS -> finishAppUnlock()
-                else -> showLockedScreen(lockErrorMessage(result))
+                else -> showLockedScreen(lockErrorMessage(result), automaticFingerprint = false)
+            }
+        }
+        // The PIN pad is already present: any fingerprint failure or cancellation
+        // returns directly to it without re-triggering biometric authentication.
+        if (automaticFingerprint && AppLockSecurity.fingerprintEnabled(this)) {
+            window.decorView.post {
+                if (!isFinishing && !isDestroyed && appLockMandatoryScreen &&
+                    appLockScreenVisible && !appLockUnlocked) {
+                    promptFingerprint(enrolling = false, fallbackOnMismatch = true) {
+                        finishAppUnlock()
+                    }
+                }
             }
         }
     }
@@ -7611,9 +7709,8 @@ class MainActivity : AppCompatActivity() {
                     setOnClickListener {
                         if (processing) return@setOnClickListener
                         when (value) {
-                            "Отпечаток" -> promptFingerprint(enrolling = false) {
-                                finishAppUnlock()
-                            }
+                            "Отпечаток" -> promptFingerprint(enrolling = false,
+                                fallbackOnMismatch = true) { finishAppUnlock() }
                             "⌫" -> {
                                 if (input.isNotEmpty()) input.deleteCharAt(input.length - 1)
                                 updateDots()
@@ -7775,10 +7872,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     @Suppress("DEPRECATION")
-    private fun promptFingerprint(enrolling: Boolean, success: () -> Unit) {
+    private fun promptFingerprint(enrolling: Boolean,
+        fallbackOnMismatch: Boolean = false, success: () -> Unit) {
         if (!AppLockSecurity.fingerprintAvailable(this)) {
-            Toast.makeText(this, "Отпечаток пальца недоступен в Android",
-                Toast.LENGTH_LONG).show()
+            if (!fallbackOnMismatch) Toast.makeText(this,
+                "Отпечаток пальца недоступен в Android", Toast.LENGTH_LONG).show()
             return
         }
         var complete = false
@@ -7786,33 +7884,46 @@ class MainActivity : AppCompatActivity() {
         val dialog = themedDialogBuilder()
             .setTitle("Отпечаток пальца")
             .setMessage("Приложите палец к системному сканеру Android.")
-            .setNegativeButton("Отмена", null)
+            .setNegativeButton(if (enrolling) "Отмена" else "Ввести код", null)
             .create()
+        fingerprintDialog = dialog
         dialog.setOnShowListener { dialog.window?.setBackgroundDrawable(dialogGradient()) }
         dialog.setOnDismissListener {
             if (!complete) signal?.cancel()
-            fingerprintSignal = null
+            if (fingerprintDialog === dialog) fingerprintDialog = null
+            if (fingerprintSignal === signal) fingerprintSignal = null
         }
         dialog.show()
         signal = AppLockSecurity.authenticateFingerprint(this, enrolling,
             onSuccess = {
-                complete = true
-                dialog.dismiss()
-                success()
+                if (!complete && dialog.isShowing) {
+                    complete = true
+                    dialog.dismiss()
+                    success()
+                }
             },
             onError = { error ->
                 if (!complete && dialog.isShowing) {
                     complete = true
+                    signal?.cancel()
                     dialog.dismiss()
                     Toast.makeText(this, error, Toast.LENGTH_LONG).show()
-                    refreshSecuritySettings()
+                    if (!fallbackOnMismatch) refreshSecuritySettings()
                 }
             },
             onMismatch = {
-                if (dialog.isShowing) Toast.makeText(this, "Отпечаток не распознан",
-                    Toast.LENGTH_SHORT).show()
+                if (!complete && dialog.isShowing) {
+                    if (fallbackOnMismatch) {
+                        complete = true
+                        signal?.cancel()
+                        dialog.dismiss()
+                        Toast.makeText(this, "Отпечаток не распознан. Введите код.",
+                            Toast.LENGTH_SHORT).show()
+                    } else Toast.makeText(this, "Отпечаток не распознан",
+                        Toast.LENGTH_SHORT).show()
+                }
             })
-        fingerprintSignal = signal
+        if (dialog.isShowing) fingerprintSignal = signal else signal?.cancel()
     }
 
     private fun renderSecuritySettings() {
@@ -7832,6 +7943,13 @@ class MainActivity : AppCompatActivity() {
                     restoreAfterSecurityFlow()
                     Toast.makeText(this, "Защита отключена", Toast.LENGTH_SHORT).show()
                 }
+            },
+            settingsSwitch("shield-check", "Разрешить снимки экрана",
+                "По умолчанию при включённой защите снимки запрещены",
+                AppLockSecurity.screenshotsAllowed(this)) { allowed ->
+                AppLockSecurity.setScreenshotsAllowed(this, allowed)
+                applyAppLockWindowPrivacy()
+                renderTab()
             }
         )
         if (active) {

@@ -35,6 +35,19 @@ class AppLockEmulatorTest {
         }
     }
 
+    @Test fun protectedScreenshotsAreOptInAndSettingIsPersisted() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val before = AppLockSecurity.screenshotsAllowed(context)
+        try {
+            AppLockSecurity.setScreenshotsAllowed(context, false)
+            assertFalse(AppLockSecurity.screenshotsAllowed(context))
+            AppLockSecurity.setScreenshotsAllowed(context, true)
+            assertTrue(AppLockSecurity.screenshotsAllowed(context))
+        } finally {
+            AppLockSecurity.setScreenshotsAllowed(context, before)
+        }
+    }
+
     @Test fun securitySettingsAreAvailableOnlyOnAndroid11AndNewer() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         assertEquals(Build.VERSION.SDK_INT >= 30, AppLockSecurity.supported())

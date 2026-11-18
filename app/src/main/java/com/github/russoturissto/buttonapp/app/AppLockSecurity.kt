@@ -31,6 +31,7 @@ internal object AppLockSecurity {
     private const val FAILURES = "failed_attempts"
     private const val BLOCK_UNTIL = "block_until"
     private const val RELOCK = "relock"
+    private const val SCREENSHOTS_ALLOWED = "screenshots_allowed"
 
     enum class PinResult { SUCCESS, WRONG, BLOCKED, ERROR }
 
@@ -46,6 +47,14 @@ internal object AppLockSecurity {
 
     fun relock(context: Context): String =
         prefs(context).getString(RELOCK, AppLockPolicy.IMMEDIATE) ?: AppLockPolicy.IMMEDIATE
+
+    /** Screenshots remain blocked by default whenever app protection is enabled. */
+    fun screenshotsAllowed(context: Context): Boolean =
+        prefs(context).getBoolean(SCREENSHOTS_ALLOWED, false)
+
+    fun setScreenshotsAllowed(context: Context, allowed: Boolean) {
+        prefs(context).edit { putBoolean(SCREENSHOTS_ALLOWED, allowed) }
+    }
 
     fun setRelock(context: Context, mode: String) {
         require(mode in listOf(AppLockPolicy.IMMEDIATE, AppLockPolicy.ONE_MINUTE,

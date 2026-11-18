@@ -223,6 +223,18 @@ internal object PaymentOccurrenceEngine {
                     else -> break
                 }
             }
+            // A legacy/standard occurrence moved into this month must remain visible.
+            for ((id, edit) in schedule?.edits.orEmpty()) {
+                val moved = edit.movedAt ?: continue
+                if (moved !in from until until || id in byId) continue
+                val originalDay = dateForSource(id) ?: continue
+                val source = Calendar.getInstance().apply {
+                    timeInMillis = originalDay
+                    set(Calendar.HOUR_OF_DAY, hour)
+                    set(Calendar.MINUTE, minute)
+                }.timeInMillis
+                byId[id] = source to false
+            }
         }
         val expanded = byId.mapNotNull { (id, entry) ->
             val (originalAt, auto) = entry

@@ -62,23 +62,44 @@ internal object EventOccurrenceEngine {
         if (until <= from) return emptyList()
         val plan = event.plan
         if (event.recurrence != "custom" || plan == null) {
-            val cursor = Calendar.getInstance().apply { timeInMillis = event.dueAt }
-            val found = mutableListOf<EventOccurrence>()
+            // A stable anchor keeps standard weekly/monthly/yearly recurrences in phase
+            // when one individual occurrence is moved or skipped.
+            val anchor = plan?.anchorAt?.takeIf { it > 0L } ?: event.dueAt
+            val cursor = Calendar.getInstance().apply { timeInMillis = anchor }
+            val generated = linkedMapOf<String, Long>()
             var steps = 0
             while (cursor.timeInMillis < from && steps++ < 12000) {
-                val next = EventDateRules.nextOccurrence(cursor.timeInMillis,
-                    event.recurrence, cursor.timeInMillis) ?: return found
-                cursor.timeInMillis = next
-            }
-            steps = 0
-            while (cursor.timeInMillis < until && steps++ < 500) {
-                found.add(EventOccurrence(sourceId(cursor.timeInMillis),
-                    cursor.timeInMillis, cursor.timeInMillis, false, false))
                 val next = EventDateRules.nextOccurrence(cursor.timeInMillis,
                     event.recurrence, cursor.timeInMillis) ?: break
                 cursor.timeInMillis = next
             }
-            return found
+            steps = 0
+            while (cursor.timeInMillis < until && steps++ < 500) {
+                generated[sourceId(cursor.timeInMillis)] = cursor.timeInMillis
+                val next = EventDateRules.nextOccurrence(cursor.timeInMillis,
+                    event.recurrence, cursor.timeInMillis) ?: break
+                cursor.timeInMillis = next
+            }
+            // A move can bring an occurrence into the viewed month from another.
+            val clock = Calendar.getInstance().apply { timeInMillis = anchor }
+            for ((id, edit) in plan?.edits.orEmpty()) {
+                val moved = edit.movedAt ?: continue
+                if (moved !in from until until || id in generated) continue
+                val originalDay = PaymentOccurrenceEngine.dateForSource(id) ?: continue
+                val original = Calendar.getInstance().apply {
+                    timeInMillis = originalDay
+                    set(Calendar.HOUR_OF_DAY, clock.get(Calendar.HOUR_OF_DAY))
+                    set(Calendar.MINUTE, clock.get(Calendar.MINUTE))
+                }.timeInMillis
+                generated[id] = original
+            }
+            return generated.mapNotNull { (id, originalAt) ->
+                val edit = plan?.edits?.get(id)
+                val actual = edit?.movedAt ?: originalAt
+                if (actual !in from until until) null
+                else EventOccurrence(id, originalAt, actual,
+                    edit?.skipped ?: false, edit?.movedAt != null)
+            }.sortedWith(compareBy({ it.dueAt }, { it.sourceId }))
         }
         val anchor = if (plan.anchorAt > 0) plan.anchorAt else event.dueAt
         val anchorClock = Calendar.getInstance().apply { timeInMillis = anchor }
