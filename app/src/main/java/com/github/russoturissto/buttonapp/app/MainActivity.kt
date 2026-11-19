@@ -792,8 +792,14 @@ class MainActivity : AppCompatActivity() {
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), headerTopPadding, dp(20), dp(23))
-            background = BalanceHubHeaderDrawable(isNight).let {
-                if (winterActive) WinterHeaderDrawable(it, resources.displayMetrics.density) else it
+            background = BalanceHubHeaderDrawable(isNight)
+            if (winterActive) {
+                // A foreground layer is drawn after the header children.
+                // It remains visible above the gradient without moving the title.
+                foreground = WinterHeaderDrawable(
+                    android.graphics.drawable.ColorDrawable(Color.TRANSPARENT),
+                    resources.displayMetrics.density
+                )
             }
         }
         header.addView(textLine("BalanceHub", 21f, Color.WHITE, true).apply {
