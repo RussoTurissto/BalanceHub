@@ -71,6 +71,9 @@ jobs:
       - name: Run JVM regression tests
         if: matrix.api == 29
         run: ./gradlew --no-daemon --console=plain :app:testDebugUnitTest
+      - name: Check release Lint before merging RC changes
+        if: matrix.api == 29
+        run: ./gradlew --no-daemon --console=plain :app:lintRelease
       - name: Execute instrumented Android tests
         uses: reactivecircus/android-emulator-runner@v2
         with:
