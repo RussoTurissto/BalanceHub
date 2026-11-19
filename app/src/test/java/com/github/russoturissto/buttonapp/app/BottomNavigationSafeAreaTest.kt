@@ -3,35 +3,29 @@ package com.github.russoturissto.buttonapp.app
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-/** All Android navigation styles need a clear bottom edge for touch targets. */
+/** Bottom navigation clears the nav bar, not the much larger gesture region. */
 class BottomNavigationSafeAreaTest {
-    @Test fun threeButtonNavigationControlsTheClearance() {
+    @Test fun threeButtonNavigationKeepsTwoPixelsAboveTheBar() {
         assertEquals(82, BottomNavigationSafeArea.bottomPaddingPx(
-            navigationBar = 80, systemGesture = 0, mandatoryGesture = 0,
-            tappableElement = 76, gapPx = 2))
+            navigationBar = 80, gapPx = 2))
     }
 
-    @Test fun systemGesturesCanExceedTheNavigationBar() {
-        assertEquals(46, BottomNavigationSafeArea.bottomPaddingPx(
-            navigationBar = 22, systemGesture = 44, mandatoryGesture = 24,
-            tappableElement = 0, gapPx = 2))
+    @Test fun transparentGestureBarStillUsesItsNavigationInset() {
+        // Gestures may occupy a taller recognition area, but transparency
+        // does not erase the system-provided navigation bar inset.
+        assertEquals(26, BottomNavigationSafeArea.bottomPaddingPx(
+            navigationBar = 24, gapPx = 2))
     }
 
-    @Test fun mandatoryGesturesAndTappableElementsAreAlsoProtected() {
-        assertEquals(34, BottomNavigationSafeArea.bottomPaddingPx(
-            navigationBar = 12, systemGesture = 18, mandatoryGesture = 32,
-            tappableElement = 24, gapPx = 2))
-        assertEquals(42, BottomNavigationSafeArea.bottomPaddingPx(
-            navigationBar = 10, systemGesture = 20, mandatoryGesture = 0,
-            tappableElement = 40, gapPx = 2))
-    }
-
-    @Test fun zeroInsetsAndMalformedValuesKeepExactlyTheRequestedGap() {
+    @Test fun noVisibleNavigationBarLeavesOnlyTheRequestedGap() {
         assertEquals(2, BottomNavigationSafeArea.bottomPaddingPx(
-            navigationBar = 0, systemGesture = 0, mandatoryGesture = 0,
-            tappableElement = 0, gapPx = 2))
+            navigationBar = 0, gapPx = 2))
+    }
+
+    @Test fun malformedInsetsNeverMoveTheBarOutsideTheWindow() {
+        assertEquals(2, BottomNavigationSafeArea.bottomPaddingPx(
+            navigationBar = -42, gapPx = 2))
         assertEquals(0, BottomNavigationSafeArea.bottomPaddingPx(
-            navigationBar = -1, systemGesture = -2, mandatoryGesture = -3,
-            tappableElement = -4, gapPx = -1))
+            navigationBar = -1, gapPx = -1))
     }
 }

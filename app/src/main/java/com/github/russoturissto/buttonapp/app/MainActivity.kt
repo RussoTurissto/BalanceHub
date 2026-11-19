@@ -841,20 +841,14 @@ class MainActivity : AppCompatActivity() {
             navigation.section(it)
         }
         tabs.addView(navigation, LinearLayout.LayoutParams(-1, dp(60)))
-        // Edge-to-edge requires the entire system-controlled region to stay below
-        // the clickable pill. Some gesture configurations report a larger
-        // systemGestures inset than navigationBars; button navigation can report
-        // the reverse. Receive insets at the root, before child dispatch.
+        // In edge-to-edge mode navigationBars() reports the navigation
+        // boundary for both three-button and transparent gesture navigation.
+        // systemGestures() also includes a larger touch-recognition region and
+        // must NOT raise the visual pill above the actual navigation bar.
         ViewCompat.setOnApplyWindowInsetsListener(screen) { _, insets ->
             val bottom = BottomNavigationSafeArea.bottomPaddingPx(
                 navigationBar = insets.getInsets(
                     WindowInsetsCompat.Type.navigationBars()).bottom,
-                systemGesture = insets.getInsets(
-                    WindowInsetsCompat.Type.systemGestures()).bottom,
-                mandatoryGesture = insets.getInsets(
-                    WindowInsetsCompat.Type.mandatorySystemGestures()).bottom,
-                tappableElement = insets.getInsets(
-                    WindowInsetsCompat.Type.tappableElement()).bottom,
                 gapPx = dp(BottomNavigationSafeArea.GAP_DP)
             )
             if (tabs.paddingBottom != bottom) {

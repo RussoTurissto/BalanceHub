@@ -101,6 +101,14 @@ class AppReleaseNotesTest {
             AppReleaseNotes.offlineStableHistory("1.2.4-rc3").first())
     }
 
+    @Test fun navigationRc4NotesDescribeTheAdjustedBottomBar() {
+        val notes = AppReleaseNotes.forVersion("1.2.4-rc4").map { it.title }
+        assertEquals(1, notes.size)
+        assertTrue(notes.single().contains("системной навигацией"))
+        assertEquals("1.2.3",
+            AppReleaseNotes.offlineStableHistory("1.2.4-rc4").first())
+    }
+
     @Test fun unknownVersionsNeverSilentlyReuseOldReleaseNotes() {
         assertTrue(AppReleaseNotes.forVersion("1.2.1-rc5").isEmpty())
         assertFalse(AppReleaseNotes.forVersion("1.2.3").isEmpty())
@@ -118,7 +126,7 @@ class AppReleaseNotesTest {
 
     @Test fun userTextContainsNoBuildOrLayoutImplementationDetails() {
         val versions = listOf("1.2.0", "1.2.1", "1.2.2", "1.2.3",
-            "1.2.3-rc1", "1.2.3-rc2", "1.2.4-rc1", "1.2.4-rc2", "1.2.4-rc3", "1.2.1-rc1",
+            "1.2.3-rc1", "1.2.3-rc2", "1.2.4-rc1", "1.2.4-rc2", "1.2.4-rc3", "1.2.4-rc4", "1.2.1-rc1",
             "1.2.1-rc2", "1.2.1-rc3", "1.2.1-rc4")
         for (version in versions) {
             for (note in AppReleaseNotes.forVersion(version)) {
