@@ -12,6 +12,8 @@ import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.drawable.Drawable
+import androidx.core.content.edit
+import androidx.core.graphics.withTranslation
 import java.util.Calendar
 import kotlin.math.cos
 import kotlin.math.sin
@@ -41,8 +43,9 @@ internal object WinterThemeState {
     fun setMode(context: Context, value: String) {
         require(value in listOf(WinterThemePolicy.AUTO,
             WinterThemePolicy.FORCE_ON, WinterThemePolicy.FORCE_OFF))
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putString(KEY, value).apply()
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit {
+            putString(KEY, value)
+        }
     }
 
     fun active(context: Context): Boolean {
@@ -106,8 +109,7 @@ internal class WinterFrostDrawable(
         val w = bounds.width().toFloat()
         val h = bounds.height().toFloat()
         if (w < 12f * density || h < 12f * density) return
-        val saved = canvas.save()
-        canvas.translate(bounds.left.toFloat(), bounds.top.toFloat())
+        canvas.withTranslation(bounds.left.toFloat(), bounds.top.toFloat()) {
         val d = density
         if (surface == WinterSurface.SCREEN) {
             // The content begins at 18dp, so frost never touches the content.
@@ -163,7 +165,7 @@ internal class WinterFrostDrawable(
         }
         pen.shader = null
         pen.style = Paint.Style.FILL
-        canvas.restoreToCount(saved)
+        }
     }
 
     override fun setAlpha(alpha: Int) {
@@ -192,8 +194,7 @@ internal class WinterHeaderDrawable(
         val w = bounds.width().toFloat()
         val h = bounds.height().toFloat()
         if (w <= 0f || h <= 0f) return
-        val saved = canvas.save()
-        canvas.translate(bounds.left.toFloat(), bounds.top.toFloat())
+        canvas.withTranslation(bounds.left.toFloat(), bounds.top.toFloat()) {
         val d = density
 
         val wire = Path().apply {
@@ -261,7 +262,7 @@ internal class WinterHeaderDrawable(
                     cy + sin(a).toFloat() * 4f * d, pen)
             }
         }
-        canvas.restoreToCount(saved)
+        }
     }
     override fun setAlpha(alpha: Int) { original.alpha = alpha; invalidateSelf() }
     override fun setColorFilter(colorFilter: ColorFilter?) {
