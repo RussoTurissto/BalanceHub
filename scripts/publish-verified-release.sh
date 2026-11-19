@@ -45,7 +45,8 @@ fi
 }
 apk="app/build/outputs/apk/release/BalanceHub.apk"
 [[ -s "$apk" ]] || { echo "::error::Signed APK is missing"; exit 1; }
-code="$((GITHUB_RUN_NUMBER + 300))"
+code="${BUILD_VERSION_CODE:?Signed Android versionCode has not been resolved by GitHub Actions}"
+[[ "$code" =~ ^[1-9][0-9]*$ ]] || { echo "::error::Invalid signed APK versionCode: $code"; exit 1; }
 sha256="$(sha256sum "$apk" | awk '{print $1}')"
 bytes="$(stat -c %s "$apk")"
 previous_stable="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq '.tag_name')"
