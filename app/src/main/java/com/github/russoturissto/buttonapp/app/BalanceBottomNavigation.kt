@@ -96,6 +96,10 @@ internal class BalanceBottomNavigation(
             cornerRadius = dp(20).toFloat()
             setStroke(dp(1), edge)
         }
+        if (WinterThemeState.active(context)) {
+            background = WinterFrostDrawable(background, density, night,
+                WinterSurface.NAVIGATION)
+        }
         setPadding(dp(3), dp(3), dp(3), dp(3))
         clipChildren = true
         clipToPadding = false
