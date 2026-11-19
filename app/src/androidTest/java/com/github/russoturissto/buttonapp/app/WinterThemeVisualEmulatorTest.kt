@@ -19,7 +19,7 @@ import org.junit.runner.RunWith
 /**
  * Unlike a pure Gradle compilation, this checks real Android UI drawing.
  * A regression to the invisible wire/empty ornament of rc1 is caught by
- * checking saturated red bauble pixels and warm golden bulb pixels.
+ * checking turquoise glass ornaments and the warm golden garland/bow pixels.
  * Captures all five tabs in both appearance modes for a visual review.
  */
 @RunWith(AndroidJUnit4::class)
@@ -34,7 +34,7 @@ class WinterThemeVisualEmulatorTest {
     }
 
     private fun verifyVisibleDecor(header: Bitmap, appearance: String) {
-        var red = 0
+        var turquoise = 0
         var gold = 0
         val x0 = (header.width * .60f).toInt()
         for (y in 0 until header.height step 2) {
@@ -43,12 +43,14 @@ class WinterThemeVisualEmulatorTest {
                 val r = Color.red(pixel)
                 val g = Color.green(pixel)
                 val b = Color.blue(pixel)
-                if (r > 158 && r > g + 55 && r > b + 45) red++
+                // Glass-blue ornaments must be bright, not just the dark blue sky.
+                if (x > header.width * .72f && y > header.height * .40f &&
+                    g > 135 && b > 155 && g > r + 65 && b > r + 75) turquoise++
                 if (r > 178 && g > 142 && b < 160 && r > b + 45) gold++
             }
         }
-        assertTrue("Red Christmas bauble not visible in " + appearance + ": " + red,
-            red >= 12)
+        assertTrue("Turquoise glass bauble not visible in " + appearance +
+            ": " + turquoise, turquoise >= 12)
         assertTrue("Golden light bulbs not visible in " + appearance + ": " + gold,
             gold >= 15)
     }
