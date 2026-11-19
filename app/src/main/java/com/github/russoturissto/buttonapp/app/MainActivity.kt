@@ -40,6 +40,7 @@ import android.os.Bundle
 import android.content.res.Configuration
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.graphics.toColorInt
+import androidx.core.graphics.drawable.toDrawable
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowCompat
@@ -797,7 +798,7 @@ class MainActivity : AppCompatActivity() {
                 // A foreground layer is drawn after the header children.
                 // It remains visible above the gradient without moving the title.
                 foreground = WinterHeaderDrawable(
-                    android.graphics.drawable.ColorDrawable(Color.TRANSPARENT),
+                    Color.TRANSPARENT.toDrawable(),
                     resources.displayMetrics.density
                 )
             }
