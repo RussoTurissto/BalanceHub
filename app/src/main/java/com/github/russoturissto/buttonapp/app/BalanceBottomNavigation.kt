@@ -81,9 +81,11 @@ internal class BalanceBottomNavigation(
     private var indicatorReady = false
     private var slide: ValueAnimator? = null
     private var selected = initialTab.coerceIn(0, NavigationMotionPolicy.TAB_COUNT - 1)
-    private val normalText = if (night) Color.rgb(227, 240, 239)
+    private val normalText = if (winter) Color.rgb(222, 244, 249)
+        else if (night) Color.rgb(227, 240, 239)
         else Color.rgb(42, 75, 77)
-    private val normalIcon = if (night) Color.rgb(216, 234, 232)
+    private val normalIcon = if (winter) Color.rgb(221, 247, 250)
+        else if (night) Color.rgb(216, 234, 232)
         else Color.rgb(53, 119, 118)
 
     init {
