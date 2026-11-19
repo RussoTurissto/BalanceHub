@@ -563,6 +563,13 @@ class MainActivity : AppCompatActivity() {
     private val balanceHubTypeface: Typeface by lazy {
         Typeface.createFromAsset(assets, "fonts/montserrat_bold.ttf")
     }
+    private val winterReferenceOrnaments by lazy {
+        try {
+            android.graphics.BitmapFactory.decodeResource(
+                resources, R.drawable.winter_reference_ornaments
+            )
+        } catch (_: Exception) { null }
+    }
 
     private fun screenGradient(): android.graphics.drawable.Drawable =
         winterDrawable(GradientDrawable(
@@ -819,7 +826,8 @@ class MainActivity : AppCompatActivity() {
                 // It remains visible above the gradient without moving the title.
                 foreground = WinterReferenceHeaderDrawable(
                     Color.TRANSPARENT.toDrawable(),
-                    resources.displayMetrics.density
+                    resources.displayMetrics.density,
+                    winterReferenceOrnaments
                 )
             }
         }
