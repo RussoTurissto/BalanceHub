@@ -163,11 +163,21 @@ internal class WinterReferenceHeaderDrawable(
         firSprig(canvas, w * 1.01f, h * .28f, w * .79f, h * .60f, 9.5f * d)
         firSprig(canvas, w * 1.04f, h * .29f, w * .93f, h * .79f, 8.5f * d)
         firSprig(canvas, w * .94f, h * .12f, w * .81f, h * .55f, 8.4f * d)
-        firSprig(canvas, w * .94f, h * .22f, w * .69f, h * .34f, 8.4f * d)
+        firSprig(canvas, w * .94f, h * .22f, w * .69f, h * .34f, 11.0f * d)
+        firSprig(canvas, w * 1.01f, h * .30f, w * .72f, h * .50f, 12.6f * d)
+        firSprig(canvas, w * .98f, h * .10f, w * .82f, h * .36f, 11.5f * d)
+        firSprig(canvas, w * .91f, h * .24f, w * .78f, h * .67f, 10.0f * d)
+        // Snow piles over the dark branches instead of looking like wire needles.
+        for (i in 0..13) {
+            val x = w * (.71f + i * .019f)
+            val y = h * (.37f - .15f * sin(i * .39f).toFloat())
+            line(canvas, x, y, x + 2.9f * d, y - .65f * d,
+                .65f * d / d, color(205, 244, 253, 252))
+        }
         // Irregular ridges of snow settle on the uppermost needles.
         p.color = color(205, 232, 248, 251)
         p.style = Paint.Style.STROKE
-        p.strokeWidth = 2.3f * d
+        p.strokeWidth = 2.8f * d
         val snow = Path().apply {
             moveTo(w * .73f, h * .36f)
             cubicTo(w * .79f, h * .29f, w * .80f, h * .24f, w * .86f, h * .24f)
@@ -289,10 +299,10 @@ internal class WinterReferenceHeaderDrawable(
                 flake(canvas, w * .61f, h * .66f, 4.4f * d, 170)
                 flake(canvas, w * .69f, h * .21f, 3.0f * d, 150)
                 spruce(canvas, w, h)
-                glassBall(canvas, w * .80f, h * .78f, 7.1f * d)
-                glassBall(canvas, w * .96f, h * .59f, 3.8f * d)
-                goldenBow(canvas, w * .88f, h * .29f, 9.0f * d)
-                star(canvas, w * .895f, h * .62f, 10.5f * d)
+                glassBall(canvas, w * .80f, h * .79f, 8.8f * d)
+                glassBall(canvas, w * .96f, h * .63f, 4.5f * d)
+                goldenBow(canvas, w * .875f, h * .36f, 14.0f * d)
+                star(canvas, w * .923f, h * .61f, 11.0f * d)
             }
         }
     }
