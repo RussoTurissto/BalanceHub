@@ -1,5 +1,6 @@
 package com.github.russoturissto.buttonapp.app
 
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.ColorFilter
@@ -35,7 +36,8 @@ internal object WinterWaveGeometry {
  */
 internal class WinterReferenceHeaderDrawable(
     private val original: Drawable,
-    private val density: Float
+    private val density: Float,
+    private val ornamentArtwork: Bitmap? = null
 ) : Drawable() {
     private val p = Paint(Paint.ANTI_ALIAS_FLAG)
     private val d = density
@@ -298,11 +300,26 @@ internal class WinterReferenceHeaderDrawable(
                 flake(canvas, w * .53f, h * .35f, 5.3f * d)
                 flake(canvas, w * .61f, h * .66f, 4.4f * d, 170)
                 flake(canvas, w * .69f, h * .21f, 3.0f * d, 150)
-                spruce(canvas, w, h)
-                glassBall(canvas, w * .80f, h * .79f, 8.8f * d)
-                glassBall(canvas, w * .96f, h * .63f, 4.5f * d)
-                goldenBow(canvas, w * .875f, h * .36f, 14.0f * d)
-                star(canvas, w * .923f, h * .61f, 11.0f * d)
+                if (ornamentArtwork != null) {
+                    // This tiny transparent resource is extracted solely from
+                    // the owner's approved ornament reference, without any
+                    // names, numbers or unrelated screenshot areas.
+                    p.shader = null
+                    p.style = Paint.Style.FILL
+                    p.isFilterBitmap = true
+                    p.alpha = opacity
+                    canvas.drawBitmap(ornamentArtwork, null,
+                        RectF(w * .63f, h * .05f, w * 1.02f, h * .98f), p)
+                    p.alpha = 255
+                } else {
+                    // Preserve a fully offline vector fallback on devices that
+                    // cannot decode the bundled reference artwork.
+                    spruce(canvas, w, h)
+                    glassBall(canvas, w * .80f, h * .79f, 8.8f * d)
+                    glassBall(canvas, w * .96f, h * .63f, 4.5f * d)
+                    goldenBow(canvas, w * .875f, h * .36f, 14.0f * d)
+                    star(canvas, w * .923f, h * .61f, 11.0f * d)
+                }
             }
         }
     }
