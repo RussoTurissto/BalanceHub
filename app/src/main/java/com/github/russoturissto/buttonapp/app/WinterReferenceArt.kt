@@ -371,8 +371,7 @@ internal class WinterEmptyEventsDrawable(private val density: Float) : Drawable(
         val h = bounds.height().toFloat()
         if (w <= 0f || h <= 0f) return
         val d = density
-        val save = canvas.save()
-        canvas.translate(bounds.left.toFloat(), bounds.top.toFloat())
+        canvas.withTranslation(bounds.left.toFloat(), bounds.top.toFloat()) {
         // Hills glow without a rectangular background.
         p.color = ink(65, 24, 142, 174)
         canvas.drawOval(RectF(w * .08f, h * .67f, w * .92f, h * .99f), p)
@@ -420,7 +419,7 @@ internal class WinterEmptyEventsDrawable(private val density: Float) : Drawable(
             p.color = ink(if (i % 3 == 0) 230 else 140, 230, 250, 255)
             canvas.drawCircle(x, y, if (i % 4 == 0) 1.25f * d else .65f * d, p)
         }
-        canvas.restoreToCount(save)
+        }
     }
     override fun setAlpha(alpha: Int) { opacity = alpha.coerceIn(0,255); invalidateSelf() }
     override fun setColorFilter(colorFilter: ColorFilter?) { p.colorFilter=colorFilter; invalidateSelf() }
