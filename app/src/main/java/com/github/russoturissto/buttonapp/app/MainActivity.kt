@@ -2677,9 +2677,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderBanksSettings() {
-        settingsHeader("Банки", "Карточки и банковские Push")
+        settingsHeader("Банки")
         for (bank in RussianBankCatalog.available(this)) {
-            settingsGroup(settingsPanel(
+            // One heading and one continuous panel for every bank. The account
+            // switches use the same original callbacks and preference keys.
+            contentContainer.addView(textLine(
+                "Карты и счета · " + bank.name, 14f, ink, true))
+            contentContainer.addView(verticalGap(7))
+
+            val rows = mutableListOf<View>(
                 settingsSwitch("credit-card", bank.name,
                     "Показывать блок банка в «Балансах»",
                     BankCardPreferences.visible(this, bank.id)) { show ->
@@ -2692,28 +2698,24 @@ class MainActivity : AppCompatActivity() {
                     else "Не подключено · нажмите для подключения") {
                     toggleBankPush(bank)
                 }
-            ))
-            contentContainer.addView(textLine(
-                "Карты и счета · " + bank.name, 14f, ink, true))
-            contentContainer.addView(verticalGap(7))
+            )
             val accounts = bankBalances(bank)
             if (accounts.isEmpty()) {
-                contentContainer.addView(textLine(
-                    "Пока нет счетов с распознанным балансом. Новые появятся после Push.",
-                    12f, muted))
-                contentContainer.addView(verticalGap(12))
+                rows.add(settingsRow("credit-card", "Карты и счета пока не найдены",
+                    "Новые появятся после Push"))
             } else {
-                val rows = accounts.map { item ->
-                    settingsSwitch("credit-card", BankAccountRows.label(item.lastFour),
+                for (item in accounts) {
+                    rows.add(settingsSwitch("credit-card",
+                        BankAccountRows.label(item.lastFour),
                         "Баланс: " + rubles(item.kopecks) +
                             " · скрытие не отключает Push",
                         BankAccountVisibility.visible(this, bank.id, item.lastFour)) { show ->
                         BankAccountVisibility.setVisible(this, bank.id, item.lastFour, show)
                         refreshSettingsWithoutJump()
-                    }
+                    })
                 }
-                settingsGroup(settingsPanel(*rows.toTypedArray()))
             }
+            settingsGroup(settingsPanel(*rows.toTypedArray()))
         }
         settingsGroup(settingsPanel(settingsRow("settings", "Доступ Android",
             "Разрешить чтение банковских уведомлений") {

@@ -43,6 +43,11 @@ internal object AppReleaseNotes {
         note("calendar-days", "Платежи и события получили компактные списки и календари.")
     )
 
+    private val bankSettingsRc1 = listOf(
+        note("credit-card", "Карты и счета сгруппированы по банкам."),
+        note("settings", "Настройки Push находятся вместе с картами каждого банка.")
+    )
+
     private val stable123 = (securityRc1 + securityRc2).distinctBy { it.title }
 
     private val stable122 = listOf(
@@ -96,6 +101,7 @@ internal object AppReleaseNotes {
         (rc2 + rc3 + rc4).distinctBy { it.title }
 
     fun forVersion(versionName: String?): List<ReleaseNote> = when (versionName) {
+        "1.2.4-rc1" -> bankSettingsRc1
         "1.2.3-rc1" -> securityRc1
         "1.2.3-rc2" -> securityRc2
         "1.2.1-rc1" -> rc1
@@ -119,6 +125,7 @@ internal object AppReleaseNotes {
         )
         return when (installedVersionName) {
             "1.2.3" -> listOf("1.2.3", "1.2.2", "1.2.1") + published
+            "1.2.4-rc1" -> listOf("1.2.3", "1.2.2", "1.2.1") + published
             "1.2.3-rc1", "1.2.3-rc2" -> listOf("1.2.2", "1.2.1") + published
             "1.2.2" -> listOf("1.2.2", "1.2.1") + published
             "1.2.1" -> listOf("1.2.1") + published

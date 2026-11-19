@@ -75,6 +75,15 @@ class AppReleaseNotesTest {
         assertTrue(notes.any { "календари" in it })
     }
 
+    @Test fun bankSettingsCandidateNotesDescribeOnlyTheApprovedLayoutChange() {
+        val entries = AppReleaseNotes.forVersion("1.2.4-rc1").map { it.title }
+        assertEquals(2, entries.size)
+        assertTrue(entries.any { "группированы по банкам" in it })
+        assertTrue(entries.any { "Push" in it })
+        assertTrue(entries.none { "баланс" in it || "API" in it })
+        assertEquals("1.2.3", AppReleaseNotes.offlineStableHistory("1.2.4-rc1").first())
+    }
+
     @Test fun unknownVersionsNeverSilentlyReuseOldReleaseNotes() {
         assertTrue(AppReleaseNotes.forVersion("1.2.1-rc5").isEmpty())
         assertFalse(AppReleaseNotes.forVersion("1.2.3").isEmpty())
@@ -92,7 +101,7 @@ class AppReleaseNotesTest {
 
     @Test fun userTextContainsNoBuildOrLayoutImplementationDetails() {
         val versions = listOf("1.2.0", "1.2.1", "1.2.2", "1.2.3",
-            "1.2.3-rc1", "1.2.3-rc2", "1.2.1-rc1",
+            "1.2.3-rc1", "1.2.3-rc2", "1.2.4-rc1", "1.2.1-rc1",
             "1.2.1-rc2", "1.2.1-rc3", "1.2.1-rc4")
         for (version in versions) {
             for (note in AppReleaseNotes.forVersion(version)) {
