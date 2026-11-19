@@ -1393,9 +1393,10 @@ class MainActivity : AppCompatActivity() {
                     orientation = LinearLayout.VERTICAL
                     gravity = Gravity.CENTER
                     background = BalanceCalendarDayDrawable(this@MainActivity,
-                        isNight, paymentCount > 0, eventCount > 0, chosen, isToday)
+                        isNight || winterActive, paymentCount > 0, eventCount > 0,
+                        chosen, isToday)
                     addView(textLine(day.toString(), 13f,
-                        if (isNight && (marked || chosen)) Color.WHITE else ink,
+                        if ((isNight || winterActive) && (marked || chosen)) Color.WHITE else ink,
                         chosen || marked || isToday).apply {
                         gravity = Gravity.CENTER
                         includeFontPadding = false
@@ -1404,7 +1405,7 @@ class MainActivity : AppCompatActivity() {
                         if (paymentCount + eventCount > 1)
                             (paymentCount + eventCount).toString()
                         else if (marked) "•" else " ",
-                        9f, if (isNight && (marked || chosen)) Color.WHITE else accent,
+                        9f, if ((isNight || winterActive) && (marked || chosen)) Color.WHITE else accent,
                         marked
                     ).apply {
                         gravity = Gravity.CENTER
