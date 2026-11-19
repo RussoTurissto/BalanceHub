@@ -84,6 +84,59 @@ fi
 
 echo "Release versioning smoke tests passed: rc1, rc3, manual stable, mismatch rejection"
 
+# Confirm that only the push changing an exact approval marker may publish stable.
+auto="$temp/auto-stable"
+mkdir -p "$auto/scripts" "$auto/release"
+cp scripts/prepare-release-version.sh "$auto/scripts/"
+printf 'NEXT_RELEASE_VERSION=1.2.1\n' > "$auto/gradle.properties"
+printf 'RC notes\n' > "$auto/release/notes-1.2.1-rc.md"
+printf 'Stable notes\n' > "$auto/release/notes-1.2.1.md"
+git init -q "$auto"
+git -C "$auto" config user.email "tests@example.invalid"
+git -C "$auto" config user.name "BalanceHub CI"
+git -C "$auto" add .
+git -C "$auto" commit -qm "Approval baseline"
+printf '1.2.1\n' > "$auto/release/approved-stable-version.txt"
+git -C "$auto" add .
+git -C "$auto" commit -qm "Approved stable release"
+
+run_push_approval() {
+  local test_name="$1"
+  local envfile="$temp/push-$test_name.env"
+  (
+    cd "$auto"
+    SCENARIO=next PATH="$temp/bin:$PATH" \
+    GITHUB_REPOSITORY="RussoTurissto/BalanceHub" \
+    GITHUB_EVENT_NAME=push GITHUB_REF=refs/heads/main \
+    GITHUB_SHA="$(git rev-parse HEAD)" \
+    INPUT_PUBLISH_STABLE=false INPUT_APPROVED_VERSION="" \
+    GITHUB_ENV="$envfile" GITHUB_STEP_SUMMARY="$temp/summary" \
+    bash scripts/prepare-release-version.sh >/dev/null
+  )
+  cat "$envfile"
+}
+
+auto_stable="$(run_push_approval changed)"
+[[ "$auto_stable" == *"BUILD_VERSION_NAME=1.2.1"* ]]
+[[ "$auto_stable" == *"RELEASE_CHANNEL=stable"* ]]
+[[ "$auto_stable" == *"STABLE_APPROVED_ON_PUSH=true"* ]]
+
+printf 'Unrelated metadata update\n' > "$auto/release/README.txt"
+git -C "$auto" add .
+git -C "$auto" commit -qm "Unrelated change"
+auto_rc="$(run_push_approval unchanged)"
+[[ "$auto_rc" == *"BUILD_VERSION_NAME=1.2.1-rc3"* ]]
+[[ "$auto_rc" == *"STABLE_APPROVED_ON_PUSH=false"* ]]
+
+printf '1.2.2\n' > "$auto/release/approved-stable-version.txt"
+git -C "$auto" add .
+git -C "$auto" commit -qm "Mismatched approval"
+if run_push_approval mismatch >/dev/null 2>&1; then
+  echo "A mismatched committed stable approval was accepted" >&2
+  exit 1
+fi
+echo "Single-use stable approval tests passed: changed, unchanged, mismatch"
+
 # Test the release guard with an actual local Git history (no network).
 fixture="$temp/source-check"
 mkdir -p "$fixture/app/src/main" "$fixture/scripts"

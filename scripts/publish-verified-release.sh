@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Publish a signed, same-commit-emulator-tested APK as a public RC or stable.
-# Stable requires workflow_dispatch + an explicit matching approval input.
+# Stable requires either an explicit matching manual input or a single-use committed approval.
 set -euo pipefail
 
 [[ "$GITHUB_REF" == "refs/heads/main" ]] || {
@@ -16,10 +16,24 @@ set -euo pipefail
   echo "::error::Version and tag mismatch"; exit 1;
 }
 if [[ "$RELEASE_CHANNEL" == "stable" ]]; then
-  [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" &&
-     "${INPUT_PUBLISH_STABLE:-false}" == "true" &&
-     "$BUILD_VERSION_NAME" == "${INPUT_APPROVED_VERSION:-}" ]] || {
-    echo "::error::Explicit stable release approval is required"; exit 1;
+  approved_manual=false
+  approved_commit=false
+  if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" &&
+        "${INPUT_PUBLISH_STABLE:-false}" == "true" &&
+        "$BUILD_VERSION_NAME" == "${INPUT_APPROVED_VERSION:-}" ]]; then
+    approved_manual=true
+  fi
+  approval_path="release/approved-stable-version.txt"
+  if [[ "$GITHUB_EVENT_NAME" == "push" &&
+        "${STABLE_APPROVED_ON_PUSH:-false}" == "true" &&
+        -s "$approval_path" &&
+        "$(tr -d '\r\n' < "$approval_path")" == "$BUILD_VERSION_NAME" ]] &&
+        ! git diff --quiet HEAD^ HEAD -- "$approval_path"; then
+    approved_commit=true
+  fi
+  [[ "$approved_manual" == "true" || "$approved_commit" == "true" ]] || {
+    echo "::error::Explicit manual or single-use committed stable approval is required"
+    exit 1
   }
 else
   [[ "$BUILD_VERSION_NAME" =~ ^[1-9][0-9]*\.[0-9]+\.[0-9]+-rc[1-9][0-9]*$ ]] || {
