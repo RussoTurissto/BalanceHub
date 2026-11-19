@@ -95,6 +95,7 @@ class MainActivity : AppCompatActivity() {
     private var engineeringBanksOpen = false
     private var engineeringNotificationsOpen = false
     private var engineeringDeliveryOpen = false
+    private var engineeringWinterOpen = false
     private var engineeringOtherBankId: String? = null
     private var engineeringTapCount = 0
     private var engineeringTapStartedAt = 0L
@@ -162,6 +163,37 @@ class MainActivity : AppCompatActivity() {
     private var selectedOperatorId: Int? = null
     private var sessionAutoRefreshStarted = false
     private var tutorialStep = -1
+    private var renderedWinter = false
+    private val winterDateHandler = Handler(Looper.getMainLooper())
+    private val winterDateTick = object : Runnable {
+        override fun run() {
+            refreshWinterOnDateChange()
+            scheduleWinterDateTick()
+        }
+    }
+    private fun scheduleWinterDateTick() {
+        winterDateHandler.removeCallbacks(winterDateTick)
+        val midnight = Calendar.getInstance().apply {
+            add(Calendar.DAY_OF_YEAR, 1)
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 1)
+            set(Calendar.MILLISECOND, 0)
+        }
+        winterDateHandler.postDelayed(winterDateTick,
+            (midnight.timeInMillis - System.currentTimeMillis()).coerceAtLeast(1_000L))
+    }
+    private fun refreshWinterOnDateChange() {
+        if (renderedWinter == winterActive || isFinishing || welcomeShowing) return
+        if (appLockScreenVisible) {
+            if (!appLockUnlocked) showLockedScreen()
+        } else if (appLockUnlocked) {
+            val priorScroll = if (currentTab == 4 && ::dashboardScroll.isInitialized)
+                dashboardScroll.scrollY else 0
+            showDashboard()
+            if (currentTab == 4) dashboardScroll.post { dashboardScroll.scrollTo(0, priorScroll) }
+        }
+    }
     private var releaseHistoryVersions: List<String> = emptyList()
     private var releaseHistoryRefreshStarted = false
     private var expandedReleaseHistoryVersion: String? = null
@@ -184,6 +216,8 @@ class MainActivity : AppCompatActivity() {
             if (action == Intent.ACTION_DATE_CHANGED ||
                 action == Intent.ACTION_TIMEZONE_CHANGED ||
                 action == Intent.ACTION_TIME_CHANGED) {
+                refreshWinterOnDateChange()
+                scheduleWinterDateTick()
                 if (::contentContainer.isInitialized && currentTab == 0) renderTab()
             }
         }
@@ -336,6 +370,10 @@ class MainActivity : AppCompatActivity() {
                         engineeringDeliveryOpen = false
                         renderTab()
                     }
+                    engineeringWinterOpen && engineeringMenuOpen && currentTab == 4 -> {
+                        engineeringWinterOpen = false
+                        renderTab()
+                    }
                     engineeringChannelCategory != null && engineeringMenuOpen &&
                         currentTab == 4 -> {
                         engineeringChannelCategory = null
@@ -387,6 +425,7 @@ class MainActivity : AppCompatActivity() {
         ContextCompat.registerReceiver(this, downloadedApkReceiver,
             IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE),
             ContextCompat.RECEIVER_EXPORTED)
+        scheduleWinterDateTick()
     }
 
     override fun onStop() {
@@ -400,6 +439,7 @@ class MainActivity : AppCompatActivity() {
         if (appLockMandatoryScreen) appLockScreenVisible = false
         closeEngineeringMenu()
         BalanceNotificationSounds.stopPreview()
+        winterDateHandler.removeCallbacks(winterDateTick)
         unregisterReceiver(bankUpdateReceiver)
         unregisterReceiver(eventChangedReceiver)
         unregisterReceiver(paymentChangedReceiver)
@@ -446,7 +486,9 @@ class MainActivity : AppCompatActivity() {
             pendingGithubInstall = false
             GithubUpdateEngine.cached(this)?.let { tryInstallUpdate(it) }
         }
-        if (::contentContainer.isInitialized &&
+        val themeChanged = renderedWinter != winterActive
+        if (themeChanged) refreshWinterOnDateChange()
+        if (!themeChanged && ::contentContainer.isInitialized &&
             (currentTab == 0 || currentTab == 1 || currentTab == 3 || currentTab == 4)) renderTab()
     }
 
@@ -499,6 +541,11 @@ class MainActivity : AppCompatActivity() {
     private val isNight: Boolean
         get() = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
             Configuration.UI_MODE_NIGHT_YES
+    private val winterActive: Boolean get() = WinterThemeState.active(this)
+    private fun winterDrawable(original: android.graphics.drawable.Drawable,
+        surface: WinterSurface): android.graphics.drawable.Drawable =
+        if (winterActive) WinterFrostDrawable(original, resources.displayMetrics.density,
+            isNight, surface) else original
     private val ink: Int get() = if (isNight) Color.rgb(239, 249, 247) else Color.rgb(30, 57, 59)
     private val muted: Int get() = if (isNight) Color.rgb(165, 189, 191) else Color.rgb(104, 129, 130)
     private val accent: Int get() = if (isNight) Color.rgb(87, 169, 167) else Color.rgb(35, 131, 131)
@@ -510,21 +557,22 @@ class MainActivity : AppCompatActivity() {
         Typeface.createFromAsset(assets, "fonts/montserrat_bold.ttf")
     }
 
-    private fun screenGradient() = GradientDrawable(
-        GradientDrawable.Orientation.TOP_BOTTOM,
-        if (isNight) intArrayOf(Color.rgb(19, 42, 49), Color.rgb(17, 31, 38))
-        else intArrayOf(Color.rgb(238, 250, 247), Color.rgb(245, 249, 249))
-    )
+    private fun screenGradient(): android.graphics.drawable.Drawable =
+        winterDrawable(GradientDrawable(
+            GradientDrawable.Orientation.TOP_BOTTOM,
+            if (isNight) intArrayOf(Color.rgb(19, 42, 49), Color.rgb(17, 31, 38))
+            else intArrayOf(Color.rgb(238, 250, 247), Color.rgb(245, 249, 249))
+        ), WinterSurface.SCREEN)
 
-    private fun cardGradient(): GradientDrawable = GradientDrawable(
-        GradientDrawable.Orientation.TL_BR,
-        if (isNight) intArrayOf(Color.rgb(37, 63, 67), Color.rgb(31, 48, 57))
-        else intArrayOf(Color.WHITE, Color.rgb(235, 247, 245))
-    ).apply {
-        cornerRadius = dp(20).toFloat()
-        setStroke(dp(1), if (isNight) Color.rgb(66, 102, 104)
-            else Color.rgb(205, 229, 225))
-    }
+    private fun cardGradient(): android.graphics.drawable.Drawable = winterDrawable(
+        GradientDrawable(GradientDrawable.Orientation.TL_BR,
+            if (isNight) intArrayOf(Color.rgb(37, 63, 67), Color.rgb(31, 48, 57))
+            else intArrayOf(Color.WHITE, Color.rgb(235, 247, 245))
+        ).apply {
+            cornerRadius = dp(20).toFloat()
+            setStroke(dp(1), if (isNight) Color.rgb(66, 102, 104)
+                else Color.rgb(205, 229, 225))
+        }, WinterSurface.CARD)
 
     private fun filledButtonGradient(): GradientDrawable = GradientDrawable(
         GradientDrawable.Orientation.LEFT_RIGHT,
@@ -675,18 +723,21 @@ class MainActivity : AppCompatActivity() {
 
 
     private fun themedDialogBuilder(): AlertDialog.Builder =
-        AlertDialog.Builder(this,
-            if (isNight) R.style.BalanceHubDialogDark else R.style.BalanceHubDialogLight)
+        AlertDialog.Builder(this, if (winterActive) {
+            if (isNight) R.style.BalanceHubDialogWinterDark
+            else R.style.BalanceHubDialogWinterLight
+        } else if (isNight) R.style.BalanceHubDialogDark
+        else R.style.BalanceHubDialogLight)
 
-    private fun dialogGradient(): GradientDrawable = GradientDrawable(
-        GradientDrawable.Orientation.TL_BR,
-        if (isNight) intArrayOf(Color.rgb(36, 66, 70), Color.rgb(26, 46, 54))
-        else intArrayOf(Color.WHITE, Color.rgb(233, 247, 243))
-    ).apply {
-        cornerRadius = dp(22).toFloat()
-        setStroke(dp(1), if (isNight) Color.rgb(72, 132, 127)
-            else Color.rgb(172, 217, 208))
-    }
+    private fun dialogGradient(): android.graphics.drawable.Drawable = winterDrawable(
+        GradientDrawable(GradientDrawable.Orientation.TL_BR,
+            if (isNight) intArrayOf(Color.rgb(36, 66, 70), Color.rgb(26, 46, 54))
+            else intArrayOf(Color.WHITE, Color.rgb(233, 247, 243))
+        ).apply {
+            cornerRadius = dp(22).toFloat()
+            setStroke(dp(1), if (isNight) Color.rgb(72, 132, 127)
+                else Color.rgb(172, 217, 208))
+        }, WinterSurface.DIALOG)
 
     private fun showThemedChoices(
         title: String, labels: List<String>, selectedIndex: Int,
@@ -733,6 +784,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showDashboard() {
+        renderedWinter = winterActive
         val screen = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = screenGradient()
@@ -740,7 +792,9 @@ class MainActivity : AppCompatActivity() {
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), headerTopPadding, dp(20), dp(23))
-            background = BalanceHubHeaderDrawable(isNight)
+            background = BalanceHubHeaderDrawable(isNight).let {
+                if (winterActive) WinterHeaderDrawable(it, resources.displayMetrics.density) else it
+            }
         }
         header.addView(textLine("BalanceHub", 21f, Color.WHITE, true).apply {
             typeface = balanceHubTypeface
@@ -2567,6 +2621,7 @@ class MainActivity : AppCompatActivity() {
                 engineeringBanksOpen -> renderEngineeringBanks()
                 engineeringNotificationsOpen -> renderEngineeringNotifications()
                 engineeringDeliveryOpen -> renderEngineeringDelivery()
+                engineeringWinterOpen -> renderEngineeringWinter()
                 engineeringChannelCategory != null -> renderEngineeringChannelCategory()
                 engineeringChannelsOpen -> renderEngineeringChannels()
                 else -> renderEngineeringMenu()
@@ -3268,6 +3323,7 @@ class MainActivity : AppCompatActivity() {
         engineeringBanksOpen = false
         engineeringNotificationsOpen = false
         engineeringDeliveryOpen = false
+        engineeringWinterOpen = false
         engineeringOtherBankId = null
     }
 
@@ -3310,6 +3366,9 @@ class MainActivity : AppCompatActivity() {
         section("Проверка доставки", "Отложенные тесты, журналы и питание") {
             engineeringDeliveryOpen = true
         }
+        section("Новогодняя тема · тест", "Автоматически по датам или принудительно") {
+            engineeringWinterOpen = true
+        }
         contentContainer.addView(textLine("Техническая помощь", 16f, ink, true))
         val adb = card()
         adb.addView(textLine("Техническая помощь", 17f, ink, true))
@@ -3325,6 +3384,43 @@ class MainActivity : AppCompatActivity() {
         contentContainer.addView(verticalGap(10))
         contentContainer.addView(textLine(
             "При выходе из инженерного меню доступ закрывается.", 12f, muted))
+    }
+
+    private fun renderEngineeringWinter() {
+        contentContainer.addView(secondaryButton("‹  Инженерное меню") {
+            engineeringWinterOpen = false
+            renderTab()
+        })
+        contentContainer.addView(verticalGap(14))
+        contentContainer.addView(textLine("Новогодняя тема · тест", 23f, ink, true))
+        contentContainer.addView(verticalGap(6))
+        contentContainer.addView(textLine(
+            "Автоматически: с 20 декабря по 10 января включительно. " +
+                "Для проверки можно включить или выключить оформление независимо от даты.",
+            13f, muted))
+        contentContainer.addView(verticalGap(14))
+        val current = WinterThemeState.mode(this)
+        val modes = listOf(
+            Triple(WinterThemePolicy.AUTO, "Автоматически по датам",
+                "Включается 20.12, отключается 11.01"),
+            Triple(WinterThemePolicy.FORCE_ON, "Включить принудительно",
+                "Новогодняя тема видна даже вне праздников"),
+            Triple(WinterThemePolicy.FORCE_OFF, "Отключить принудительно",
+                "Всегда показывать обычное оформление")
+        )
+        settingsGroup(settingsPanel(*modes.map { (value, title, description) ->
+            settingsRow("calendar-days", title,
+                description + if (current == value) " · выбрано ✓" else "") {
+                if (current != value) {
+                    WinterThemeState.setMode(this, value)
+                    showDashboard()
+                }
+            }
+        }.toTypedArray()))
+        contentContainer.addView(textLine(
+            if (winterActive) "Сейчас: новогоднее оформление включено"
+            else "Сейчас: обычное оформление",
+            13f, accent, true))
     }
 
     private fun renderEngineeringBanks() {
@@ -7646,6 +7742,7 @@ class MainActivity : AppCompatActivity() {
         title: String, subtitle: String, fingerprint: Boolean = false,
         cancel: (() -> Unit)? = null, onPin: (String) -> Unit
     ) {
+        renderedWinter = winterActive
         appLockScreenVisible = true
         appLockMandatoryScreen = cancel == null &&
             AppLockSecurity.enabled(this) && !appLockUnlocked
