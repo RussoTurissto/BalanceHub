@@ -70,30 +70,57 @@ internal object WinterNaturalFrost {
 
         fun grow(x: Float, y: Float, angle: Double, length: Float,
                  order: Int, brightness: Float) {
-            if (order <= 0 || length < .85f * density) return
-            val tipX = x + cos(angle).toFloat() * length
-            val tipY = y + sin(angle).toFloat() * length
-            filament(x, y, tipX, tipY,
-                (if (order >= 3) .60f else .36f) * density, brightness)
-            if (order == 1) return
-
-            // Natural crystals develop secondary needles unevenly; branches
-            // are never distributed at uniform intervals or mirrored exactly.
-            val needles = if (order == 4) 4 else if (order == 3) 3 else 2
-            repeat(needles) { n ->
-                val along = (.19f + n * .19f + random.nextFloat() * .08f)
-                    .coerceAtMost(.88f)
-                val bx = x + (tipX - x) * along
-                val by = y + (tipY - y) * along
-                val spread = (.47 + random.nextDouble() * .65)
-                val side = if ((n + random.nextInt(2)) % 2 == 0) -1 else 1
-                val twig = length * (.22f + random.nextFloat() * .15f)
-                grow(bx, by, angle + side * spread, twig,
-                    order - 1, brightness * (.62f + random.nextFloat() * .19f))
-                if (order >= 3 && random.nextFloat() > .38f) {
-                    grow(bx, by, angle - side * spread * .85, twig * .70f,
-                        order - 2, brightness * .47f)
+            if (order <= 0 || length < 1.1f * density) return
+            val tangentX = cos(angle).toFloat()
+            val tangentY = sin(angle).toFloat()
+            val endX = x + tangentX * length
+            val endY = y + tangentY * length
+            // A feathery frost frond: one spine with irregular pairs of
+            // crystalline leaflets and tiny twigs at different angles.
+            filament(x, y, endX, endY,
+                (if (order >= 3) .67f else .43f) * density, brightness)
+            val pairs = (7 + (length / (4.4f * density)).toInt()).coerceIn(8, 19)
+            repeat(pairs) { n ->
+                val t = (.10f + (n + random.nextFloat() * .36f) /
+                    pairs * .78f).coerceAtMost(.92f)
+                val bx = x + tangentX * length * t
+                val by = y + tangentY * length * t
+                for (side in listOf(-1, 1)) {
+                    if (random.nextFloat() < .07f) continue
+                    val sideAngle = angle + side * (.62 + random.nextDouble() * .47)
+                    val branch = length * (.19f + random.nextFloat() * .16f) *
+                        (1f - t * .38f)
+                    val tx = bx + cos(sideAngle).toFloat() * branch
+                    val ty = by + sin(sideAngle).toFloat() * branch
+                    val light = brightness * (.62f + random.nextFloat() * .24f)
+                    filament(bx, by, tx, ty, .33f * density, light)
+                    // Very fine crystalline barbs create real hoarfrost
+                    // texture, unlike a repeated geometric snowflake.
+                    if (order > 1 && n % 2 == 0) {
+                        for (k in 1..2) {
+                            val u = .46f + k * .18f
+                            val qx = bx + (tx - bx) * u
+                            val qy = by + (ty - by) * u
+                            val barbAngle = sideAngle - side *
+                                (.72 + random.nextDouble() * .38)
+                            val barb = branch * (.16f + random.nextFloat() * .12f)
+                            filament(qx, qy,
+                                qx + cos(barbAngle).toFloat() * barb,
+                                qy + sin(barbAngle).toFloat() * barb,
+                                .22f * density, light * .68f)
+                        }
+                    }
                 }
+            }
+            // Each patch grows side colonies at unpredictable locations.
+            if (order >= 3 && random.nextFloat() > .25f) {
+                val point = .35f + random.nextFloat() * .32f
+                val side = if (random.nextBoolean()) -1 else 1
+                grow(x + tangentX * length * point,
+                    y + tangentY * length * point,
+                    angle + side * (0.50 + random.nextDouble() * .30),
+                    length * (.33f + random.nextFloat() * .12f), 1,
+                    brightness * .50f)
             }
         }
 
@@ -107,7 +134,7 @@ internal object WinterNaturalFrost {
             WinterSurface.CARD -> 10f
         } * density
         val perimeter = 2f * (width + height)
-        val grains = (perimeter / (3.8f * density)).toInt().coerceIn(28, 540)
+        val grains = (perimeter / (2.25f * density)).toInt().coerceIn(60, 960)
         repeat(grains) {
             val side = random.nextInt(4)
             val x = when (side) {
@@ -127,16 +154,16 @@ internal object WinterNaturalFrost {
                 else -> width - x
             }
             val fade = (1f - distance / band).coerceIn(0f, 1f)
-            val grain = (.12f + random.nextFloat() * .43f) * density
-            powder.color = ice((18f + random.nextFloat() * 98f) * fade)
+            val grain = (.17f + random.nextFloat() * .58f) * density
+            powder.color = ice((34f + random.nextFloat() * 160f) * fade)
             canvas.drawCircle(x, y, grain, powder)
         }
 
         if (surface == WinterSurface.PIN_KEY) return
 
         val isScreen = surface == WinterSurface.SCREEN
-        val base = if (isScreen) 21f else if (surface == WinterSurface.DIALOG) 19f
-            else if (surface == WinterSurface.NAVIGATION) 12f else 16f
+        val base = if (isScreen) 31f else if (surface == WinterSurface.DIALOG) 31f
+            else if (surface == WinterSurface.NAVIGATION) 22f else 28f
         val growLength = base * density
         // Corner growths are purposefully different in size and direction.
         val cornerInset = (if (isScreen) 4.5f else 6.3f) * density
@@ -147,10 +174,10 @@ internal object WinterNaturalFrost {
             Triple(width - cornerInset, height - cornerInset, -PI * 3 / 4)
         )
         corners.forEachIndexed { i, corner ->
-            val count = 2 + random.nextInt(2)
+            val count = 3 + random.nextInt(2)
             repeat(count) {
                 val startAngle = corner.third + (random.nextDouble() - .5) * 1.20
-                val length = growLength * (.58f + random.nextFloat() * .50f)
+                val length = growLength * (.74f + random.nextFloat() * .43f)
                 grow(corner.first, corner.second, startAngle, length,
                     if (i == 0 && surface == WinterSurface.CARD) 4 else 3,
                     145f + random.nextFloat() * 67f)
@@ -159,7 +186,7 @@ internal object WinterNaturalFrost {
 
         // Independent crystal colonies on the top and bottom, no repeated
         // equally spaced vertical marks from rc3.
-        val horizontal = (width / (100f * density)).toInt().coerceIn(1, 5)
+        val horizontal = (width / (79f * density)).toInt().coerceIn(2, 7)
         repeat(horizontal) {
             val x = (width * (.10f + random.nextFloat() * .80f))
             val top = random.nextBoolean()
@@ -170,7 +197,7 @@ internal object WinterNaturalFrost {
                 85f + random.nextFloat() * 88f)
         }
         if (height > 92f * density) {
-            val vertical = if (isScreen) 5 else 2
+            val vertical = if (isScreen) 8 else 3
             repeat(vertical) {
                 val left = random.nextBoolean()
                 val x = if (left) 2.2f * density else width - 2.2f * density
