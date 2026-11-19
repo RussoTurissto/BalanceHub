@@ -30,4 +30,12 @@
         <item name="colorControlActivated">#287F7A</item>
     </style>
 
+    <!-- Winter variants inherit existing light/dark text colors and geometry. -->
+    <style name="BalanceHubDialogWinterDark" parent="BalanceHubDialogDark">
+        <item name="android:windowBackground">@drawable/balancehub_winter_dialog_dark</item>
+    </style>
+    <style name="BalanceHubDialogWinterLight" parent="BalanceHubDialogLight">
+        <item name="android:windowBackground">@drawable/balancehub_winter_dialog_light</item>
+    </style>
+
 </resources>
