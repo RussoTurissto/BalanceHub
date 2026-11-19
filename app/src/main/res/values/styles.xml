@@ -34,8 +34,10 @@
     <style name="BalanceHubDialogWinterDark" parent="BalanceHubDialogDark">
         <item name="android:windowBackground">@drawable/balancehub_winter_dialog_dark</item>
     </style>
-    <style name="BalanceHubDialogWinterLight" parent="BalanceHubDialogLight">
-        <item name="android:windowBackground">@drawable/balancehub_winter_dialog_light</item>
+    <!-- The reference is an icy navy winter scene in both appearance modes.
+         Use light lettering even when Android's ordinary mode is light. -->
+    <style name="BalanceHubDialogWinterLight" parent="BalanceHubDialogDark">
+        <item name="android:windowBackground">@drawable/balancehub_winter_dialog_dark</item>
     </style>
 
 </resources>
