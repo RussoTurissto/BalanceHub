@@ -69,6 +69,9 @@ internal class WinterFrostDrawable(
     private val dark: Boolean,
     private val surface: WinterSurface
 ) : Drawable() {
+    // Different per widget, but fixed for its lifetime: no frost jitter on redraw.
+    private val uniqueFrostSeed = System.nanoTime() xor
+        System.identityHashCode(this).toLong()
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
     private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -158,9 +161,9 @@ internal class WinterFrostDrawable(
 
     private fun frame(canvas: Canvas, w: Float, h: Float, radius: Float) {
         for ((inset, thickness, alpha) in listOf(
-            Triple(3.5f, 5.2f, 45),
-            Triple(2.4f, 2.8f, 82),
-            Triple(1.2f, 1.0f, 217)
+            Triple(3.1f, 2.4f, 36),
+            Triple(2.0f, 1.35f, 82),
+            Triple(1.0f, .7f, 195)
         )) {
             stroke.shader = null
             stroke.color = ice(alpha)
@@ -211,47 +214,10 @@ internal class WinterFrostDrawable(
                 canvas.drawRect(0f, h - lip, w, h, fill)
                 fill.shader = null
 
-                val wide = surface == WinterSurface.DIALOG ||
-                    surface == WinterSurface.CARD || screen
-                val start = if (screen) 5f * d else 8.5f * d
-                corner(canvas, start, start, 1f, 1f, wide)
-                corner(canvas, w - start, start, -1f, 1f, wide)
-                if (h > 54f * d) {
-                    corner(canvas, start, h - start, 1f, -1f, wide)
-                    corner(canvas, w - start, h - start, -1f, -1f, wide)
-                }
-                if (h > 110f * d) {
-                    // Sparse feathered ice at the edges, not evenly spaced
-                    // identical snowflake badges on the content side.
-                    val levels = if (screen) 4 else 2
-                    for (i in 1..levels) {
-                        val y = h * i / (levels + 1f)
-                        val stagger = if (i % 2 == 0) 5f * d else -5f * d
-                        feather(canvas, 3f * d, y + stagger,
-                            .45f, -.9f, 7.2f * d, 108)
-                        feather(canvas, w - 3f * d, y - stagger,
-                            -.45f, -.9f, 7.2f * d, 108)
-                    }
-                }
-                if (w > 190f * d) {
-                    // Frost feathers across the TOP and BOTTOM of each large
-                    // surface, matching the reference's continuous icy edges.
-                    for (i in 0..15) {
-                        val t = (i + .6f) / 17f
-                        val x = w * t
-                        val longer = i % 4 == 0
-                        val spread = (if (longer) 10.5f else 5.5f) * d
-                        val alpha = if (longer) 153 else 92
-                        feather(canvas, x, 1.8f * d, .30f, .95f, spread, alpha)
-                        if (h > 50f * d) {
-                            feather(canvas, x + 3f * d, h - 1.8f * d,
-                                -.30f, -.95f, spread * .87f, alpha)
-                        }
-                        fill.color = ice(if (longer) 162 else 82)
-                        canvas.drawCircle(x, 2.2f * d,
-                            (if (longer) .8f else .48f) * d, fill)
-                    }
-                }
+                // Each card, window, menu and navigation bar grows its own
+                // natural crystal pattern. It never repeats the old stamps.
+                WinterNaturalFrost.render(canvas, w, h, d, dark, surface,
+                    opacity, uniqueFrostSeed)
             }
         }
     }

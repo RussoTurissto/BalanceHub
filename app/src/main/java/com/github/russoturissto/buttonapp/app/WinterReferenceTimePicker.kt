@@ -33,6 +33,9 @@ internal object WinterReferenceTimePicker {
                 cornerRadius = dp(13).toFloat()
                 if (stroke) setStroke(dp(1), cyan)
             }
+        fun frosted(color: Int, stroke: Boolean = false): android.graphics.drawable.Drawable =
+            WinterFrostDrawable(rounded(color, stroke), d, true,
+                WinterSurface.PIN_KEY)
         fun caption(text: String, size: Float, strong: Boolean = false): TextView =
             TextView(context).apply {
                 this.text = text
@@ -81,7 +84,7 @@ internal object WinterReferenceTimePicker {
                 textSize = 22f
                 gravity = Gravity.CENTER
                 setTextColor(ink)
-                background = rounded(Color.rgb(9, 47, 63), true)
+                background = frosted(Color.rgb(9, 47, 63), true)
                 setPadding(dp(10), dp(12), dp(10), dp(12))
             }
             val editDialog = AlertDialog.Builder(context,
@@ -118,7 +121,7 @@ internal object WinterReferenceTimePicker {
                     target.isClickable = true
                     target.isFocusable = true
                     if (i == 1) {
-                        target.background = rounded(Color.rgb(8, 100, 116), true)
+                        target.background = frosted(Color.rgb(8, 100, 116), true)
                         target.contentDescription = if (isHour) "Ввести часы"
                             else "Ввести минуты"
                         target.setOnClickListener { manual(isHour) }
@@ -148,11 +151,11 @@ internal object WinterReferenceTimePicker {
             gravity = Gravity.CENTER
         }
         val cancel = caption("Отмена", 14f, true).apply {
-            background = rounded(Color.rgb(20, 58, 75), true)
+            background = frosted(Color.rgb(20, 58, 75), true)
             setOnClickListener { dialog.dismiss() }
         }
         val choose = caption("Выбрать", 14f, true).apply {
-            background = rounded(Color.rgb(12, 151, 158), true)
+            background = frosted(Color.rgb(12, 151, 158), true)
             setOnClickListener {
                 onTime(hh, mm)
                 dialog.dismiss()

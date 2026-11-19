@@ -103,6 +103,24 @@ internal class WinterReferenceHeaderDrawable(
         p.strokeWidth = 1.1f * d
         canvas.drawPath(path, p)
         p.style = Paint.Style.FILL
+        // Thin snow deposits accumulate on the physical wire, especially at
+        // bends. Irregular volume and intermittent gaps prevent a white stripe.
+        val snowPoint = FloatArray(2)
+        for (patch in 0..34) {
+            val t = .015f + patch * .027f
+            measure.getPosTan(measure.length * t, snowPoint, null)
+            val drift = (.47f + .28f * sin(patch * 2.37f).toFloat()
+                + .18f * cos(patch * 1.41f).toFloat()).coerceAtLeast(.15f)
+            p.color = color((116 + patch % 4 * 19).coerceAtMost(220),
+                233, 248, 252)
+            canvas.drawOval(RectF(snowPoint[0] - 2.4f * d,
+                snowPoint[1] - drift * 1.6f * d,
+                snowPoint[0] + (1.1f + drift) * d,
+                snowPoint[1] + .24f * d), p)
+            p.color = color(230, 249, 255, 255)
+            canvas.drawCircle(snowPoint[0] - .4f * d,
+                snowPoint[1] - drift * .88f * d, .30f * d, p)
+        }
         for (i in 0..14) {
             val t = .035f + .057f * i
             measure.getPosTan(measure.length * t, point, null)
@@ -189,6 +207,35 @@ internal class WinterReferenceHeaderDrawable(
         p.style = Paint.Style.FILL
     }
 
+    /** Fine rime on the top of a glass globe and a reflected warm bulb. */
+    private fun glassSnow(canvas: Canvas, x: Float, y: Float, r: Float) {
+        val crest = Path().apply {
+            moveTo(x - r * .71f, y - r * .58f)
+            cubicTo(x - r * .57f, y - r * .91f,
+                x - r * .34f, y - r * .94f, x - r * .12f, y - r * .96f)
+            cubicTo(x + r * .14f, y - r * 1.09f,
+                x + r * .47f, y - r * .85f, x + r * .67f, y - r * .70f)
+        }
+        p.shader = null
+        p.style = Paint.Style.STROKE
+        p.strokeCap = Paint.Cap.ROUND
+        p.strokeWidth = .94f * d
+        p.color = color(237, 244, 255, 255)
+        canvas.drawPath(crest, p)
+        p.style = Paint.Style.FILL
+        for (i in 0..11) {
+            val theta = (PI * (.18 + i * .055))
+            val px = x + cos(theta).toFloat() * r * .92f
+            val py = y - sin(theta).toFloat() * r * .91f
+            p.color = color(110 + (i % 4) * 29, 250, 255, 255)
+            canvas.drawCircle(px, py, (if (i % 3 == 0) .51f else .28f) * d, p)
+        }
+        // Amber light reflected inside the turquoise glass.
+        p.color = color(108, 255, 222, 141)
+        canvas.drawOval(RectF(x + r * .31f, y - r * .14f,
+            x + r * .50f, y + r * .17f), p)
+    }
+
     private fun glassBall(canvas: Canvas, x: Float, y: Float, r: Float) {
         line(canvas, x, y - r * 2.5f, x, y - r * 1.1f,
             .7f * d, color(220, 218, 204, 139))
@@ -217,6 +264,7 @@ internal class WinterReferenceHeaderDrawable(
         p.color = color(80, 211, 253, 255)
         canvas.drawCircle(x + r * .32f, y + r * .42f, r * .33f, p)
         flake(canvas, x + r * .10f, y + r * .06f, r * .41f, 180)
+        glassSnow(canvas, x, y, r)
     }
 
     private fun goldenBow(canvas: Canvas, x: Float, y: Float, size: Float) {
@@ -311,6 +359,15 @@ internal class WinterReferenceHeaderDrawable(
                     canvas.drawBitmap(ornamentArtwork, null,
                         RectF(w * .63f, h * .05f, w * 1.02f, h * .98f), p)
                     p.alpha = 255
+                    // The approved raster remains the base composition.
+                    // Small high-resolution vector needles and snow glints
+                    // counter the coarse pixels when it is scaled to density.
+                    firSprig(canvas, w * .97f, h * .10f,
+                        w * .73f, h * .35f, 4.7f * d)
+                    firSprig(canvas, w * 1.01f, h * .16f,
+                        w * .85f, h * .47f, 4.4f * d)
+                    glassSnow(canvas, w * .80f, h * .79f, 8.8f * d)
+                    glassSnow(canvas, w * .96f, h * .63f, 4.5f * d)
                 } else {
                     // Preserve a fully offline vector fallback on devices that
                     // cannot decode the bundled reference artwork.

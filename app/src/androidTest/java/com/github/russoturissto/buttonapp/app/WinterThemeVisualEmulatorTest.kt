@@ -92,6 +92,41 @@ class WinterThemeVisualEmulatorTest {
         }
     }
 
+    @Test fun frostIsUniquePerWindowAndStableBetweenDraws() {
+        val d = context.resources.displayMetrics.density
+        val width = (240f * d).toInt()
+        val height = (130f * d).toInt()
+        fun sample(drawable: android.graphics.drawable.Drawable): Bitmap {
+            drawable.setBounds(0, 0, width, height)
+            return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                .also { drawable.draw(Canvas(it)) }
+        }
+        fun frost(): WinterFrostDrawable = WinterFrostDrawable(
+            android.graphics.drawable.ColorDrawable(Color.rgb(8, 51, 66)),
+            d, true, WinterSurface.CARD)
+        val first = frost()
+        val other = frost()
+        val a = sample(first)
+        val same = sample(first)
+        val b = sample(other)
+        try {
+            var differences = 0
+            for (y in 1 until height step 5) {
+                for (x in 1 until width step 5) {
+                    assertTrue("Frost moved during redraw at $x, $y",
+                        a.getPixel(x, y) == same.getPixel(x, y))
+                    if (a.getPixel(x, y) != b.getPixel(x, y)) differences++
+                }
+            }
+            assertTrue("Two cards reused the same crystal pattern: $differences",
+                differences > 20)
+        } finally {
+            a.recycle()
+            same.recycle()
+            b.recycle()
+        }
+    }
+
     @Test fun festiveAppearanceIsVisibleOnAllTabsInDarkAndLight() {
         val prefs = context.getSharedPreferences("balancehub_data", Context.MODE_PRIVATE)
         val oldOnboarding = prefs.all["onboarding_completed"]
