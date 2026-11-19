@@ -233,12 +233,23 @@ internal class WinterFrostDrawable(
                             -.45f, -.9f, 7.2f * d, 108)
                     }
                 }
-                if (!screen && w > 190f * d) {
-                    for (i in 0..7) {
-                        val x = w * (.16f + i * .09f)
-                        fill.color = ice(if (i % 3 == 0) 140 else 65)
+                if (w > 190f * d) {
+                    // Frost feathers across the TOP and BOTTOM of each large
+                    // surface, matching the reference's continuous icy edges.
+                    for (i in 0..15) {
+                        val t = (i + .6f) / 17f
+                        val x = w * t
+                        val longer = i % 4 == 0
+                        val spread = (if (longer) 10.5f else 5.5f) * d
+                        val alpha = if (longer) 153 else 92
+                        feather(canvas, x, 1.8f * d, .30f, .95f, spread, alpha)
+                        if (h > 50f * d) {
+                            feather(canvas, x + 3f * d, h - 1.8f * d,
+                                -.30f, -.95f, spread * .87f, alpha)
+                        }
+                        fill.color = ice(if (longer) 162 else 82)
                         canvas.drawCircle(x, 2.2f * d,
-                            (if (i % 3 == 0) .8f else .48f) * d, fill)
+                            (if (longer) .8f else .48f) * d, fill)
                     }
                 }
             }
