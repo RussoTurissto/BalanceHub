@@ -52,6 +52,10 @@ internal object AppReleaseNotes {
         note("home", "Нижняя панель стала немного компактнее и выше над системными жестами.")
     )
 
+    private val navigationRc3 = listOf(
+        note("home", "Нижняя панель автоматически учитывает жесты и кнопки Android.")
+    )
+
     private val stable123 = (securityRc1 + securityRc2).distinctBy { it.title }
 
     private val stable122 = listOf(
@@ -107,6 +111,7 @@ internal object AppReleaseNotes {
     fun forVersion(versionName: String?): List<ReleaseNote> = when (versionName) {
         "1.2.4-rc1" -> bankSettingsRc1
         "1.2.4-rc2" -> navigationRc2
+        "1.2.4-rc3" -> navigationRc3
         "1.2.3-rc1" -> securityRc1
         "1.2.3-rc2" -> securityRc2
         "1.2.1-rc1" -> rc1
@@ -130,7 +135,8 @@ internal object AppReleaseNotes {
         )
         return when (installedVersionName) {
             "1.2.3" -> listOf("1.2.3", "1.2.2", "1.2.1") + published
-            "1.2.4-rc1", "1.2.4-rc2" -> listOf("1.2.3", "1.2.2", "1.2.1") + published
+            "1.2.4-rc1", "1.2.4-rc2", "1.2.4-rc3" ->
+                listOf("1.2.3", "1.2.2", "1.2.1") + published
             "1.2.3-rc1", "1.2.3-rc2" -> listOf("1.2.2", "1.2.1") + published
             "1.2.2" -> listOf("1.2.2", "1.2.1") + published
             "1.2.1" -> listOf("1.2.1") + published

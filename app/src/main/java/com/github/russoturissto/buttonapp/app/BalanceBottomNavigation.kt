@@ -18,6 +18,23 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 
+/** The gesture strip and button navigation can have different bottom insets. */
+internal object BottomNavigationSafeArea {
+    const val GAP_DP = 2
+
+    fun bottomPaddingPx(
+        navigationBar: Int,
+        systemGesture: Int,
+        mandatoryGesture: Int,
+        tappableElement: Int,
+        gapPx: Int
+    ): Int = maxOf(
+        0,
+        maxOf(navigationBar, systemGesture),
+        maxOf(mandatoryGesture, tappableElement)
+    ) + gapPx.coerceAtLeast(0)
+}
+
 /** Navigation indexes and motion rules shared by taps, swipes and deep links. */
 internal object NavigationMotionPolicy {
     const val TAB_COUNT = 5

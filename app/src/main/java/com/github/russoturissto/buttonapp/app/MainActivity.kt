@@ -828,7 +828,9 @@ class MainActivity : AppCompatActivity() {
         }
         val tabs = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(navSidePadding, dp(8), navSidePadding, dp(12))
+            // The real safe-area padding is supplied after receiving root insets.
+            setPadding(navSidePadding, dp(8), navSidePadding,
+                dp(BottomNavigationSafeArea.GAP_DP))
             background = null
         }
         val navigation = BalanceBottomNavigation(this, isNight, currentTab) {
@@ -839,11 +841,25 @@ class MainActivity : AppCompatActivity() {
             navigation.section(it)
         }
         tabs.addView(navigation, LinearLayout.LayoutParams(-1, dp(60)))
-        // System navigation bars/gesture handles own the bottom inset.
-        // Only this outer strip receives the inset; keep 12dp breathing room below the pill.
-        ViewCompat.setOnApplyWindowInsetsListener(tabs) { view, insets ->
-            val bottom = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
-            view.setPadding(navSidePadding, dp(8), navSidePadding, bottom + dp(12))
+        // Edge-to-edge requires the entire system-controlled region to stay below
+        // the clickable pill. Some gesture configurations report a larger
+        // systemGestures inset than navigationBars; button navigation can report
+        // the reverse. Receive insets at the root, before child dispatch.
+        ViewCompat.setOnApplyWindowInsetsListener(screen) { _, insets ->
+            val bottom = BottomNavigationSafeArea.bottomPaddingPx(
+                navigationBar = insets.getInsets(
+                    WindowInsetsCompat.Type.navigationBars()).bottom,
+                systemGesture = insets.getInsets(
+                    WindowInsetsCompat.Type.systemGestures()).bottom,
+                mandatoryGesture = insets.getInsets(
+                    WindowInsetsCompat.Type.mandatorySystemGestures()).bottom,
+                tappableElement = insets.getInsets(
+                    WindowInsetsCompat.Type.tappableElement()).bottom,
+                gapPx = dp(BottomNavigationSafeArea.GAP_DP)
+            )
+            if (tabs.paddingBottom != bottom) {
+                tabs.setPadding(navSidePadding, dp(8), navSidePadding, bottom)
+            }
             insets
         }
         screen.addView(tabs)
@@ -854,6 +870,9 @@ class MainActivity : AppCompatActivity() {
             isAppearanceLightNavigationBars = !isNight
         }
         setContentView(screen)
+        // Re-query the actual navigation mode after attachment (also updated
+        // automatically for later inset changes and window resizing).
+        ViewCompat.requestApplyInsets(screen)
         renderTab()
     }
 
