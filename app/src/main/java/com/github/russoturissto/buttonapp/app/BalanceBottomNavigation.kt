@@ -120,7 +120,7 @@ internal class BalanceBottomNavigation(
             val cell = LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER
-                minimumHeight = dp(58)
+                minimumHeight = dp(54)
                 setPadding(dp(2), dp(3), dp(2), dp(3))
                 isClickable = true
                 isFocusable = true

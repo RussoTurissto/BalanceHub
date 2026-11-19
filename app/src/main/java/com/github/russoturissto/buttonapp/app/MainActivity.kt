@@ -828,7 +828,7 @@ class MainActivity : AppCompatActivity() {
         }
         val tabs = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(navSidePadding, dp(8), navSidePadding, dp(8))
+            setPadding(navSidePadding, dp(8), navSidePadding, dp(12))
             background = null
         }
         val navigation = BalanceBottomNavigation(this, isNight, currentTab) {
@@ -838,12 +838,12 @@ class MainActivity : AppCompatActivity() {
         tabViews = (0 until NavigationMotionPolicy.TAB_COUNT).mapNotNull {
             navigation.section(it)
         }
-        tabs.addView(navigation, LinearLayout.LayoutParams(-1, dp(64)))
+        tabs.addView(navigation, LinearLayout.LayoutParams(-1, dp(60)))
         // System navigation bars/gesture handles own the bottom inset.
-        // Only this outer strip receives the inset; the pill never shifts.
+        // Only this outer strip receives the inset; keep 12dp breathing room below the pill.
         ViewCompat.setOnApplyWindowInsetsListener(tabs) { view, insets ->
             val bottom = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
-            view.setPadding(navSidePadding, dp(8), navSidePadding, bottom + dp(8))
+            view.setPadding(navSidePadding, dp(8), navSidePadding, bottom + dp(12))
             insets
         }
         screen.addView(tabs)
