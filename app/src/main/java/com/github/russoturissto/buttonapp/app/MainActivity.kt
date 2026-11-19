@@ -547,13 +547,18 @@ class MainActivity : AppCompatActivity() {
         surface: WinterSurface): android.graphics.drawable.Drawable =
         if (winterActive) WinterFrostDrawable(original, resources.displayMetrics.density,
             isNight, surface) else original
-    private val ink: Int get() = if (isNight) Color.rgb(239, 249, 247) else Color.rgb(30, 57, 59)
-    private val muted: Int get() = if (isNight) Color.rgb(165, 189, 191) else Color.rgb(104, 129, 130)
+    private val ink: Int get() = if (winterActive) Color.rgb(241, 250, 253)
+        else if (isNight) Color.rgb(239, 249, 247) else Color.rgb(30, 57, 59)
+    private val muted: Int get() = if (winterActive) Color.rgb(168, 205, 217)
+        else if (isNight) Color.rgb(165, 189, 191) else Color.rgb(104, 129, 130)
     private val accent: Int get() = if (winterActive) Color.rgb(54, 213, 218)
         else if (isNight) Color.rgb(87, 169, 167) else Color.rgb(35, 131, 131)
-    private val surface: Int get() = if (isNight) Color.rgb(32, 54, 60) else Color.WHITE
-    private val backdrop: Int get() = if (isNight) Color.rgb(17, 33, 40) else Color.rgb(237, 248, 246)
-    private val softAccent: Int get() = if (isNight) Color.rgb(38, 77, 78) else Color.rgb(223, 244, 239)
+    private val surface: Int get() = if (winterActive) Color.rgb(14, 56, 72)
+        else if (isNight) Color.rgb(32, 54, 60) else Color.WHITE
+    private val backdrop: Int get() = if (winterActive) Color.rgb(4, 33, 48)
+        else if (isNight) Color.rgb(17, 33, 40) else Color.rgb(237, 248, 246)
+    private val softAccent: Int get() = if (winterActive) Color.rgb(19, 79, 95)
+        else if (isNight) Color.rgb(38, 77, 78) else Color.rgb(223, 244, 239)
 
     private val balanceHubTypeface: Typeface by lazy {
         Typeface.createFromAsset(assets, "fonts/montserrat_bold.ttf")
@@ -611,14 +616,14 @@ class MainActivity : AppCompatActivity() {
     /** Shared visual style for all mobile providers and supported banks. */
     private fun balanceAmountPill(label: String, knownBalance: Boolean = true): TextView =
         textLine(label, if (knownBalance) BalanceAmountStyle.FONT_SIZE_SP else 15f,
-            Color.rgb(23, 55, 33), true).apply {
+            if (winterActive) ink else Color.rgb(23, 55, 33), true).apply {
             gravity = Gravity.CENTER
             includeFontPadding = false
             setPadding(dp(BalanceAmountStyle.HORIZONTAL_PADDING_DP),
                 dp(BalanceAmountStyle.VERTICAL_PADDING_DP),
                 dp(BalanceAmountStyle.HORIZONTAL_PADDING_DP),
                 dp(BalanceAmountStyle.VERTICAL_PADDING_DP))
-            background = rounded(
+            background = if (winterActive) null else rounded(
                 if (isNight) Color.rgb(191, 239, 104)
                 else Color.rgb(216, 241, 166), BalanceAmountStyle.CORNER_RADIUS_DP)
         }
@@ -1564,9 +1569,11 @@ class MainActivity : AppCompatActivity() {
     private fun renderBalances() {
         if (operatorDetailsOpen) { renderOperatorDetails(); return }
         contentContainer.addView(textLine("Балансы", 23f, ink, true))
-        contentContainer.addView(verticalGap(8))
-        contentContainer.addView(textLine("Мобильная связь", 14f, muted))
-        contentContainer.addView(verticalGap(14))
+        contentContainer.addView(verticalGap(if (winterActive) 12 else 8))
+        if (!winterActive) {
+            contentContainer.addView(textLine("Мобильная связь", 14f, muted))
+            contentContainer.addView(verticalGap(14))
+        }
 
         val sims = connectedSims()
         val orderedSims = BalanceCardOrder.withBalanceFirst(sims) {
