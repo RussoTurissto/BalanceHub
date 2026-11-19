@@ -590,13 +590,15 @@ class MainActivity : AppCompatActivity() {
 
     private fun filledButtonGradient(): GradientDrawable = GradientDrawable(
         GradientDrawable.Orientation.LEFT_RIGHT,
-        if (isNight) intArrayOf(Color.rgb(47, 131, 136), Color.rgb(40, 158, 142))
+        if (winterActive) intArrayOf(Color.rgb(17, 157, 183), Color.rgb(25, 205, 196))
+        else if (isNight) intArrayOf(Color.rgb(47, 131, 136), Color.rgb(40, 158, 142))
         else intArrayOf(Color.rgb(48, 145, 150), Color.rgb(36, 143, 125))
     ).apply { cornerRadius = dp(14).toFloat() }
 
     private fun tabBackground(selected: Boolean): GradientDrawable =
         if (selected) filledButtonGradient() else GradientDrawable().apply {
-            setColor(if (isNight) Color.rgb(23, 41, 48) else Color.rgb(245, 252, 250))
+            setColor(if (winterActive) Color.rgb(7, 45, 62)
+                else if (isNight) Color.rgb(23, 41, 48) else Color.rgb(245, 252, 250))
             cornerRadius = dp(13).toFloat()
             setStroke(dp(1), if (isNight) Color.rgb(112, 151, 151)
                 else Color.rgb(143, 181, 181))
@@ -717,7 +719,8 @@ class MainActivity : AppCompatActivity() {
         isAllCaps = false
         setTextColor(ink)
         background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
-            if (isNight) intArrayOf(Color.rgb(49, 84, 85), Color.rgb(40, 73, 74))
+            if (winterActive) intArrayOf(Color.rgb(15, 76, 94), Color.rgb(7, 50, 70))
+            else if (isNight) intArrayOf(Color.rgb(49, 84, 85), Color.rgb(40, 73, 74))
             else intArrayOf(Color.rgb(229, 247, 242), Color.rgb(214, 240, 234))
         ).apply {
             cornerRadius = dp(12).toFloat()
@@ -6631,7 +6634,8 @@ class MainActivity : AppCompatActivity() {
     /** Common theme-aware icon badge used by payments, events and archives. */
     private fun iconTile(id: String, size: Int = 42): ImageView =
         ImageView(this).apply {
-            val color = IconRegistry.tint(id, isNight)
+            val color = if (winterActive) Color.rgb(136, 236, 246)
+                else IconRegistry.tint(id, isNight)
             setImageDrawable(AppIconDrawable(id, color))
             scaleType = ImageView.ScaleType.FIT_CENTER
             background = rounded(softAccent, 12)
@@ -7982,10 +7986,16 @@ class MainActivity : AppCompatActivity() {
             if (cancel != null) setOnClickListener { cancel() }
         }, LinearLayout.LayoutParams(-1, dp(44)))
         body.addView(verticalGap(10))
-        body.addView(ImageView(this).apply {
-            setImageResource(R.mipmap.ic_launcher)
-            contentDescription = "Иконка BalanceHub"
-        }, LinearLayout.LayoutParams(dp(76), dp(76)))
+        if (winterActive) {
+            body.addView(iconTile("lock", 76).apply {
+                contentDescription = "Замок, защита PIN-кодом"
+            }, LinearLayout.LayoutParams(dp(76), dp(76)))
+        } else {
+            body.addView(ImageView(this).apply {
+                setImageResource(R.mipmap.ic_launcher)
+                contentDescription = "Иконка BalanceHub"
+            }, LinearLayout.LayoutParams(dp(76), dp(76)))
+        }
         body.addView(verticalGap(17))
         body.addView(textLine(title, 22f, ink, true).apply {
             gravity = Gravity.CENTER
