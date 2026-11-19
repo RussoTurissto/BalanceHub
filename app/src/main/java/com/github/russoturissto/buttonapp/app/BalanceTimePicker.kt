@@ -137,7 +137,11 @@ internal object BalanceTimePicker {
             setPadding(0, dp(13), 0, 0)
         }
         val dialog = AlertDialog.Builder(context,
-            if (night) R.style.BalanceHubDialogDark else R.style.BalanceHubDialogLight)
+            if (WinterThemeState.active(context)) {
+                if (night) R.style.BalanceHubDialogWinterDark
+                else R.style.BalanceHubDialogWinterLight
+            } else if (night) R.style.BalanceHubDialogDark
+            else R.style.BalanceHubDialogLight)
             .setView(root).create()
         val cancel = label("Отмена", 14f, true).apply {
             isClickable = true
@@ -173,6 +177,9 @@ internal object BalanceTimePicker {
                 cornerRadius = dp(22).toFloat()
                 setStroke(dp(1), if (night) Color.rgb(72, 132, 127)
                     else Color.rgb(172, 217, 208))
+            }.let {
+                if (WinterThemeState.active(context)) WinterFrostDrawable(it, d,
+                    night, WinterSurface.DIALOG) else it
             })
         }
         refresh()
