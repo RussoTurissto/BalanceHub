@@ -78,6 +78,25 @@ jobs:
           echo "RELEASE_CHANNEL=rollback" >> "$GITHUB_ENV"
           echo "RELEASE_TAG=v1.1.4-rc13-rollback-build$((GITHUB_RUN_NUMBER + 300))" >> "$GITHUB_ENV"
 
+      # Keep the configured code as a floor while retaining a monotonically
+      # increasing CI build code for signed updates.
+      - name: Resolve signed APK versionCode
+        shell: bash
+        run: |
+          set -euo pipefail
+          configured_code="$(sed -n 's/^APP_VERSION_CODE=//p' gradle.properties | head -1 | tr -d '\r')"
+          [[ "$configured_code" =~ ^[1-9][0-9]*$ ]] || {
+            echo "::error::Invalid APP_VERSION_CODE in gradle.properties"
+            exit 1
+          }
+          ci_code=$(( ${{ github.run_number }} + 300 ))
+          code=$(( configured_code > ci_code ? configured_code : ci_code ))
+          (( code > 752 )) || {
+            echo "::error::Signed APK versionCode must exceed published 1.2.5-rc1 (752)"
+            exit 1
+          }
+          echo "BUILD_VERSION_CODE=$code" >> "$GITHUB_ENV"
+          echo "Signed APK versionCode: $code (configured=$configured_code, CI floor=$ci_code)" >> "$GITHUB_STEP_SUMMARY"
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
@@ -142,7 +161,7 @@ jobs:
           for attempt in 1 2 3 4; do
             echo "Build attempt $attempt of 4"
             if ./gradlew --no-daemon --console=plain :app:assembleRelease \
-              -PAPP_VERSION_CODE=$(( ${{ github.run_number }} + 300 )) \
+              -PAPP_VERSION_CODE="$BUILD_VERSION_CODE" \
               -PAPP_VERSION_NAME="$BUILD_VERSION_NAME" 2>&1 | tee "$RUNNER_TEMP/balancehub-build.log"; then
               exit 0
             fi
@@ -178,7 +197,7 @@ jobs:
           grep -q "Verified using v2 scheme (APK Signature Scheme v2): true" "$RUNNER_TEMP/balancehub-signature.txt"
           "$BUILD_TOOLS/aapt" dump badging "$APK" > "$RUNNER_TEMP/balancehub-package-info.txt"
           grep -q "^package: name='com.github.russoturissto.buttonapp.app'" "$RUNNER_TEMP/balancehub-package-info.txt"
-          grep -q "versionCode='$(( ${{ github.run_number }} + 300 ))'" "$RUNNER_TEMP/balancehub-package-info.txt"
+          grep -q "versionCode='$BUILD_VERSION_CODE'" "$RUNNER_TEMP/balancehub-package-info.txt"
           grep -q "versionName='$BUILD_VERSION_NAME'" "$RUNNER_TEMP/balancehub-package-info.txt"
           APK_SHA="$(sed -n 's/^V2 Signer: certificate SHA-256 digest: //p' "$RUNNER_TEMP/balancehub-signature.txt" | tr -d '[:space:]:' | tr '[:upper:]' '[:lower:]')"
           keytool -list -v -keystore "$RUNNER_TEMP/balancehub-upload.jks" -alias "$KEY_ALIAS" -storepass "$KEYSTORE_PASSWORD" > "$RUNNER_TEMP/balancehub-keystore-info.txt"
@@ -223,8 +242,8 @@ jobs:
           [[ "$OLD_PACKAGE" == *"name='com.github.russoturissto.buttonapp.app'"* ]]
           [[ "$NEW_PACKAGE" == *"name='com.github.russoturissto.buttonapp.app'"* ]]
           [[ "$OLD_PACKAGE" == *"versionCode='722'"* ]]
-          [[ "$NEW_PACKAGE" == *"versionCode='$(( ${{ github.run_number }} + 300 ))'"* ]]
-          [[ $(( ${{ github.run_number }} + 300 )) -gt 722 ]] || {
+          [[ "$NEW_PACKAGE" == *"versionCode='$BUILD_VERSION_CODE'"* ]]
+          [[ "$BUILD_VERSION_CODE" -gt 722 ]] || {
             echo "::error::New versionCode must exceed stable 722"
             exit 1
           }
