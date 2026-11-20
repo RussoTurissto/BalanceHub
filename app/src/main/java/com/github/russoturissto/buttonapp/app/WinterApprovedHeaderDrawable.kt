@@ -41,7 +41,8 @@ internal class WinterApprovedHeaderDrawable(
 
         canvas.withSave {
             canvas.translate(bounds.left.toFloat(), bounds.top.toFloat())
-            canvas.clipRect(0f, 0f, w, h)
+            // Keep approved artwork at its natural scale, including minor overhang.
+            // The title mask below still keeps the lamps off the native TextView.
             paint.alpha = opacity
 
         // Warm lamps and uneven snow lie BELOW the wordmark.
@@ -64,8 +65,15 @@ internal class WinterApprovedHeaderDrawable(
                         Region.Op.DIFFERENCE)
                 }
             }
+            // Never stretch the approved 860×134 garland independently in Y.
+            // Anchor its bulbs near the original bottom edge while preserving
+            // the bitmap's natural aspect ratio on every screen width.
+            val garlandWidth = w * .87f
+            val garlandHeight = garlandWidth * garland.height / garland.width
+            val garlandBottom = h * 1.01f
             canvas.drawBitmap(garland, null,
-                RectF(0f, h * .70f, w * .87f, h * 1.045f), paint)
+                RectF(0f, garlandBottom - garlandHeight,
+                    garlandWidth, garlandBottom), paint)
         }
 
         // Approved snow-covered spruce, pinecone, bow, glass baubles and star.
