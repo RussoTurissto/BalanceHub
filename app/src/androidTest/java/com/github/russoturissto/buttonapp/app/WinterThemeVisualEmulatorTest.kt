@@ -39,6 +39,7 @@ class WinterThemeVisualEmulatorTest {
     private fun verifyVisibleDecor(header: Bitmap, appearance: String) {
         var turquoise = 0
         var gold = 0
+        var goldOnFreeCord = 0
         val x0 = (header.width * .60f).toInt()
         for (y in 0 until header.height step 2) {
             for (x in x0 until header.width step 2) {
@@ -52,6 +53,22 @@ class WinterThemeVisualEmulatorTest {
                 if (r > 178 && g > 142 && b < 160 && r > b + 45) gold++
             }
         }
+        // Ensure the actual cord is present LEFT of the photo ornaments.
+        // Previous RC9 image accidentally hid the whole vector string and
+        // passed because the right-hand photo also contains golden pixels.
+        for (y in (header.height * .65f).toInt() until header.height step 2) {
+            for (x in (header.width * .06f).toInt()
+                until (header.width * .51f).toInt() step 2) {
+                val pixel = header.getPixel(x, y)
+                val r = Color.red(pixel)
+                val g = Color.green(pixel)
+                val b = Color.blue(pixel)
+                if (r > 195 && g > 125 && b < 145 && r > b + 65)
+                    goldOnFreeCord++
+            }
+        }
+        assertTrue("Garland bulbs missing left of ornaments in " + appearance +
+            ": " + goldOnFreeCord, goldOnFreeCord >= 20)
         assertTrue("Turquoise glass bauble not visible in " + appearance +
             ": " + turquoise, turquoise >= 12)
         assertTrue("Golden light bulbs not visible in " + appearance + ": " + gold,
