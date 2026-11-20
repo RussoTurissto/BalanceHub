@@ -9,6 +9,9 @@ on:
     paths:
       # Runtime changes and explicitly approved version updates trigger release checks.
       - "gradle.properties"
+      # A CI-only correction must also be able to launch the signed test build.
+      - ".github/workflows/balancehub-apk.yml"
+      - ".github/workflows/notification-emulator-validation.yml"
       - "app/src/main/**"
       - "library-android/src/main/**"
       - "library-compose/src/main/**"
@@ -151,7 +154,28 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if ! ./gradlew --no-daemon --console=plain :app:compileReleaseKotlin :app:lintRelease :app:testDebugUnitTest :app:assembleDebugAndroidTest; then
+          checks_passed=false
+          for attempt in 1 2 3; do
+            echo "Release preflight attempt $attempt of 3"
+            gradle_args=(--no-daemon --console=plain)
+            if (( attempt > 1 )); then
+              gradle_args+=(--refresh-dependencies)
+            fi
+            if ./gradlew "${gradle_args[@]}" :app:compileReleaseKotlin :app:lintRelease :app:testDebugUnitTest :app:assembleDebugAndroidTest 2>&1 | tee "$RUNNER_TEMP/balancehub-preflight.log"; then
+              checks_passed=true
+              break
+            fi
+            if ! grep -Eqi 'Could not resolve all files|Could not find [[:alnum:]_.-]+:[[:alnum:]_.-]+:|Could not (GET|HEAD)|Read timed out|Connection reset|Temporary failure in name resolution' "$RUNNER_TEMP/balancehub-preflight.log"; then
+              echo "::error::Preflight failed for a non-dependency reason; not retrying"
+              break
+            fi
+            if (( attempt == 3 )); then
+              echo "::error::Dependency resolution failed after three preflight attempts"
+              break
+            fi
+            sleep $((attempt * 15))
+          done
+          if [ "$checks_passed" != "true" ]; then
             REPORT="app/build/intermediates/lint_intermediate_text_report/release/lintReportRelease/lint-results-release.txt"
             if [ -f "$REPORT" ]; then
               echo "::group::Full Android Lint report"
