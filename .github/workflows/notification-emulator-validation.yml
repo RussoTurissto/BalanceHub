@@ -94,6 +94,23 @@ jobs:
             fi
             sleep $((attempt * 30))
           done
+      # Keep Gradle/Kotlin compilation away from the running Android VM:
+      # concurrent dexing + emulator snapshots can exhaust hosted-runner memory.
+      - name: Prebuild test APKs before starting the Android emulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            echo "Prebuild Android instrumentation attempt $attempt of 3"
+            if ./gradlew --no-daemon --console=plain :app:assembleDebug :app:assembleDebugAndroidTest; then
+              exit 0
+            fi
+            if (( attempt == 3 )); then
+              echo "::error::Could not prebuild Android test APKs"
+              exit 1
+            fi
+            sleep $((attempt * 30))
+          done
       - name: Execute instrumented Android tests
         uses: reactivecircus/android-emulator-runner@v2
         with:
