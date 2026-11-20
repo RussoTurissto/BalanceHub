@@ -97,6 +97,9 @@ internal object AppReleaseNotes {
     )
 
     private val stableNotes = linkedMapOf(
+        "1.2.5" to listOf(
+            note("check-circle", "Мелкие исправления и улучшения.")
+        ),
         "1.2.3" to stable123,
         "1.2.2" to stable122,
         "1.2.1" to stable121(),
