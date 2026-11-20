@@ -844,8 +844,19 @@ class MainActivity : AppCompatActivity() {
         }
         header.addView(headerTitle)
         if (winterActive) {
-            // Approved photo pixels instead of procedural spruce/baubles.
-            // A dynamic anchor keeps the Santa hat above the real capital H.
+            // The glowing garland is an independent BACKGROUND layer.
+            // Actual BalanceHub TextView glyphs are drawn above the bulbs,
+            // while the photo fir and Santa hat remain in the foreground.
+            header.background = android.graphics.drawable.LayerDrawable(
+                arrayOf(
+                    BalanceHubHeaderDrawable(isNight, true),
+                    WinterApprovedHeaderDrawable(
+                        resources.displayMetrics.density,
+                        headerTitle, approvedOrnaments, approvedSantaHat,
+                        garlandOnly = true
+                    )
+                )
+            )
             header.foreground = WinterApprovedHeaderDrawable(
                 resources.displayMetrics.density,
                 headerTitle,
