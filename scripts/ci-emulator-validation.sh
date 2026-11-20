@@ -11,24 +11,51 @@ if [[ "$api" == "35" ]]; then
   adb shell input keyevent KEYCODE_HOME || true
 fi
 
-test_status=0
-./gradlew --no-daemon --console=plain :app:connectedDebugAndroidTest || test_status=$?
-
-# A previous API 35 run passed all 52 tests, but another run lost window focus
-# in seven unrelated Espresso tests. Retry once only for this known emulator
-# transient; retain the failed attempt for review rather than hiding it.
+# On API 35 the full 55-test session exhausted or destabilised the emulator
+# while rendering many winter snapshots. Run the 4 visual tests first on a fresh
+# emulator session, then ALL other tests separately (no test is silently skipped).
+# Keep both reports and screenshots for manual inspection.
 results_dir="app/build/outputs/androidTest-results/connected/debug"
-if [[ "$api" == "35" && "$test_status" -ne 0 ]] \
-    && [[ -d "$results_dir" ]] \
-    && grep -Rql 'RootViewWithoutFocusException' "$results_dir"; then
-  echo '::warning::Android 15 Espresso lost window focus; preserving first attempt and retrying once'
-  mkdir -p app/build/emulator-focus-retry
-  cp -a "$results_dir" app/build/emulator-focus-retry/first-attempt
-  adb shell wm dismiss-keyguard || true
-  adb shell input keyevent KEYCODE_HOME || true
-  sleep 2
-  test_status=0
-  ./gradlew --no-daemon --console=plain --rerun-tasks :app:connectedDebugAndroidTest || test_status=$?
+visual_class="com.github.russoturissto.buttonapp.app.WinterThemeVisualEmulatorTest"
+
+run_suite() {
+  local label="$1"
+  shift
+  local status=0
+  echo "::group::Android API $api: $label"
+  ./gradlew --no-daemon --console=plain :app:connectedDebugAndroidTest "$@" || status=$?
+  echo "::endgroup::"
+  if [[ "$api" == "35" && "$status" -ne 0 ]] \
+      && [[ -d "$results_dir" ]] \
+      && grep -Rql 'RootViewWithoutFocusException' "$results_dir"; then
+    echo "::warning::Android 15 lost window focus in $label; preserving report and retrying once"
+    mkdir -p "app/build/emulator-focus-retry"
+    cp -a "$results_dir" "app/build/emulator-focus-retry/${label}-first-attempt"
+    adb shell wm dismiss-keyguard || true
+    adb shell input keyevent KEYCODE_HOME || true
+    sleep 2
+    status=0
+    ./gradlew --no-daemon --console=plain --rerun-tasks \
+      :app:connectedDebugAndroidTest "$@" || status=$?
+  fi
+  return "$status"
+}
+
+test_status=0
+if [[ "$api" == "35" ]]; then
+  if run_suite "winter-visual" \
+      "-Pandroid.testInstrumentationRunnerArguments.class=$visual_class"; then
+    # Gradle overwrites connected-test reports on the next invocation.
+    mkdir -p app/build/emulator-focus-retry
+    cp -a "$results_dir" app/build/emulator-focus-retry/winter-visual-success
+    run_suite "all-other-tests" \
+      "-Pandroid.testInstrumentationRunnerArguments.notClass=$visual_class" \
+      || test_status=$?
+  else
+    test_status=$?
+  fi
+else
+  run_suite "full-regression" || test_status=$?
 fi
 
 if [[ "$api" == "35" ]]; then
