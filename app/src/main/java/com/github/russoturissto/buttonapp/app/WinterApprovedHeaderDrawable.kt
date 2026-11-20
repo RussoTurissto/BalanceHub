@@ -120,9 +120,12 @@ internal class WinterApprovedHeaderDrawable(
         // Use proportional coordinates with room for glass, halos and overhang.
         // The approved mockup has a gentle sag under the title with a
         // gradual rise toward the photo fir, never a flattened light strip.
-        val startY = h * .55f
+        // Lower the cord enough to sit beneath the actual BalanceHub
+        // capitals on narrow screens, while keeping glass bulbs within
+        // the existing header height (no layout or TextView changes).
+        val startY = h * .67f
         val endY = h * .44f
-        val sag = h * .23f
+        val sag = h * .25f
 
         fun yAt(t: Float): Float {
             val smoothDrop = sag * 4f * t * (1f - t)
