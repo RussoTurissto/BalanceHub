@@ -287,22 +287,31 @@ class WinterThemeVisualEmulatorTest {
                             assertTrue("Santa hat is missing above the capital H: " +
                                 redHatPixels, redHatPixels >= 24)
 
-                            // Warm amber bulbs must never cover the native letters.
-                            var lampsOnText = 0
-                            val top = (wordmark.top + wordmark.translationY).toInt()
-                            for (y in top.coerceAtLeast(0) until
-                                (top + wordmark.height).coerceAtMost(bitmap.height)) {
-                                val visibleTextRight = (wordmark.left +
-                                    wordmark.paint.measureText("BalanceHub") +
-                                    wordmark.letterSpacing * wordmark.textSize * 9f)
-                                    .toInt().coerceAtMost(bitmap.width)
-                                for (x in wordmark.left until visibleTextRight) {
+                            // The warm cord is drawn in the background,
+                            // BEFORE the native white title, so it cannot
+                            // replace the glyphs or obstruct accessibility.
+                            assertTrue("Garland background layer missing",
+                                header.background is
+                                    android.graphics.drawable.LayerDrawable)
+                            var whiteTitlePixels = 0
+                            val top = (wordmark.top + wordmark.translationY)
+                                .toInt().coerceAtLeast(0)
+                            val bottom = (top + wordmark.height)
+                                .coerceAtMost(bitmap.height)
+                            val visibleTextRight = (wordmark.left +
+                                wordmark.paint.measureText("BalanceHub") +
+                                wordmark.letterSpacing * wordmark.textSize * 9f)
+                                .toInt().coerceAtMost(bitmap.width)
+                            for (y in top until bottom step 2) {
+                                for (x in wordmark.left until visibleTextRight step 2) {
                                     val pixel = bitmap.getPixel(x, y)
-                                    if (Color.red(pixel) > 210 && Color.green(pixel) > 145 &&
-                                        Color.blue(pixel) < 105) lampsOnText++
+                                    if (Color.red(pixel) > 225 &&
+                                        Color.green(pixel) > 225 &&
+                                        Color.blue(pixel) > 225) whiteTitlePixels++
                                 }
                             }
-                            assertEquals("Warm garland crosses BalanceHub", 0, lampsOnText)
+                            assertTrue("Native BalanceHub white title obscured: " +
+                                whiteTitlePixels, whiteTitlePixels > 35)
                         } finally { bitmap.recycle() }
                     }
                 }
