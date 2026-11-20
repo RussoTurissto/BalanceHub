@@ -76,24 +76,23 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for attempt in 1 2 3; do
-            echo "Release Lint attempt $attempt of 3"
+          # Maven Central may temporarily return 429 during parallel emulator
+          # startup. Back off without forcing dependency refreshes.
+          for attempt in 1 2 3 4 5; do
+            echo "Release Lint attempt $attempt of 5"
             gradle_args=(--no-daemon --console=plain)
-            if (( attempt > 1 )); then
-              gradle_args+=(--refresh-dependencies)
-            fi
             if ./gradlew "${gradle_args[@]}" :app:lintRelease 2>&1 | tee "$RUNNER_TEMP/balancehub-release-lint.log"; then
               exit 0
             fi
-            if ! grep -Eqi 'Could not resolve all files|Could not find [[:alnum:]_.-]+:[[:alnum:]_.-]+:|Could not (GET|HEAD)|Read timed out|Connection reset|Temporary failure in name resolution' "$RUNNER_TEMP/balancehub-release-lint.log"; then
+            if ! grep -Eqi 'Could not resolve all (files|artifacts)|Could not find [[:alnum:]_.-]+:[[:alnum:]_.-]+:|Could not (GET|HEAD)|Read timed out|Connection reset|Temporary failure in name resolution|Too Many Requests|status code 429' "$RUNNER_TEMP/balancehub-release-lint.log"; then
               echo "::error::Release Lint failed for a non-dependency reason; not retrying"
               exit 1
             fi
-            if (( attempt == 3 )); then
-              echo "::error::Release Lint dependencies unavailable after three attempts"
+            if (( attempt == 5 )); then
+              echo "::error::Release Lint dependencies unavailable after five attempts"
               exit 1
             fi
-            sleep $((attempt * 15))
+            sleep $((attempt * 30))
           done
       - name: Execute instrumented Android tests
         uses: reactivecircus/android-emulator-runner@v2

@@ -48,7 +48,8 @@ if [[ "$api" == "35" ]]; then
   for method in \
       approvedFestiveBannerKeepsAccessibleTextAndRedHatOverCapitalH \
       festiveAppearanceIsVisibleOnAllTabsInDarkAndLight \
-      winterOnlyChangesDecorationAcrossAllTabs \
+      winterOnlyChangesDecorationInNightMode \
+      winterOnlyChangesDecorationInDayMode \
       frostIsUniquePerWindowAndStableBetweenDraws; do
     label="winter-$method"
     if run_suite "$label" \

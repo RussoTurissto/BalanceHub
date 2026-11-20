@@ -143,7 +143,13 @@ class WinterThemeVisualEmulatorTest {
         return tree
     }
 
-    @Test fun winterOnlyChangesDecorationAcrossAllTabs() {
+    @Test fun winterOnlyChangesDecorationInNightMode() =
+        verifyWinterOnlyChangesDecorationAcrossAllTabs("night")
+
+    @Test fun winterOnlyChangesDecorationInDayMode() =
+        verifyWinterOnlyChangesDecorationAcrossAllTabs("day")
+
+    private fun verifyWinterOnlyChangesDecorationAcrossAllTabs(appearance: String) {
         val prefs = context.getSharedPreferences("balancehub_data", Context.MODE_PRIVATE)
         val oldOnboarding = prefs.all["onboarding_completed"]
         val oldWelcome = prefs.all["release_welcome_version"]
@@ -159,7 +165,7 @@ class WinterThemeVisualEmulatorTest {
             "renderTab").apply { isAccessible = true }
         val layouts = mutableMapOf<String, List<String>>()
         try {
-            for (appearance in listOf("night", "day")) {
+            run {
                 for (season in listOf("normal", "winter")) {
                     val winter = season == "winter"
                     assertTrue(prefs.edit().putBoolean("onboarding_completed", true)
