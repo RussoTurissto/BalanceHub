@@ -6,7 +6,7 @@ api="${1:?Android API level is required}"
 
 # Android 15 can return from boot to a background window with no input focus.
 # Put the launcher in the foreground before instrumentation opens MainActivity.
-if [[ "$api" == "35" ]]; then
+if [[ "$api" == "35" || "$api" == "36" || "$api" == "30" ]]; then
   adb shell wm dismiss-keyguard || true
   adb shell input keyevent KEYCODE_HOME || true
 fi
@@ -24,7 +24,7 @@ run_suite() {
   echo "::group::Android API $api: $label"
   ./gradlew --no-daemon --console=plain :app:connectedDebugAndroidTest "$@" || status=$?
   echo "::endgroup::"
-  if [[ "$api" == "35" && "$status" -ne 0 ]] \
+  if [[ "$status" -ne 0 ]] \
       && [[ -d "$results_dir" ]] \
       && grep -Rql 'RootViewWithoutFocusException' "$results_dir"; then
     echo "::warning::Android 15 lost window focus in $label; preserving report and retrying once"
@@ -41,13 +41,14 @@ run_suite() {
 }
 
 test_status=0
-if [[ "$api" == "35" ]]; then
+if [[ "$api" == "35" || "$api" == "36" ]]; then
   # Each visual test gets a fresh instrumentation process, reducing Android 15
   # emulator memory pressure from repeated ActivityScenario screenshots.
   # Test order puts the approved banner check before multi-screen redraws.
   for method in \
       approvedFestiveBannerKeepsAccessibleTextAndRedHatOverCapitalH \
       festiveAppearanceIsVisibleOnAllTabsInDarkAndLight \
+      normalAppearanceIsVisibleOnAllTabsInDarkAndLight \
       winterOnlyChangesDecorationInNightMode \
       winterOnlyChangesDecorationInDayMode \
       frostIsUniquePerWindowAndStableBetweenDraws; do

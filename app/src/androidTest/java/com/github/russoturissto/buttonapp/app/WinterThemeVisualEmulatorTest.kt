@@ -185,8 +185,8 @@ class WinterThemeVisualEmulatorTest {
                             scenario.onActivity { activity ->
                                 layouts["$season-$appearance-$tab"] =
                                     functionalLayout(activity)
-                                if (!winter) screenshot(activity,
-                                    "normal-$appearance-tab$tab", false)
+                                // Layout comparison is intentionally bitmap-free.
+                                // Standalone screenshot tests cover both themes.
                             }
                         }
                         // Collapsible payment/event lists must share their
@@ -204,7 +204,7 @@ class WinterThemeVisualEmulatorTest {
                             scenario.onActivity { activity ->
                                 layouts["$season-$appearance-$tab-expanded"] =
                                     functionalLayout(activity)
-                                screenshot(activity, "$season-$appearance-tab$tab-expanded", false)
+                                // Expanded layout is compared structurally below.
                             }
                         }
                     }
@@ -375,6 +375,49 @@ class WinterThemeVisualEmulatorTest {
         }
     }
 
+    @Test fun normalAppearanceIsVisibleOnAllTabsInDarkAndLight() {
+        val prefs = context.getSharedPreferences("balancehub_data", Context.MODE_PRIVATE)
+        val oldOnboarding = prefs.all["onboarding_completed"]
+        val oldWelcome = prefs.all["release_welcome_version"]
+        val oldAppearance = prefs.all["appearance"]
+        val oldOverride = prefs.all["winter_theme_test_mode"]
+        val code = PackageInfoCompat.getLongVersionCode(
+            context.packageManager.getPackageInfo(context.packageName, 0))
+        try {
+            val chooseTab = MainActivity::class.java.getDeclaredMethod(
+                "selectTab", Int::class.javaPrimitiveType).apply { isAccessible = true }
+            for (appearance in listOf("night", "day")) {
+                assertTrue(prefs.edit().putBoolean("onboarding_completed", true)
+                    .putLong("release_welcome_version", code)
+                    .putString("appearance", appearance)
+                    .putString("winter_theme_test_mode", WinterThemePolicy.FORCE_OFF)
+                    .commit())
+                ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                    for (tab in 0..4) {
+                        scenario.onActivity { activity ->
+                            if (tab != 0) chooseTab.invoke(activity, tab)
+                        }
+                        instrumentation.waitForIdleSync()
+                        scenario.onActivity { activity ->
+                            screenshot(activity, "normal-" + appearance + "-tab" + tab,
+                                false)
+                        }
+                    }
+                }
+            }
+        } finally {
+            val editor = prefs.edit()
+            if (oldOnboarding is Boolean) editor.putBoolean("onboarding_completed", oldOnboarding)
+            else editor.remove("onboarding_completed")
+            if (oldWelcome is Long) editor.putLong("release_welcome_version", oldWelcome)
+            else editor.remove("release_welcome_version")
+            if (oldAppearance is String) editor.putString("appearance", oldAppearance)
+            else editor.remove("appearance")
+            if (oldOverride is String) editor.putString("winter_theme_test_mode", oldOverride)
+            else editor.remove("winter_theme_test_mode")
+            editor.commit()
+        }
+    }
     @Test fun festiveAppearanceIsVisibleOnAllTabsInDarkAndLight() {
         val prefs = context.getSharedPreferences("balancehub_data", Context.MODE_PRIVATE)
         val oldOnboarding = prefs.all["onboarding_completed"]
