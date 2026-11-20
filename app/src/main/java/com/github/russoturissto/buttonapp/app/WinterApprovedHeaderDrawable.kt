@@ -53,19 +53,24 @@ internal class WinterApprovedHeaderDrawable(
         canvas.withSave {
             if (wordmark.width > 0 && wordmark.height > 0) {
                 val textTop = wordmark.top + wordmark.translationY
+                // Protect only the ink bounds, not TextView font padding and
+                // empty line height: those previously erased the entire string.
+                val glyphBaseline = textTop + wordmark.baseline
+                val glyphTop = glyphBaseline - wordmark.textSize * .83f
+                val glyphBottom = glyphBaseline + wordmark.textSize * .06f
                 val textWidth = wordmark.paint.measureText("BalanceHub") +
                     wordmark.letterSpacing * wordmark.textSize * 9f
                 val right = (wordmark.left + textWidth + density * 2.5f)
                     .coerceAtMost(w)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     canvas.clipOutRect(wordmark.left - density * 2.5f,
-                        textTop - density * 1.5f, right,
-                        textTop + wordmark.height + density * 2.5f)
+                        glyphTop - density * .6f, right,
+                        glyphBottom + density * .6f)
                 } else {
                     @Suppress("DEPRECATION")
                     canvas.clipRect(wordmark.left - density * 2.5f,
-                        textTop - density * 1.5f, right,
-                        textTop + wordmark.height + density * 2.5f,
+                        glyphTop - density * .6f, right,
+                        glyphBottom + density * .6f,
                         Region.Op.DIFFERENCE)
                 }
             }
@@ -128,15 +133,13 @@ internal class WinterApprovedHeaderDrawable(
         val d = density
         val startX = -w * .012f
         val endX = w * .75f
-        // Keep the full cord BELOW the native title; the previous negative
-        // offset put its first third into the title exclusion mask.
-        // A shallower sag also keeps glowing bulbs visible inside the header.
-        val startY = if (wordmark.height > 0) {
-            wordmark.top + wordmark.translationY +
-                wordmark.height + d * 2.5f
-        } else h * .70f
-        val endY = (startY - h * .21f).coerceAtLeast(3f * d)
-        val sag = h * .21f
+        // Keep the chord and the bulb centres inside the measured header.
+        // TextView's wrap-content height/translation is not a safe anchor for
+        // the cord: it can push all lights beyond the foreground render bounds.
+        // Use proportional coordinates with room for glass, halos and overhang.
+        val startY = h * .59f
+        val endY = h * .42f
+        val sag = h * .27f
 
         fun yAt(t: Float): Float {
             val smoothDrop = sag * 4f * t * (1f - t)
