@@ -6,6 +6,7 @@ on:
       - main
       # Owner-approved isolated winter RC. Never published as a stable release.
       - feature/balancehub-winter-rc6
+      - feature/balancehub-winter-rc7
     paths:
       # Runtime changes and explicitly approved version updates trigger release checks.
       - "gradle.properties"
@@ -56,14 +57,28 @@ jobs:
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.rollback_rc13 && '2ea6f89b1c5688abef38fa25854cb52a5555a3ad' || github.sha }}
 
-      - name: Configure signed RC6 test APK on the isolated branch
-        if: ${{ github.ref == 'refs/heads/feature/balancehub-winter-rc6' }}
+      - name: Configure signed winter test APK on the isolated branch
+        if: ${{ github.ref == 'refs/heads/feature/balancehub-winter-rc6' || github.ref == 'refs/heads/feature/balancehub-winter-rc7' }}
         shell: bash
         run: |
           set -euo pipefail
-          grep -qx 'APP_VERSION_NAME=1.2.5-rc6' gradle.properties
-          grep -qx 'APP_VERSION_CODE=758' gradle.properties
-          echo "BUILD_VERSION_NAME=1.2.5-rc6" >> "$GITHUB_ENV"
+          case "$GITHUB_REF" in
+            refs/heads/feature/balancehub-winter-rc6)
+              expected_name=1.2.5-rc6
+              expected_code=758
+              ;;
+            refs/heads/feature/balancehub-winter-rc7)
+              expected_name=1.2.5-rc7
+              expected_code=759
+              ;;
+            *)
+              echo "::error::Unauthorized winter test branch"
+              exit 1
+              ;;
+          esac
+          grep -qx "APP_VERSION_NAME=$expected_name" gradle.properties
+          grep -qx "APP_VERSION_CODE=$expected_code" gradle.properties
+          echo "BUILD_VERSION_NAME=$expected_name" >> "$GITHUB_ENV"
           echo "RELEASE_CHANNEL=test" >> "$GITHUB_ENV"
           echo "Signed test build only: no public release or main merge" >> "$GITHUB_STEP_SUMMARY"
 
@@ -106,8 +121,9 @@ jobs:
             exit 1
           }
           ci_code=$(( ${{ github.run_number }} + 300 ))
-          if [[ "$GITHUB_REF" == "refs/heads/feature/balancehub-winter-rc6" ]]; then
-            # The agreed test APK is exactly build 756, not a CI-run-dependent code.
+          if [[ "$GITHUB_REF" == "refs/heads/feature/balancehub-winter-rc6" ||
+                "$GITHUB_REF" == "refs/heads/feature/balancehub-winter-rc7" ]]; then
+            # Isolated test APKs use the exact owner-approved versionCode.
             code=$configured_code
           else
             code=$(( configured_code > ci_code ? configured_code : ci_code ))
