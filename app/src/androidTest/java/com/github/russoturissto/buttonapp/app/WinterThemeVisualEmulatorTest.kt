@@ -7,11 +7,14 @@ import android.provider.MediaStore
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.view.View
 import android.view.ViewGroup
+import android.widget.TextView
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.core.content.pm.PackageInfoCompat
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -19,7 +22,7 @@ import org.junit.runner.RunWith
 /**
  * Unlike a pure Gradle compilation, this checks real Android UI drawing.
  * A regression to the invisible wire/empty ornament of rc1 is caught by
- * checking saturated red bauble pixels and warm golden bulb pixels.
+ * checking turquoise glass ornaments and the warm golden garland/bow pixels.
  * Captures all five tabs in both appearance modes for a visual review.
  */
 @RunWith(AndroidJUnit4::class)
@@ -34,8 +37,9 @@ class WinterThemeVisualEmulatorTest {
     }
 
     private fun verifyVisibleDecor(header: Bitmap, appearance: String) {
-        var red = 0
+        var turquoise = 0
         var gold = 0
+        var goldOnFreeCord = 0
         val x0 = (header.width * .60f).toInt()
         for (y in 0 until header.height step 2) {
             for (x in x0 until header.width step 2) {
@@ -43,12 +47,30 @@ class WinterThemeVisualEmulatorTest {
                 val r = Color.red(pixel)
                 val g = Color.green(pixel)
                 val b = Color.blue(pixel)
-                if (r > 158 && r > g + 55 && r > b + 45) red++
+                // Glass-blue ornaments must be bright, not just the dark blue sky.
+                if (x > header.width * .72f && y > header.height * .40f &&
+                    g > 135 && b > 155 && g > r + 65 && b > r + 75) turquoise++
                 if (r > 178 && g > 142 && b < 160 && r > b + 45) gold++
             }
         }
-        assertTrue("Red Christmas bauble not visible in " + appearance + ": " + red,
-            red >= 12)
+        // Ensure the actual cord is present LEFT of the photo ornaments.
+        // Previous RC9 image accidentally hid the whole vector string and
+        // passed because the right-hand photo also contains golden pixels.
+        for (y in (header.height * .65f).toInt() until header.height step 2) {
+            for (x in (header.width * .06f).toInt()
+                until (header.width * .51f).toInt() step 2) {
+                val pixel = header.getPixel(x, y)
+                val r = Color.red(pixel)
+                val g = Color.green(pixel)
+                val b = Color.blue(pixel)
+                if (r > 195 && g > 125 && b < 145 && r > b + 65)
+                    goldOnFreeCord++
+            }
+        }
+        assertTrue("Garland bulbs missing left of ornaments in " + appearance +
+            ": " + goldOnFreeCord, goldOnFreeCord >= 20)
+        assertTrue("Turquoise glass bauble not visible in " + appearance +
+            ": " + turquoise, turquoise >= 12)
         assertTrue("Golden light bulbs not visible in " + appearance + ": " + gold,
             gold >= 15)
     }
@@ -87,6 +109,263 @@ class WinterThemeVisualEmulatorTest {
             }, null, null)
         } finally {
             image.recycle()
+        }
+    }
+
+    /** Compare the functional View tree, not decorative colors or outlines. */
+    private fun functionalLayout(activity: MainActivity): List<String> {
+        val container = activity.findViewById<ViewGroup>(android.R.id.content)
+        val screen = container.getChildAt(0) as ViewGroup
+        val header = screen.getChildAt(0) as ViewGroup
+        val headerTitle = header.getChildAt(0)
+        val scroller = screen.getChildAt(1) as ViewGroup
+        val root = scroller.getChildAt(0)
+        val tree = mutableListOf<String>()
+        tree += "BalanceHubTitle:${headerTitle.left},${headerTitle.top}," +
+            "${headerTitle.width},${headerTitle.height},${headerTitle.translationY}"
+        fun walk(view: View, path: String) {
+            if (view.visibility != View.VISIBLE) return
+            if (view is TextView && view.text.isNotBlank()) {
+                tree += "text:${view.text}@$path:${view.left},${view.top}," +
+                    "${view.width},${view.height}"
+            }
+            if (view.isClickable) {
+                tree += "button:${view.javaClass.simpleName}@$path:" +
+                    "${view.left},${view.top},${view.width},${view.height}"
+            }
+            if (view is ViewGroup) {
+                for (i in 0 until view.childCount) {
+                    walk(view.getChildAt(i), "$path/$i")
+                }
+            }
+        }
+        walk(root, "root")
+        return tree
+    }
+
+    @Test fun winterOnlyChangesDecorationAcrossAllTabs() {
+        val prefs = context.getSharedPreferences("balancehub_data", Context.MODE_PRIVATE)
+        val oldOnboarding = prefs.all["onboarding_completed"]
+        val oldWelcome = prefs.all["release_welcome_version"]
+        val oldAppearance = prefs.all["appearance"]
+        val oldOverride = prefs.all["winter_theme_test_mode"]
+        val oldPaymentsExpanded = prefs.all["payments_list_expanded"]
+        val oldEventsExpanded = prefs.all["event_list_expanded"]
+        val code = PackageInfoCompat.getLongVersionCode(
+            context.packageManager.getPackageInfo(context.packageName, 0))
+        val chooseTab = MainActivity::class.java.getDeclaredMethod(
+            "selectTab", Int::class.javaPrimitiveType).apply { isAccessible = true }
+        val redraw = MainActivity::class.java.getDeclaredMethod(
+            "renderTab").apply { isAccessible = true }
+        val layouts = mutableMapOf<String, List<String>>()
+        try {
+            for (appearance in listOf("night", "day")) {
+                for (season in listOf("normal", "winter")) {
+                    val winter = season == "winter"
+                    assertTrue(prefs.edit().putBoolean("onboarding_completed", true)
+                        .putLong("release_welcome_version", code)
+                        .putBoolean("payments_list_expanded", false)
+                        .putBoolean("event_list_expanded", false)
+                        .putString("appearance", appearance)
+                        .putString("winter_theme_test_mode",
+                            if (winter) WinterThemePolicy.FORCE_ON
+                            else WinterThemePolicy.FORCE_OFF).commit())
+                    ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                        for (tab in 0..4) {
+                            scenario.onActivity { activity ->
+                                chooseTab.invoke(activity, tab)
+                            }
+                            instrumentation.waitForIdleSync()
+                            scenario.onActivity { activity ->
+                                layouts["$season-$appearance-$tab"] =
+                                    functionalLayout(activity)
+                                if (!winter) screenshot(activity,
+                                    "normal-$appearance-tab$tab", false)
+                            }
+                        }
+                        // Collapsible payment/event lists must share their
+                        // exact positions and actions in both appearances.
+                        for ((tab, fieldName) in listOf(
+                            2 to "upcomingListExpanded", 3 to "eventListExpanded")) {
+                            scenario.onActivity { activity ->
+                                chooseTab.invoke(activity, tab)
+                                MainActivity::class.java.getDeclaredField(fieldName)
+                                    .apply { isAccessible = true }
+                                    .setBoolean(activity, true)
+                                redraw.invoke(activity)
+                            }
+                            instrumentation.waitForIdleSync()
+                            scenario.onActivity { activity ->
+                                layouts["$season-$appearance-$tab-expanded"] =
+                                    functionalLayout(activity)
+                                screenshot(activity, "$season-$appearance-tab$tab-expanded", false)
+                            }
+                        }
+                    }
+                }
+                for (tab in 0..4) {
+                    assertEquals("Theme changed functional layout on tab $tab ($appearance)",
+                        layouts["normal-$appearance-$tab"],
+                        layouts["winter-$appearance-$tab"])
+                }
+                for (tab in listOf(2, 3)) {
+                    assertEquals("Theme changed expanded tab $tab ($appearance)",
+                        layouts["normal-$appearance-$tab-expanded"],
+                        layouts["winter-$appearance-$tab-expanded"])
+                }
+            }
+        } finally {
+            val editor = prefs.edit()
+            if (oldOnboarding is Boolean) editor.putBoolean(
+                "onboarding_completed", oldOnboarding) else editor.remove("onboarding_completed")
+            if (oldWelcome is Long) editor.putLong(
+                "release_welcome_version", oldWelcome) else editor.remove("release_welcome_version")
+            if (oldAppearance is String) editor.putString(
+                "appearance", oldAppearance) else editor.remove("appearance")
+            if (oldOverride is String) editor.putString(
+                "winter_theme_test_mode", oldOverride) else editor.remove("winter_theme_test_mode")
+            if (oldPaymentsExpanded is Boolean) editor.putBoolean(
+                "payments_list_expanded", oldPaymentsExpanded)
+                else editor.remove("payments_list_expanded")
+            if (oldEventsExpanded is Boolean) editor.putBoolean(
+                "event_list_expanded", oldEventsExpanded)
+                else editor.remove("event_list_expanded")
+            editor.commit()
+        }
+    }
+
+    /** The agreed banner must use the photo ornaments and a real hat on H. */
+    @Test fun approvedFestiveBannerKeepsAccessibleTextAndRedHatOverCapitalH() {
+        val prefs = context.getSharedPreferences("balancehub_data", Context.MODE_PRIVATE)
+        val oldOnboarding = prefs.all["onboarding_completed"]
+        val oldWelcome = prefs.all["release_welcome_version"]
+        val oldAppearance = prefs.all["appearance"]
+        val oldOverride = prefs.all["winter_theme_test_mode"]
+        val code = PackageInfoCompat.getLongVersionCode(
+            context.packageManager.getPackageInfo(context.packageName, 0))
+        try {
+            for (appearance in listOf("night", "day")) {
+                assertTrue(prefs.edit().putBoolean("onboarding_completed", true)
+                    .putLong("release_welcome_version", code)
+                    .putString("appearance", appearance)
+                    .putString("winter_theme_test_mode", WinterThemePolicy.FORCE_ON)
+                    .commit())
+                ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                    instrumentation.waitForIdleSync()
+                    scenario.onActivity { activity ->
+                        val screen = activity.findViewById<ViewGroup>(android.R.id.content)
+                            .getChildAt(0) as ViewGroup
+                        val header = screen.getChildAt(0) as ViewGroup
+                        val wordmark = header.getChildAt(0) as TextView
+                        assertEquals("BalanceHub", wordmark.text.toString())
+                        assertTrue("BalanceHub title is not visible",
+                            wordmark.visibility == View.VISIBLE)
+                        assertTrue("Approved art foreground was not installed",
+                            header.foreground is WinterApprovedHeaderDrawable)
+
+                        val bitmap = render(header)
+                        try {
+                            val startH = (wordmark.left +
+                                wordmark.paint.measureText("Balance") +
+                                wordmark.letterSpacing * wordmark.textSize * 7f).toInt()
+                            val capTop = (wordmark.top + wordmark.translationY).toInt()
+                            var redHatPixels = 0
+                            for (y in (capTop - (wordmark.textSize * 1.1f).toInt())
+                                .coerceAtLeast(0) .. capTop) {
+                                for (x in (startH - (wordmark.textSize * .6f).toInt())
+                                    .coerceAtLeast(0) .. (startH +
+                                    wordmark.textSize * 1.6f).toInt()
+                                    .coerceAtMost(bitmap.width - 1)) {
+                                    val pixel = bitmap.getPixel(x, y)
+                                    val r = Color.red(pixel)
+                                    val g = Color.green(pixel)
+                                    val b = Color.blue(pixel)
+                                    if (r > 128 && r > g * 1.55f && r > b * 1.45f)
+                                        redHatPixels++
+                                }
+                            }
+                            assertTrue("Santa hat is missing above the capital H: " +
+                                redHatPixels, redHatPixels >= 24)
+
+                            // The warm cord is drawn in the background,
+                            // BEFORE the native white title, so it cannot
+                            // replace the glyphs or obstruct accessibility.
+                            assertTrue("Garland background layer missing",
+                                header.background is
+                                    android.graphics.drawable.LayerDrawable)
+                            var whiteTitlePixels = 0
+                            val top = (wordmark.top + wordmark.translationY)
+                                .toInt().coerceAtLeast(0)
+                            val bottom = (top + wordmark.height)
+                                .coerceAtMost(bitmap.height)
+                            val visibleTextRight = (wordmark.left +
+                                wordmark.paint.measureText("BalanceHub") +
+                                wordmark.letterSpacing * wordmark.textSize * 9f)
+                                .toInt().coerceAtMost(bitmap.width)
+                            for (y in top until bottom step 2) {
+                                for (x in wordmark.left until visibleTextRight step 2) {
+                                    val pixel = bitmap.getPixel(x, y)
+                                    if (Color.red(pixel) > 225 &&
+                                        Color.green(pixel) > 225 &&
+                                        Color.blue(pixel) > 225) whiteTitlePixels++
+                                }
+                            }
+                            assertTrue("Native BalanceHub white title obscured: " +
+                                whiteTitlePixels, whiteTitlePixels > 35)
+                        } finally { bitmap.recycle() }
+                    }
+                }
+            }
+        } finally {
+            val editor = prefs.edit()
+            if (oldOnboarding is Boolean) editor.putBoolean(
+                "onboarding_completed", oldOnboarding)
+            else editor.remove("onboarding_completed")
+            if (oldWelcome is Long) editor.putLong(
+                "release_welcome_version", oldWelcome)
+            else editor.remove("release_welcome_version")
+            if (oldAppearance is String) editor.putString(
+                "appearance", oldAppearance)
+            else editor.remove("appearance")
+            if (oldOverride is String) editor.putString(
+                "winter_theme_test_mode", oldOverride)
+            else editor.remove("winter_theme_test_mode")
+            editor.commit()
+        }
+    }
+
+    @Test fun frostIsUniquePerWindowAndStableBetweenDraws() {
+        val d = context.resources.displayMetrics.density
+        val width = (240f * d).toInt()
+        val height = (130f * d).toInt()
+        fun sample(drawable: android.graphics.drawable.Drawable): Bitmap {
+            drawable.setBounds(0, 0, width, height)
+            return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                .also { drawable.draw(Canvas(it)) }
+        }
+        fun frost(): WinterFrostDrawable = WinterFrostDrawable(
+            android.graphics.drawable.ColorDrawable(Color.rgb(8, 51, 66)),
+            d, true, WinterSurface.CARD)
+        val first = frost()
+        val other = frost()
+        val a = sample(first)
+        val same = sample(first)
+        val b = sample(other)
+        try {
+            var differences = 0
+            for (y in 1 until height step 5) {
+                for (x in 1 until width step 5) {
+                    assertTrue("Frost moved during redraw at $x, $y",
+                        a.getPixel(x, y) == same.getPixel(x, y))
+                    if (a.getPixel(x, y) != b.getPixel(x, y)) differences++
+                }
+            }
+            assertTrue("Two cards reused the same crystal pattern: $differences",
+                differences > 20)
+        } finally {
+            a.recycle()
+            same.recycle()
+            b.recycle()
         }
     }
 

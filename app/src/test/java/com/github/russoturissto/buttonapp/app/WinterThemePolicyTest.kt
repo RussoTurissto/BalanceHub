@@ -24,7 +24,7 @@ class WinterThemePolicyTest {
         assertTrue(WinterThemePolicy.enabled(12, 20, WinterThemePolicy.AUTO))
     }
 
-    @Test fun frostRemainsBelowOriginalConceptIntensity() {
-        assertTrue(WinterThemePolicy.FROST_INTENSITY in 0.88f..0.90f)
+    @Test fun frostIsFivePercentSofterThanApprovedReference() {
+        assertTrue(WinterThemePolicy.FROST_INTENSITY in 0.949f..0.951f)
     }
 }

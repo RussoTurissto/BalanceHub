@@ -24,7 +24,7 @@ internal object WinterThemePolicy {
     const val AUTO = "auto"
     const val FORCE_ON = "force_on"
     const val FORCE_OFF = "force_off"
-    const val FROST_INTENSITY = 0.89f
+    const val FROST_INTENSITY = 0.95f
 
     fun enabled(month: Int, day: Int, mode: String = AUTO): Boolean = when (mode) {
         FORCE_ON -> true
@@ -59,75 +59,119 @@ internal object WinterThemeState {
 internal enum class WinterSurface { SCREEN, CARD, NAVIGATION, DIALOG, PIN_KEY }
 
 /**
- * Procedural ice overlay that follows the *actual* rounded card geometry.
- * Decorative drawings are confined to 0..14dp around every edge, outside
- * the 18dp content padding. Its opacity is 89% of the reference art.
+ * Feathered ice like the approved reference, at 95% reference intensity.
+ * The details stay in a narrow band near the edges so text remains legible.
+ * One wrapper is reused by cards, modals, the navigation bar, and the screen.
  */
 internal class WinterFrostDrawable(
     private val original: Drawable,
     private val density: Float,
     private val dark: Boolean,
-    private val surface: WinterSurface
+    private val surface: WinterSurface,
+    private val patternSeed: Long = System.nanoTime()
 ) : Drawable() {
-    private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+    // The caller supplies a stable key for each screen/card/menu.
+    // Standalone dialogs can use the unique constructor default.
+    private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
     private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
     }
-    private var opacity = 255
     private val d get() = density
-
+    private var opacity = 255
     private fun ice(alpha: Int): Int {
         val actual = (alpha * WinterThemePolicy.FROST_INTENSITY * opacity / 255f)
             .toInt().coerceIn(0, 255)
-        return if (dark) Color.argb(actual, 204, 244, 251)
-            else Color.argb(actual, 58, 132, 151)
+        return if (dark) Color.argb(actual, 214, 247, 252)
+            else Color.argb(actual, 52, 141, 163)
     }
 
     override fun onBoundsChange(bounds: Rect) { original.bounds = bounds }
 
-    private fun snowflake(canvas: Canvas, cx: Float, cy: Float, size: Float, alpha: Int) {
-        stroke.shader = null
-        stroke.color = ice(alpha)
-        stroke.strokeWidth = (0.85f * d).coerceAtLeast(1.0f)
-        for (arm in 0 until 6) {
-            val a = Math.PI * arm / 3.0
-            val dx = cos(a).toFloat()
-            val dy = sin(a).toFloat()
-            val ex = cx + dx * size
-            val ey = cy + dy * size
-            canvas.drawLine(cx, cy, ex, ey, stroke)
-            val bx = cx + dx * size * .69f
-            val by = cy + dy * size * .69f
-            val twig = size * .23f
-            canvas.drawLine(bx, by, bx - dx * twig + dy * twig,
-                by - dy * twig - dx * twig, stroke)
-            canvas.drawLine(bx, by, bx - dx * twig - dy * twig,
-                by - dy * twig + dx * twig, stroke)
-        }
-    }
-
-    private fun frostSprig(
-        canvas: Canvas, x: Float, y: Float, dx: Float, dy: Float,
-        length: Float, alpha: Int
+    private fun line(canvas: Canvas, x: Float, y: Float,
+        xx: Float, yy: Float, thickness: Float, alpha: Int
     ) {
         stroke.shader = null
         stroke.color = ice(alpha)
-        stroke.strokeWidth = .85f * d
-        canvas.drawLine(x, y, x + dx * length, y + dy * length, stroke)
-        val px = -dy
-        val py = dx
-        for (i in 1..5) {
-            val t = i / 6f
+        stroke.strokeWidth = thickness * d
+        canvas.drawLine(x, y, xx, yy, stroke)
+    }
+
+    /** Many fine nested branches instead of the old repeated geometric stamps. */
+    private fun feather(canvas: Canvas, x: Float, y: Float,
+        dx: Float, dy: Float, length: Float, strength: Int
+    ) {
+        val perpX = -dy
+        val perpY = dx
+        val endX = x + dx * length
+        val endY = y + dy * length
+        line(canvas, x, y, endX, endY, .8f, strength)
+        for (i in 1..10) {
+            val t = i / 11f
             val bx = x + dx * length * t
             val by = y + dy * length * t
-            val twig = (4.5f + (1f - t) * 3.5f) * d
-            stroke.strokeWidth = .65f * d
-            canvas.drawLine(bx, by, bx + (dx * .6f + px) * twig,
-                by + (dy * .6f + py) * twig, stroke)
-            canvas.drawLine(bx, by, bx + (dx * .6f - px) * twig,
-                by + (dy * .6f - py) * twig, stroke)
+            val sideLength = length * (.40f - .22f * t)
+            for (side in listOf(-1f, 1f)) {
+                val ex = bx + dx * sideLength * .30f + perpX * sideLength * side
+                val ey = by + dy * sideLength * .30f + perpY * sideLength * side
+                line(canvas, bx, by, ex, ey, .51f, strength * 8 / 10)
+                if (i % 2 == 0) {
+                    val sx = bx + (ex - bx) * .7f
+                    val sy = by + (ey - by) * .7f
+                    line(canvas, sx, sy, ex + dx * sideLength * .16f,
+                        ey + dy * sideLength * .16f, .38f,
+                        strength * 6 / 10)
+                }
+            }
+        }
+    }
+
+    private fun sparkle(canvas: Canvas, x: Float, y: Float,
+        radius: Float, alpha: Int
+    ) {
+        for (arm in 0 until 6) {
+            val a = arm * Math.PI / 3.0
+            val dx = cos(a).toFloat()
+            val dy = sin(a).toFloat()
+            line(canvas, x, y, x + dx * radius, y + dy * radius, .48f, alpha)
+            val bx = x + dx * radius * .69f
+            val by = y + dy * radius * .69f
+            line(canvas, bx, by, bx - dx * radius * .14f + dy * radius * .15f,
+                by - dy * radius * .14f - dx * radius * .15f, .35f, alpha)
+            line(canvas, bx, by, bx - dx * radius * .14f - dy * radius * .15f,
+                by - dy * radius * .14f + dx * radius * .15f, .35f, alpha)
+        }
+    }
+
+    private fun corner(canvas: Canvas, x: Float, y: Float,
+        signX: Float, signY: Float, wide: Boolean
+    ) {
+        val size = if (wide) 19f * d else 13f * d
+        feather(canvas, x, y, signX * .93f, signY * .37f, size, 216)
+        feather(canvas, x, y, signX * .30f, signY * .95f, size * 1.10f, 212)
+        feather(canvas, x, y, signX * .72f, signY * .70f, size * .88f, 180)
+        if (wide) {
+            feather(canvas, x + signX * 11f * d, y + signY * 2.2f * d,
+                signX * .85f, signY * .52f, 13f * d, 158)
+        }
+        sparkle(canvas, x + signX * 7f * d, y + signY * 7f * d,
+            2.4f * d, 135)
+    }
+
+    private fun frame(canvas: Canvas, w: Float, h: Float, radius: Float) {
+        for ((inset, thickness, alpha) in listOf(
+            Triple(3.1f, 1.8f, 26),
+            Triple(2.0f, .95f, 68),
+            Triple(1.0f, .55f, 148)
+        )) {
+            stroke.shader = null
+            stroke.color = ice(alpha)
+            stroke.strokeWidth = thickness * d
+            canvas.drawRoundRect(RectF(inset * d, inset * d, w - inset * d,
+                h - inset * d),
+                (radius - inset * d).coerceAtLeast(0f),
+                (radius - inset * d).coerceAtLeast(0f), stroke)
         }
     }
 
@@ -136,105 +180,44 @@ internal class WinterFrostDrawable(
         original.draw(canvas)
         val w = bounds.width().toFloat()
         val h = bounds.height().toFloat()
-        if (w <= 20f * d || h <= 20f * d) return
-
+        if (w < 20f * d || h < 20f * d) return
         canvas.withTranslation(bounds.left.toFloat(), bounds.top.toFloat()) {
             canvas.withSave {
-                val edge = if (surface == WinterSurface.SCREEN) 0f else 1.0f * d
+                val screen = surface == WinterSurface.SCREEN
                 val radius = when (surface) {
                     WinterSurface.DIALOG -> 22f * d
                     WinterSurface.NAVIGATION -> 20f * d
                     WinterSurface.PIN_KEY -> 12f * d
-                    else -> 20f * d
+                    else -> if (screen) 23f * d else 20f * d
                 }
-                val outer = RectF(edge, edge, w - edge, h - edge)
-                if (surface == WinterSurface.SCREEN) {
+                if (screen) {
                     canvas.clipRect(0f, 0f, w, h)
                 } else {
                     val shape = Path().apply {
-                        addRoundRect(outer, radius, radius, Path.Direction.CW)
+                        addRoundRect(RectF(d, d, w - d, h - d),
+                            radius, radius, Path.Direction.CW)
                     }
                     canvas.clipPath(shape)
                 }
+                // A translucent luminous lip, not a thick solid neon frame.
+                frame(canvas, w, h, radius)
+                if (surface == WinterSurface.PIN_KEY) return@withSave
 
-                if (surface == WinterSurface.SCREEN) {
-                    fill.shader = LinearGradient(0f, 0f, 16f * d, 0f,
-                        ice(115), Color.TRANSPARENT, Shader.TileMode.CLAMP)
-                    canvas.drawRect(0f, 0f, 16f * d, h, fill)
-                    fill.shader = LinearGradient(w, 0f, w - 16f * d, 0f,
-                        ice(115), Color.TRANSPARENT, Shader.TileMode.CLAMP)
-                    canvas.drawRect(w - 16f * d, 0f, w, h, fill)
-                    fill.shader = null
-                    val steps = (h / (155f * d)).toInt().coerceIn(3, 12)
-                    for (i in 0..steps) {
-                        val y = h * (i + .45f) / (steps + 1)
-                        snowflake(canvas, 7.5f * d, y, 5.5f * d, 185)
-                        snowflake(canvas, w - 7.5f * d, y + 22f * d,
-                            5.0f * d, 165)
-                        frostSprig(canvas, 1.5f * d, y - 15f * d, .67f, .74f,
-                            12f * d, 180)
-                        frostSprig(canvas, w - 1.5f * d, y + 10f * d,
-                            -.67f, .74f, 12f * d, 180)
-                    }
-                    return@withSave
-                }
-
-                // Glow, ice line and frosted lip follow the same rounded shape.
-                stroke.shader = null
-                stroke.color = ice(if (surface == WinterSurface.PIN_KEY) 70 else 80)
-                stroke.strokeWidth = 4.3f * d
-                canvas.drawRoundRect(RectF(edge + 2.1f * d, edge + 2.1f * d,
-                    w - edge - 2.1f * d, h - edge - 2.1f * d),
-                    (radius - 2.1f * d).coerceAtLeast(0f),
-                    (radius - 2.1f * d).coerceAtLeast(0f), stroke)
-                stroke.color = ice(if (surface == WinterSurface.PIN_KEY) 130 else 205)
-                stroke.strokeWidth = 1.4f * d
-                canvas.drawRoundRect(RectF(edge + 1f * d, edge + 1f * d,
-                    w - edge - 1f * d, h - edge - 1f * d),
-                    (radius - d).coerceAtLeast(0f),
-                    (radius - d).coerceAtLeast(0f), stroke)
-
-                val lip = if (surface == WinterSurface.PIN_KEY) 5f * d else 14f * d
+                val lip = if (screen) 9f * d else 11f * d
                 fill.shader = LinearGradient(0f, 0f, 0f, lip,
-                    ice(if (surface == WinterSurface.PIN_KEY) 88 else 165),
-                    Color.TRANSPARENT, Shader.TileMode.CLAMP)
+                    ice(if (screen) 47 else 66), Color.TRANSPARENT,
+                    Shader.TileMode.CLAMP)
                 canvas.drawRect(0f, 0f, w, lip, fill)
                 fill.shader = LinearGradient(0f, h, 0f, h - lip,
-                    ice(if (surface == WinterSurface.PIN_KEY) 70 else 125),
-                    Color.TRANSPARENT, Shader.TileMode.CLAMP)
+                    ice(if (screen) 47 else 64), Color.TRANSPARENT,
+                    Shader.TileMode.CLAMP)
                 canvas.drawRect(0f, h - lip, w, h, fill)
                 fill.shader = null
 
-                if (surface == WinterSurface.PIN_KEY) {
-                    snowflake(canvas, 5.3f * d, 5.3f * d, 2.7f * d, 165)
-                    snowflake(canvas, w - 5.3f * d, h - 5.3f * d,
-                        2.7f * d, 165)
-                    return@withSave
-                }
-
-                // A finite corner pattern; 18dp content insets remain clear.
-                val near = 8f * d
-                frostSprig(canvas, near, 5f * d, .85f, .53f, 14f * d, 230)
-                frostSprig(canvas, w - near, 5f * d, -.85f, .53f, 14f * d, 230)
-                snowflake(canvas, near, 7.5f * d, 6f * d, 195)
-                snowflake(canvas, w - near, 7.5f * d, 6f * d, 195)
-                if (h > 54f * d) {
-                    frostSprig(canvas, near, h - 5f * d, .85f, -.53f,
-                        13f * d, 205)
-                    frostSprig(canvas, w - near, h - 5f * d, -.85f, -.53f,
-                        13f * d, 205)
-                    snowflake(canvas, near, h - 7f * d, 5f * d, 178)
-                    snowflake(canvas, w - near, h - 7f * d, 5f * d, 178)
-                }
-                if (h > 105f * d) {
-                    for (i in 1..3) {
-                        val y = h * i / 4f
-                        frostSprig(canvas, 2.5f * d, y, .9f, -.42f,
-                            9f * d, 145)
-                        frostSprig(canvas, w - 2.5f * d, y, -.9f, -.42f,
-                            9f * d, 145)
-                    }
-                }
+                // Each card, window, menu and navigation bar grows its own
+                // natural crystal pattern. It never repeats the old stamps.
+                WinterNaturalFrost.render(canvas, w, h, d, dark, surface,
+                    opacity, patternSeed)
             }
         }
     }
@@ -248,6 +231,7 @@ internal class WinterFrostDrawable(
         original.setColorFilter(colorFilter)
         invalidateSelf()
     }
+    @Deprecated("Deprecated in Android API")
     override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
 }
 

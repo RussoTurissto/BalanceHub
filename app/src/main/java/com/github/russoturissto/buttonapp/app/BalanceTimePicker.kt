@@ -27,6 +27,10 @@ import kotlin.math.sin
 /** BalanceHub-native, fully themed 24-hour radial time picker with manual input. */
 internal object BalanceTimePicker {
     fun show(context: Context, hour: Int, minute: Int, onTime: (Int, Int) -> Unit) {
+        if (WinterThemeState.active(context)) {
+            WinterReferenceTimePicker.show(context, hour, minute, onTime)
+            return
+        }
         val night = (context.resources.configuration.uiMode and
             Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
         val ink = if (night) Color.rgb(239, 249, 247) else Color.rgb(30, 57, 59)

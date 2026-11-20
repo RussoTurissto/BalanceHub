@@ -543,47 +543,76 @@ class MainActivity : AppCompatActivity() {
         get() = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
             Configuration.UI_MODE_NIGHT_YES
     private val winterActive: Boolean get() = WinterThemeState.active(this)
+    // Photo ornaments and hat remain the two original owner-approved crops.
+    // The garland is now native Canvas artwork to avoid the old raster bar.
+    private val approvedOrnaments by lazy {
+        android.graphics.BitmapFactory.decodeResource(resources, R.drawable.approved_ornaments)
+    }
+    private val approvedSantaHat by lazy {
+        android.graphics.BitmapFactory.decodeResource(resources, R.drawable.approved_santa_hat)
+    }
+    // Reproducible unique patterns: the ordinal is reset when the tab is
+    // rendered, and kept stable while an individual View is redrawn.
+    private var winterFrostOrdinal = 0L
     private fun winterDrawable(original: android.graphics.drawable.Drawable,
         surface: WinterSurface): android.graphics.drawable.Drawable =
         if (winterActive) WinterFrostDrawable(original, resources.displayMetrics.density,
-            isNight, surface) else original
-    private val ink: Int get() = if (isNight) Color.rgb(239, 249, 247) else Color.rgb(30, 57, 59)
-    private val muted: Int get() = if (isNight) Color.rgb(165, 189, 191) else Color.rgb(104, 129, 130)
-    private val accent: Int get() = if (isNight) Color.rgb(87, 169, 167) else Color.rgb(35, 131, 131)
-    private val surface: Int get() = if (isNight) Color.rgb(32, 54, 60) else Color.WHITE
-    private val backdrop: Int get() = if (isNight) Color.rgb(17, 33, 40) else Color.rgb(237, 248, 246)
-    private val softAccent: Int get() = if (isNight) Color.rgb(38, 77, 78) else Color.rgb(223, 244, 239)
+            isNight, surface,
+            patternSeed = 0x5BC21L + (++winterFrostOrdinal * 32452843L) +
+                currentTab.toLong() * 1000003L) else original
+    private val ink: Int get() = if (winterActive) Color.rgb(241, 250, 253)
+        else if (isNight) Color.rgb(239, 249, 247) else Color.rgb(30, 57, 59)
+    private val muted: Int get() = if (winterActive) Color.rgb(168, 205, 217)
+        else if (isNight) Color.rgb(165, 189, 191) else Color.rgb(104, 129, 130)
+    private val accent: Int get() = if (winterActive) Color.rgb(54, 213, 218)
+        else if (isNight) Color.rgb(87, 169, 167) else Color.rgb(35, 131, 131)
+    private val surface: Int get() = if (winterActive) Color.rgb(14, 56, 72)
+        else if (isNight) Color.rgb(32, 54, 60) else Color.WHITE
+    private val backdrop: Int get() = if (winterActive) Color.rgb(4, 33, 48)
+        else if (isNight) Color.rgb(17, 33, 40) else Color.rgb(237, 248, 246)
+    private val softAccent: Int get() = if (winterActive) Color.rgb(19, 79, 95)
+        else if (isNight) Color.rgb(38, 77, 78) else Color.rgb(223, 244, 239)
 
     private val balanceHubTypeface: Typeface by lazy {
         Typeface.createFromAsset(assets, "fonts/montserrat_bold.ttf")
     }
-
+    // Holiday ornaments are drawn directly as anti-aliased vector artwork.
+    // The former low-resolution bitmap was blurred when Android scaled it.
     private fun screenGradient(): android.graphics.drawable.Drawable =
         winterDrawable(GradientDrawable(
             GradientDrawable.Orientation.TOP_BOTTOM,
-            if (isNight) intArrayOf(Color.rgb(19, 42, 49), Color.rgb(17, 31, 38))
+            if (winterActive) {
+                if (isNight) intArrayOf(Color.rgb(5, 38, 53), Color.rgb(3, 26, 39))
+                else intArrayOf(Color.rgb(12, 65, 82), Color.rgb(6, 43, 59))
+            } else if (isNight) intArrayOf(Color.rgb(19, 42, 49), Color.rgb(17, 31, 38))
             else intArrayOf(Color.rgb(238, 250, 247), Color.rgb(245, 249, 249))
         ), WinterSurface.SCREEN)
 
     private fun cardGradient(): android.graphics.drawable.Drawable = winterDrawable(
         GradientDrawable(GradientDrawable.Orientation.TL_BR,
-            if (isNight) intArrayOf(Color.rgb(37, 63, 67), Color.rgb(31, 48, 57))
+            if (winterActive) {
+                if (isNight) intArrayOf(Color.rgb(10, 61, 78), Color.rgb(7, 35, 51))
+                else intArrayOf(Color.rgb(24, 81, 101), Color.rgb(12, 56, 77))
+            } else if (isNight) intArrayOf(Color.rgb(37, 63, 67), Color.rgb(31, 48, 57))
             else intArrayOf(Color.WHITE, Color.rgb(235, 247, 245))
         ).apply {
             cornerRadius = dp(20).toFloat()
-            setStroke(dp(1), if (isNight) Color.rgb(66, 102, 104)
+            setStroke(dp(1), if (winterActive) Color.rgb(126, 212, 232)
+                else if (isNight) Color.rgb(66, 102, 104)
                 else Color.rgb(205, 229, 225))
         }, WinterSurface.CARD)
 
     private fun filledButtonGradient(): GradientDrawable = GradientDrawable(
         GradientDrawable.Orientation.LEFT_RIGHT,
-        if (isNight) intArrayOf(Color.rgb(47, 131, 136), Color.rgb(40, 158, 142))
+        if (winterActive) intArrayOf(Color.rgb(17, 157, 183), Color.rgb(25, 205, 196))
+        else if (isNight) intArrayOf(Color.rgb(47, 131, 136), Color.rgb(40, 158, 142))
         else intArrayOf(Color.rgb(48, 145, 150), Color.rgb(36, 143, 125))
     ).apply { cornerRadius = dp(14).toFloat() }
 
     private fun tabBackground(selected: Boolean): GradientDrawable =
         if (selected) filledButtonGradient() else GradientDrawable().apply {
-            setColor(if (isNight) Color.rgb(23, 41, 48) else Color.rgb(245, 252, 250))
+            setColor(if (winterActive) Color.rgb(7, 45, 62)
+                else if (isNight) Color.rgb(23, 41, 48) else Color.rgb(245, 252, 250))
             cornerRadius = dp(13).toFloat()
             setStroke(dp(1), if (isNight) Color.rgb(112, 151, 151)
                 else Color.rgb(143, 181, 181))
@@ -603,14 +632,14 @@ class MainActivity : AppCompatActivity() {
     /** Shared visual style for all mobile providers and supported banks. */
     private fun balanceAmountPill(label: String, knownBalance: Boolean = true): TextView =
         textLine(label, if (knownBalance) BalanceAmountStyle.FONT_SIZE_SP else 15f,
-            Color.rgb(23, 55, 33), true).apply {
+            if (winterActive) ink else Color.rgb(23, 55, 33), true).apply {
             gravity = Gravity.CENTER
             includeFontPadding = false
             setPadding(dp(BalanceAmountStyle.HORIZONTAL_PADDING_DP),
                 dp(BalanceAmountStyle.VERTICAL_PADDING_DP),
                 dp(BalanceAmountStyle.HORIZONTAL_PADDING_DP),
                 dp(BalanceAmountStyle.VERTICAL_PADDING_DP))
-            background = rounded(
+            background = if (winterActive) null else rounded(
                 if (isNight) Color.rgb(191, 239, 104)
                 else Color.rgb(216, 241, 166), BalanceAmountStyle.CORNER_RADIUS_DP)
         }
@@ -704,7 +733,8 @@ class MainActivity : AppCompatActivity() {
         isAllCaps = false
         setTextColor(ink)
         background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
-            if (isNight) intArrayOf(Color.rgb(49, 84, 85), Color.rgb(40, 73, 74))
+            if (winterActive) intArrayOf(Color.rgb(15, 76, 94), Color.rgb(7, 50, 70))
+            else if (isNight) intArrayOf(Color.rgb(49, 84, 85), Color.rgb(40, 73, 74))
             else intArrayOf(Color.rgb(229, 247, 242), Color.rgb(214, 240, 234))
         ).apply {
             cornerRadius = dp(12).toFloat()
@@ -732,11 +762,15 @@ class MainActivity : AppCompatActivity() {
 
     private fun dialogGradient(): android.graphics.drawable.Drawable = winterDrawable(
         GradientDrawable(GradientDrawable.Orientation.TL_BR,
-            if (isNight) intArrayOf(Color.rgb(36, 66, 70), Color.rgb(26, 46, 54))
+            if (winterActive) {
+                if (isNight) intArrayOf(Color.rgb(8, 54, 72), Color.rgb(5, 29, 46))
+                else intArrayOf(Color.rgb(24, 85, 106), Color.rgb(10, 51, 72))
+            } else if (isNight) intArrayOf(Color.rgb(36, 66, 70), Color.rgb(26, 46, 54))
             else intArrayOf(Color.WHITE, Color.rgb(233, 247, 243))
         ).apply {
             cornerRadius = dp(22).toFloat()
-            setStroke(dp(1), if (isNight) Color.rgb(72, 132, 127)
+            setStroke(dp(1), if (winterActive) Color.rgb(135, 218, 240)
+                else if (isNight) Color.rgb(72, 132, 127)
                 else Color.rgb(172, 217, 208))
         }, WinterSurface.DIALOG)
 
@@ -785,30 +819,51 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showDashboard() {
+        winterFrostOrdinal = 0L
         renderedWinter = winterActive
         val screen = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = screenGradient()
+            // Winter artwork may extend past the header's view bounds.
+            // Do not clip its decorative overflow; layout sizes stay intact.
+            if (winterActive) {
+                clipChildren = false
+                clipToPadding = false
+            }
         }
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), headerTopPadding, dp(20), dp(23))
-            background = BalanceHubHeaderDrawable(isNight)
-            if (winterActive) {
-                // A foreground layer is drawn after the header children.
-                // It remains visible above the gradient without moving the title.
-                foreground = WinterHeaderDrawable(
-                    Color.TRANSPARENT.toDrawable(),
-                    resources.displayMetrics.density
-                )
-            }
+            background = BalanceHubHeaderDrawable(isNight, winterActive)
         }
-        header.addView(textLine("BalanceHub", 21f, Color.WHITE, true).apply {
+        val headerTitle = textLine("BalanceHub", 21f, Color.WHITE, true).apply {
             typeface = balanceHubTypeface
             letterSpacing = -0.015f
-            // Shift the wordmark down without resizing the gradient header.
+            // This remains a native TextView in its exact existing position.
             translationY = dp(8).toFloat()
-        })
+        }
+        header.addView(headerTitle)
+        if (winterActive) {
+            // The glowing garland is an independent BACKGROUND layer.
+            // Actual BalanceHub TextView glyphs are drawn above the bulbs,
+            // while the photo fir and Santa hat remain in the foreground.
+            header.background = android.graphics.drawable.LayerDrawable(
+                arrayOf(
+                    BalanceHubHeaderDrawable(isNight, true),
+                    WinterApprovedHeaderDrawable(
+                        resources.displayMetrics.density,
+                        headerTitle, approvedOrnaments, approvedSantaHat,
+                        garlandOnly = true
+                    )
+                )
+            )
+            header.foreground = WinterApprovedHeaderDrawable(
+                resources.displayMetrics.density,
+                headerTitle,
+                approvedOrnaments,
+                approvedSantaHat
+            )
+        }
         screen.addView(header)
 
         // Horizontal gestures switch tabs while normal vertical scrolling
@@ -976,6 +1031,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderTab() {
+        winterFrostOrdinal = 0L
         // The bottom navigation persists across tabs; restore its original
         // drawable and elevation before rendering the next tutorial step.
         clearTutorialHighlights()
@@ -1376,9 +1432,10 @@ class MainActivity : AppCompatActivity() {
                     orientation = LinearLayout.VERTICAL
                     gravity = Gravity.CENTER
                     background = BalanceCalendarDayDrawable(this@MainActivity,
-                        isNight, paymentCount > 0, eventCount > 0, chosen, isToday)
+                        isNight || winterActive, paymentCount > 0, eventCount > 0,
+                        chosen, isToday)
                     addView(textLine(day.toString(), 13f,
-                        if (isNight && (marked || chosen)) Color.WHITE else ink,
+                        if ((isNight || winterActive) && (marked || chosen)) Color.WHITE else ink,
                         chosen || marked || isToday).apply {
                         gravity = Gravity.CENTER
                         includeFontPadding = false
@@ -1387,7 +1444,7 @@ class MainActivity : AppCompatActivity() {
                         if (paymentCount + eventCount > 1)
                             (paymentCount + eventCount).toString()
                         else if (marked) "•" else " ",
-                        9f, if (isNight && (marked || chosen)) Color.WHITE else accent,
+                        9f, if ((isNight || winterActive) && (marked || chosen)) Color.WHITE else accent,
                         marked
                     ).apply {
                         gravity = Gravity.CENTER
@@ -2229,6 +2286,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderPaymentScreen() {
+        // The normal layout is authoritative; frost only changes its skin.
         contentContainer.addView(textLine("Платежи", 23f, ink, true))
         contentContainer.addView(verticalGap(6))
         contentContainer.addView(textLine(
@@ -2513,9 +2571,10 @@ class MainActivity : AppCompatActivity() {
     private fun settingsPanel(vararg views: View) = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
         background = cardGradient()
-        views.forEachIndexed { i, view ->
-            if (i > 0) addView(View(this@MainActivity).apply {
-                setBackgroundColor(if (isNight) Color.rgb(63, 100, 102)
+        views.forEachIndexed { index, view ->
+            if (index > 0) addView(View(this@MainActivity).apply {
+                setBackgroundColor(if (winterActive) Color.rgb(81, 126, 141)
+                    else if (isNight) Color.rgb(63, 100, 102)
                     else Color.rgb(201, 228, 224))
             }, LinearLayout.LayoutParams(-1, dp(1)).apply {
                 marginStart = dp(14)
@@ -2676,6 +2735,7 @@ class MainActivity : AppCompatActivity() {
         contentContainer.addView(textLine("Управление BalanceHub", 12f, muted))
         contentContainer.addView(verticalGap(16))
         val appInfo = packageManager.getPackageInfo(packageName, 0)
+        // Same order and actions as the classic interface in every theme.
         settingsGroup(settingsPanel(
             settingsRow("settings", "Оформление", "Авто, светлая или тёмная") {
                 openSettingsPage("appearance")
@@ -5801,6 +5861,7 @@ class MainActivity : AppCompatActivity() {
     private fun renderPayments() {
         if (!::listContainer.isInitialized || currentTab != 2 || archiveOpen) return
         listContainer.removeAllViews()
+        // A single collapsible list + archive row for every appearance.
         val sorted = payments.sortedBy {
             PaymentOccurrenceEngine.upcoming(it, System.currentTimeMillis(), 1)
                 .firstOrNull()?.dueAt ?: Long.MAX_VALUE
@@ -6466,7 +6527,8 @@ class MainActivity : AppCompatActivity() {
     /** Common theme-aware icon badge used by payments, events and archives. */
     private fun iconTile(id: String, size: Int = 42): ImageView =
         ImageView(this).apply {
-            val color = IconRegistry.tint(id, isNight)
+            val color = if (winterActive) Color.rgb(136, 236, 246)
+                else IconRegistry.tint(id, isNight)
             setImageDrawable(AppIconDrawable(id, color))
             scaleType = ImageView.ScaleType.FIT_CENTER
             background = rounded(softAccent, 12)
@@ -6669,6 +6731,8 @@ class MainActivity : AppCompatActivity() {
 
 
     private fun renderEvents() {
+        EventStore.reconcileElapsed(this)
+        // Empty and non-empty event lists share the same normal-mode layout.
         contentContainer.addView(textLine("События", 23f, ink, true))
         contentContainer.addView(verticalGap(6))
         contentContainer.addView(textLine(

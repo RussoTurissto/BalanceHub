@@ -69,6 +69,7 @@ internal class BalanceBottomNavigation(
     onTabRequested: (Int) -> Unit
 ) : FrameLayout(context) {
     private val density = resources.displayMetrics.density
+    private val winter = WinterThemeState.active(context)
     private fun dp(value: Int) = (value * density + .5f).toInt()
     private val labels = listOf("Главная", "Балансы", "Платежи", "События", "Настройки")
     private val symbols = listOf("home", "wallet", "credit-card", "calendar-days", "settings")
@@ -80,9 +81,11 @@ internal class BalanceBottomNavigation(
     private var indicatorReady = false
     private var slide: ValueAnimator? = null
     private var selected = initialTab.coerceIn(0, NavigationMotionPolicy.TAB_COUNT - 1)
-    private val normalText = if (night) Color.rgb(227, 240, 239)
+    private val normalText = if (winter) Color.rgb(222, 244, 249)
+        else if (night) Color.rgb(227, 240, 239)
         else Color.rgb(42, 75, 77)
-    private val normalIcon = if (night) Color.rgb(216, 234, 232)
+    private val normalIcon = if (winter) Color.rgb(221, 247, 250)
+        else if (night) Color.rgb(216, 234, 232)
         else Color.rgb(53, 119, 118)
 
     init {
@@ -90,13 +93,14 @@ internal class BalanceBottomNavigation(
             else Color.rgb(118, 177, 175)
         background = GradientDrawable(
             GradientDrawable.Orientation.LEFT_RIGHT,
-            if (night) intArrayOf(Color.rgb(21, 43, 49), Color.rgb(16, 36, 44))
+            if (winter) intArrayOf(Color.rgb(9, 56, 75), Color.rgb(5, 36, 55))
+            else if (night) intArrayOf(Color.rgb(21, 43, 49), Color.rgb(16, 36, 44))
             else intArrayOf(Color.rgb(232, 248, 245), Color.rgb(244, 252, 250))
         ).apply {
             cornerRadius = dp(20).toFloat()
             setStroke(dp(1), edge)
         }
-        if (WinterThemeState.active(context)) {
+        if (winter) {
             background = WinterFrostDrawable(background, density, night,
                 WinterSurface.NAVIGATION)
         }
@@ -124,7 +128,8 @@ internal class BalanceBottomNavigation(
 
         indicator.background = GradientDrawable(
             GradientDrawable.Orientation.LEFT_RIGHT,
-            if (night) intArrayOf(Color.rgb(43, 135, 142), Color.rgb(34, 162, 147))
+            if (winter) intArrayOf(Color.rgb(19, 146, 174), Color.rgb(29, 192, 186))
+            else if (night) intArrayOf(Color.rgb(43, 135, 142), Color.rgb(34, 162, 147))
             else intArrayOf(Color.rgb(43, 147, 150), Color.rgb(33, 158, 137))
         ).apply { cornerRadius = dp(17).toFloat() }
         addView(indicator, LayoutParams(0, LayoutParams.MATCH_PARENT))
@@ -146,11 +151,12 @@ internal class BalanceBottomNavigation(
                 importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
                 setImageDrawable(AppIconDrawable(symbols[index], normalIcon))
             }
-            val size = if (index == NavigationMotionPolicy.SETTINGS_INDEX) dp(31)
+            val size = if (winter) dp(23)
+                else if (index == NavigationMotionPolicy.SETTINGS_INDEX) dp(31)
                 else dp(21)
             cell.addView(pictogram, LinearLayout.LayoutParams(size, size))
             val caption = TextView(context).apply {
-                text = if (index == NavigationMotionPolicy.SETTINGS_INDEX) "" else label
+                text = if (!winter && index == NavigationMotionPolicy.SETTINGS_INDEX) "" else label
                 setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 10.5f)
                 setSingleLine(true)
                 ellipsize = TextUtils.TruncateAt.END
@@ -158,7 +164,7 @@ internal class BalanceBottomNavigation(
                 includeFontPadding = false
                 importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
             }
-            if (index != NavigationMotionPolicy.SETTINGS_INDEX) {
+            if (winter || index != NavigationMotionPolicy.SETTINGS_INDEX) {
                 val textParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
