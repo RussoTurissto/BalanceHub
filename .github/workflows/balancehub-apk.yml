@@ -7,6 +7,7 @@ on:
       # Owner-approved isolated winter RC. Never published as a stable release.
       - feature/balancehub-winter-rc6
       - feature/balancehub-winter-rc7
+      - feature/balancehub-winter-rc8
     paths:
       # Runtime changes and explicitly approved version updates trigger release checks.
       - "gradle.properties"
@@ -58,7 +59,7 @@ jobs:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.rollback_rc13 && '2ea6f89b1c5688abef38fa25854cb52a5555a3ad' || github.sha }}
 
       - name: Configure signed winter test APK on the isolated branch
-        if: ${{ github.ref == 'refs/heads/feature/balancehub-winter-rc6' || github.ref == 'refs/heads/feature/balancehub-winter-rc7' }}
+        if: ${{ github.ref == 'refs/heads/feature/balancehub-winter-rc6' || github.ref == 'refs/heads/feature/balancehub-winter-rc7' || github.ref == 'refs/heads/feature/balancehub-winter-rc8' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -70,6 +71,10 @@ jobs:
             refs/heads/feature/balancehub-winter-rc7)
               expected_name=1.2.5-rc7
               expected_code=759
+              ;;
+            refs/heads/feature/balancehub-winter-rc8)
+              expected_name=1.2.5-rc8
+              expected_code=760
               ;;
             *)
               echo "::error::Unauthorized winter test branch"
@@ -122,7 +127,8 @@ jobs:
           }
           ci_code=$(( ${{ github.run_number }} + 300 ))
           if [[ "$GITHUB_REF" == "refs/heads/feature/balancehub-winter-rc6" ||
-                "$GITHUB_REF" == "refs/heads/feature/balancehub-winter-rc7" ]]; then
+                "$GITHUB_REF" == "refs/heads/feature/balancehub-winter-rc7" ||
+                "$GITHUB_REF" == "refs/heads/feature/balancehub-winter-rc8" ]]; then
             # Isolated test APKs use the exact owner-approved versionCode.
             code=$configured_code
           else
