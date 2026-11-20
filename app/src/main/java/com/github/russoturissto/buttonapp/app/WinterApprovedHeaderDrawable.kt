@@ -49,7 +49,11 @@ internal class WinterApprovedHeaderDrawable(
             if (wordmark.width > 0 && wordmark.height > 0) {
                 val top = wordmark.top + wordmark.translationY
                 val left = wordmark.left - density * 2.5f
-                val right = wordmark.right + density * 2.5f
+                val textWidth = wordmark.paint.measureText("BalanceHub") +
+                    wordmark.letterSpacing * wordmark.textSize * 9f
+                // TextView is MATCH_PARENT; protect only the rendered letters.
+                val right = (wordmark.left + textWidth + density * 2.5f)
+                    .coerceAtMost(w)
                 val bottom = top + wordmark.height + density * 2.5f
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     canvas.clipOutRect(left, top - density * 1.5f, right, bottom)
@@ -83,7 +87,7 @@ internal class WinterApprovedHeaderDrawable(
             val hatHeight = hatWidth * santaHat.height / santaHat.width
             val textTop = wordmark.top + wordmark.translationY
             val x = startH - hatWidth * .23f
-            val y = textTop - hatHeight * .69f
+            val y = textTop - hatHeight * .47f
             // The lower edge of the plush brim rests on the top of the H.
             canvas.drawBitmap(santaHat, null,
                 RectF(x, y, x + hatWidth, y + hatHeight), paint)

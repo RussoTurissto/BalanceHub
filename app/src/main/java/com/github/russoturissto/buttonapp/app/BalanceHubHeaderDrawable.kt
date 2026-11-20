@@ -31,12 +31,18 @@ internal class BalanceHubHeaderDrawable(
         val top = bounds.top.toFloat()
         canvas.withTranslation(left, top) {
 
-        val edge = if (winter) WinterWaveGeometry.edge(width, height) else Path().apply {
-            moveTo(0f, height * .90f)
-            cubicTo(width * .20f, height * .74f,
-                width * .35f, height * 1.02f, width * .53f, height * .88f)
-            cubicTo(width * .75f, height * .68f,
-                width * .88f, height * .80f, width, height * .93f)
+        // The approved photo contains its own snowy garland. Its old
+        // procedural cable/wave must not be drawn a second time.
+        val edge = Path().apply {
+            moveTo(0f, if (winter) height else height * .90f)
+            if (winter) {
+                lineTo(width, height)
+            } else {
+                cubicTo(width * .20f, height * .74f,
+                    width * .35f, height * 1.02f, width * .53f, height * .88f)
+                cubicTo(width * .75f, height * .68f,
+                    width * .88f, height * .80f, width, height * .93f)
+            }
         }
         val fill = Path(edge).apply {
             lineTo(width, 0f)
@@ -46,10 +52,10 @@ internal class BalanceHubHeaderDrawable(
         val colors = if (winter) {
             if (isDark) intArrayOf(
                 Color.rgb(9, 50, 70), Color.rgb(5, 77, 94),
-                Color.rgb(2, 55, 75)
+                Color.rgb(4, 33, 48)
             ) else intArrayOf(
                 Color.rgb(16, 81, 102), Color.rgb(12, 108, 125),
-                Color.rgb(8, 70, 92)
+                Color.rgb(4, 33, 48)
             )
         } else if (isDark) intArrayOf(
             Color.rgb(66, 142, 149),
@@ -62,7 +68,8 @@ internal class BalanceHubHeaderDrawable(
         )
         paint.style = Paint.Style.FILL
         paint.shader = LinearGradient(
-            0f, 0f, width, height * .80f,
+            0f, 0f, if (winter) 0f else width,
+            if (winter) height else height * .80f,
             colors, null, Shader.TileMode.CLAMP
         )
         paint.alpha = opacity
@@ -70,25 +77,12 @@ internal class BalanceHubHeaderDrawable(
         canvas.drawPath(fill, paint)
         paint.shader = null
 
-        // Snow rests on the SAME bezier curve used by the light cable.
-        // The translucent halo is outside the white core, just like the reference.
+        // Ordinary header retains its original wave; the approved winter
+        // garland brings its own snow and replaces the duplicate stroke.
         paint.shader = null
         paint.style = Paint.Style.STROKE
         paint.strokeCap = Paint.Cap.ROUND
-        if (winter) {
-            paint.color = Color.rgb(42, 153, 173)
-            paint.alpha = opacity * 95 / 255
-            paint.strokeWidth = 6.0f
-            canvas.drawPath(edge, paint)
-            paint.color = Color.rgb(193, 246, 252)
-            paint.alpha = opacity * 220 / 255
-            paint.strokeWidth = 3.6f
-            canvas.drawPath(edge, paint)
-            paint.color = Color.WHITE
-            paint.alpha = opacity
-            paint.strokeWidth = 1.8f
-            canvas.drawPath(edge, paint)
-        } else {
+        if (!winter) {
             paint.color = if (isDark) Color.rgb(39, 177, 174)
                 else Color.rgb(26, 151, 149)
             paint.alpha = opacity * 155 / 255

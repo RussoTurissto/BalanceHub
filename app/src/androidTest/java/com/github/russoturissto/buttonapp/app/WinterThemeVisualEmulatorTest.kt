@@ -275,8 +275,11 @@ class WinterThemeVisualEmulatorTest {
                             val top = (wordmark.top + wordmark.translationY).toInt()
                             for (y in top.coerceAtLeast(0) until
                                 (top + wordmark.height).coerceAtMost(bitmap.height)) {
-                                for (x in wordmark.left until
-                                    wordmark.right.coerceAtMost(bitmap.width)) {
+                                val visibleTextRight = (wordmark.left +
+                                    wordmark.paint.measureText("BalanceHub") +
+                                    wordmark.letterSpacing * wordmark.textSize * 9f)
+                                    .toInt().coerceAtMost(bitmap.width)
+                                for (x in wordmark.left until visibleTextRight) {
                                     val pixel = bitmap.getPixel(x, y)
                                     if (Color.red(pixel) > 210 && Color.green(pixel) > 145 &&
                                         Color.blue(pixel) < 105) lampsOnText++
