@@ -217,6 +217,94 @@ class WinterThemeVisualEmulatorTest {
         }
     }
 
+    /** The agreed banner must use the photo ornaments and a real hat on H. */
+    @Test fun approvedFestiveBannerKeepsAccessibleTextAndRedHatOverCapitalH() {
+        val prefs = context.getSharedPreferences("balancehub_data", Context.MODE_PRIVATE)
+        val oldOnboarding = prefs.all["onboarding_completed"]
+        val oldWelcome = prefs.all["release_welcome_version"]
+        val oldAppearance = prefs.all["appearance"]
+        val oldOverride = prefs.all["winter_theme_test_mode"]
+        val code = PackageInfoCompat.getLongVersionCode(
+            context.packageManager.getPackageInfo(context.packageName, 0))
+        try {
+            for (appearance in listOf("night", "day")) {
+                assertTrue(prefs.edit().putBoolean("onboarding_completed", true)
+                    .putLong("release_welcome_version", code)
+                    .putString("appearance", appearance)
+                    .putString("winter_theme_test_mode", WinterThemePolicy.FORCE_ON)
+                    .commit())
+                ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                    instrumentation.waitForIdleSync()
+                    scenario.onActivity { activity ->
+                        val screen = activity.findViewById<ViewGroup>(android.R.id.content)
+                            .getChildAt(0) as ViewGroup
+                        val header = screen.getChildAt(0) as ViewGroup
+                        val wordmark = header.getChildAt(0) as TextView
+                        assertEquals("BalanceHub", wordmark.text.toString())
+                        assertTrue("BalanceHub title is not visible",
+                            wordmark.visibility == View.VISIBLE)
+                        assertTrue("Approved art foreground was not installed",
+                            header.foreground is WinterApprovedHeaderDrawable)
+
+                        val bitmap = render(header)
+                        try {
+                            val startH = (wordmark.left +
+                                wordmark.paint.measureText("Balance") +
+                                wordmark.letterSpacing * wordmark.textSize * 7f).toInt()
+                            val capTop = (wordmark.top + wordmark.translationY).toInt()
+                            var redHatPixels = 0
+                            for (y in (capTop - (wordmark.textSize * 1.1f).toInt())
+                                .coerceAtLeast(0) .. capTop) {
+                                for (x in (startH - (wordmark.textSize * .6f).toInt())
+                                    .coerceAtLeast(0) .. (startH +
+                                    wordmark.textSize * 1.6f).toInt()
+                                    .coerceAtMost(bitmap.width - 1)) {
+                                    val pixel = bitmap.getPixel(x, y)
+                                    val r = Color.red(pixel)
+                                    val g = Color.green(pixel)
+                                    val b = Color.blue(pixel)
+                                    if (r > 128 && r > g * 1.55f && r > b * 1.45f)
+                                        redHatPixels++
+                                }
+                            }
+                            assertTrue("Santa hat is missing above the capital H: " +
+                                redHatPixels, redHatPixels >= 24)
+
+                            // Warm amber bulbs must never cover the native letters.
+                            var lampsOnText = 0
+                            val top = (wordmark.top + wordmark.translationY).toInt()
+                            for (y in top.coerceAtLeast(0) until
+                                (top + wordmark.height).coerceAtMost(bitmap.height)) {
+                                for (x in wordmark.left until
+                                    wordmark.right.coerceAtMost(bitmap.width)) {
+                                    val pixel = bitmap.getPixel(x, y)
+                                    if (Color.red(pixel) > 210 && Color.green(pixel) > 145 &&
+                                        Color.blue(pixel) < 105) lampsOnText++
+                                }
+                            }
+                            assertEquals("Warm garland crosses BalanceHub", 0, lampsOnText)
+                        } finally { bitmap.recycle() }
+                    }
+                }
+            }
+        } finally {
+            val editor = prefs.edit()
+            if (oldOnboarding is Boolean) editor.putBoolean(
+                "onboarding_completed", oldOnboarding)
+            else editor.remove("onboarding_completed")
+            if (oldWelcome is Long) editor.putLong(
+                "release_welcome_version", oldWelcome)
+            else editor.remove("release_welcome_version")
+            if (oldAppearance is String) editor.putString(
+                "appearance", oldAppearance)
+            else editor.remove("appearance")
+            if (oldOverride is String) editor.putString(
+                "winter_theme_test_mode", oldOverride)
+            else editor.remove("winter_theme_test_mode")
+            editor.commit()
+        }
+    }
+
     @Test fun frostIsUniquePerWindowAndStableBetweenDraws() {
         val d = context.resources.displayMetrics.density
         val width = (240f * d).toInt()

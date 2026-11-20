@@ -543,6 +543,17 @@ class MainActivity : AppCompatActivity() {
         get() = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
             Configuration.UI_MODE_NIGHT_YES
     private val winterActive: Boolean get() = WinterThemeState.active(this)
+    // The three owner-approved art layers are decoded offline only once.
+    // They are cropped from the approved banner, with no redrawn substitutes.
+    private val approvedGarland by lazy {
+        android.graphics.BitmapFactory.decodeResource(resources, R.drawable.approved_garland)
+    }
+    private val approvedOrnaments by lazy {
+        android.graphics.BitmapFactory.decodeResource(resources, R.drawable.approved_ornaments)
+    }
+    private val approvedSantaHat by lazy {
+        android.graphics.BitmapFactory.decodeResource(resources, R.drawable.approved_santa_hat)
+    }
     // Reproducible unique patterns: the ordinal is reset when the tab is
     // rendered, and kept stable while an individual View is redrawn.
     private var winterFrostOrdinal = 0L
@@ -821,21 +832,25 @@ class MainActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), headerTopPadding, dp(20), dp(23))
             background = BalanceHubHeaderDrawable(isNight, winterActive)
-            if (winterActive) {
-                // A foreground layer is drawn after the header children.
-                // It remains visible above the gradient without moving the title.
-                foreground = WinterReferenceHeaderDrawable(
-                    Color.TRANSPARENT.toDrawable(),
-                    resources.displayMetrics.density
-                )
-            }
         }
-        header.addView(textLine("BalanceHub", 21f, Color.WHITE, true).apply {
+        val headerTitle = textLine("BalanceHub", 21f, Color.WHITE, true).apply {
             typeface = balanceHubTypeface
             letterSpacing = -0.015f
-            // Shift the wordmark down without resizing the gradient header.
+            // This remains a native TextView in its exact existing position.
             translationY = dp(8).toFloat()
-        })
+        }
+        header.addView(headerTitle)
+        if (winterActive) {
+            // Approved photo pixels instead of procedural spruce/baubles.
+            // A dynamic anchor keeps the Santa hat above the real capital H.
+            header.foreground = WinterApprovedHeaderDrawable(
+                resources.displayMetrics.density,
+                headerTitle,
+                approvedGarland,
+                approvedOrnaments,
+                approvedSantaHat
+            )
+        }
         screen.addView(header)
 
         // Horizontal gestures switch tabs while normal vertical scrolling
