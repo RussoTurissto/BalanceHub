@@ -137,50 +137,68 @@ internal class WinterReferenceHeaderDrawable(
         }
     }
 
-    /** Dense, anti-aliased individually shaded needles with irregular snow. */
+    /** Curved, layered fir fronds with nonuniform individual needles. */
     private fun firSprig(canvas: Canvas, x0: Float, y0: Float,
         x1: Float, y1: Float, length: Float
     ) {
         val vx = x1 - x0
         val vy = y1 - y0
         val distance = sqrt(vx * vx + vy * vy).coerceAtLeast(1f)
-        val nx = vx / distance
-        val ny = vy / distance
-        val px = -ny
-        val py = nx
-        // A thick shaded core makes each frond an actual tree branch.
-        line(canvas, x0, y0 + .5f * d, x1, y1 + .5f * d,
-            3.0f * d, color(125, 2, 30, 32))
-        line(canvas, x0, y0, x1, y1, 1.15f * d, color(236, 24, 77, 64))
-        val needles = 47
-        for (i in 1..needles) {
-            val t = i.toFloat() / (needles + 1)
-            val bx = x0 + vx * t
-            val by = y0 + vy * t
-            val bulge = .20f + .80f * sin(PI * t).toFloat()
-            val stagger = .88f + .12f * sin(i * 1.87).toFloat()
-            val base = length * bulge * stagger
+        val curve = (2.4f + .9f * sin(distance / (13f * d)).toFloat()) * d
+        val center = Path().apply {
+            moveTo(x0, y0)
+            cubicTo(x0 + vx * .28f, y0 + vy * .22f - curve,
+                x0 + vx * .72f, y0 + vy * .78f + curve, x1, y1)
+        }
+        p.shader = null
+        p.style = Paint.Style.STROKE
+        p.strokeCap = Paint.Cap.ROUND
+        p.strokeWidth = 2.0f * d
+        p.color = color(166, 2, 42, 36)
+        canvas.drawPath(center, p)
+        p.strokeWidth = .75f * d
+        p.color = color(234, 37, 104, 83)
+        canvas.drawPath(center, p)
+        p.style = Paint.Style.FILL
+
+        val measure = PathMeasure(center, false)
+        val pos = FloatArray(2)
+        val tangent = FloatArray(2)
+        val count = 59
+        for (i in 1..count) {
+            val progress = ((i + .15f * sin(i * 2.33).toFloat()) /
+                (count + 1f)).coerceIn(0.01f, .99f)
+            if (!measure.getPosTan(measure.length * progress, pos, tangent)) continue
+            val tx = tangent[0]
+            val ty = tangent[1]
+            val nx = -ty
+            val ny = tx
+            val bulge = (.22f + .78f * sin(PI * progress).toFloat())
             for (side in listOf(-1f, 1f)) {
-                val needle = base * (if (i % 5 == 0) .76f else 1f)
-                val tx = bx + px * needle * side + nx * needle * .30f
-                val ty = by + py * needle * side + ny * needle * .30f
-                line(canvas, bx + .35f * d, by + .5f * d, tx + .2f * d, ty + .5f * d,
-                    1.13f * d, color(188, 4, 42, 41))
-                line(canvas, bx, by, tx, ty, .67f * d,
-                    if (side > 0f) color(250, 49, 146, 123)
-                    else color(240, 17, 107, 92))
-                // Snow rests on physically upward-facing needles and catches
-                // at selected tips; don't coat the entire fir in white.
-                if (ty < by && i % 3 != 1) {
-                    val start = .42f + .12f * ((i % 4) / 4f)
-                    line(canvas, bx + (tx - bx) * start,
-                        by + (ty - by) * start - .30f * d, tx, ty - .30f * d,
-                        (.55f + (i % 3) * .07f) * d,
-                        color(174 + i % 3 * 18, 232, 249, 252))
-                    if (i % 4 == 0) {
-                        p.color = color(180, 251, 255, 255)
-                        canvas.drawOval(RectF(tx - .75f * d, ty - .70f * d,
-                            tx + .54f * d, ty + .16f * d), p)
+                // Uneven growth and softly bending tips: no mirrored "comb".
+                val variation = .75f + .25f * sin(i * 1.69 + side).toFloat()
+                val needle = length * bulge * variation
+                for (layer in 0..1) {
+                    val bx = pos[0] + tx * (.10f + layer * .38f) * d
+                    val by = pos[1] + ty * (.10f + layer * .38f) * d
+                    val direction = .22f + .19f * sin(i * .67 + layer).toFloat()
+                    val tipX = bx + nx * needle * side * (if (layer == 0) 1f else .77f) +
+                        tx * needle * direction
+                    val tipY = by + ny * needle * side * (if (layer == 0) 1f else .77f) +
+                        ty * needle * direction
+                    line(canvas, bx + .30f * d, by + .35f * d,
+                        tipX + .16f * d, tipY + .30f * d, .72f * d,
+                        color(170, 5, 52, 43))
+                    line(canvas, bx, by, tipX, tipY,
+                        (if (layer == 0) .53f else .40f) * d,
+                        if (side > 0f) color(233, 43, 142, 114)
+                        else color(244, 29, 123, 102))
+                    if (tipY < by && (i + layer) % 4 == 0) {
+                        line(canvas,
+                            bx + (tipX - bx) * .51f, by + (tipY - by) * .51f,
+                            tipX, tipY, .43f * d, color(188, 221, 247, 249))
+                        p.color = color(192, 249, 253, 253)
+                        canvas.drawCircle(tipX, tipY - .19f * d, .35f * d, p)
                     }
                 }
             }
@@ -202,39 +220,28 @@ internal class WinterReferenceHeaderDrawable(
         firSprig(canvas, w * .99f, h * .03f, w * .82f, h * .29f, 10.1f * d)
         firSprig(canvas, w * .92f, h * .17f, w * .80f, h * .60f, 8.7f * d)
 
-        // Irregularly piled snow has a blue-shadow underside and a bright
-        // top. Neither the lamps nor the wordmark are covered.
-        val snow = Path().apply {
-            moveTo(w * .705f, h * .30f)
-            cubicTo(w * .735f, h * .27f, w * .76f, h * .19f, w * .79f, h * .22f)
-            cubicTo(w * .815f, h * .16f, w * .83f, h * .18f, w * .85f, h * .17f)
-            cubicTo(w * .885f, h * .08f, w * .91f, h * .12f, w * .94f, h * .09f)
-            cubicTo(w * .97f, h * .07f, w * .99f, h * .11f, w * 1.03f, h * .09f)
-        }
-        p.style = Paint.Style.STROKE
-        p.strokeCap = Paint.Cap.ROUND
-        p.shader = null
-        p.strokeWidth = 4.7f * d
-        p.color = color(120, 69, 150, 168)
-        canvas.withTranslation(0f, 1.6f * d) { canvas.drawPath(snow, p) }
-        p.strokeWidth = 3.0f * d
-        p.color = color(238, 234, 251, 253)
-        canvas.drawPath(snow, p)
-        p.strokeWidth = .78f * d
-        p.color = color(252, 255, 255, 255)
-        canvas.withTranslation(0f, -1.0f * d) { canvas.drawPath(snow, p) }
-        p.style = Paint.Style.FILL
-
-        for (i in 0..37) {
-            // Non-uniform snow clumps on the spruce silhouette.
-            val t = i / 37f
-            val x = w * (.705f + t * .29f)
-            val y = h * (.305f - .205f * sin(t * PI / 1.90).toFloat())
-            val jitter = .7f * sin(i * 2.73).toFloat() * d
-            p.color = color(140 + (i % 4) * 23, 238, 250, 252)
-            canvas.drawOval(RectF(x - 1.2f * d, y - 1.2f * d + jitter,
-                x + (1.0f + (i % 3) * .24f) * d,
-                y + .36f * d + jitter), p)
+        // Snow collects in uneven soft mounds on the uppermost needles.
+        // Small gaps expose dark green pine underneath, unlike a painted line.
+        for (i in 0..28) {
+            val t = (i + .1f * sin(i * 2.9).toFloat()) / 28f
+            val x = w * (.70f + .30f * t)
+            val y = h * (.31f - .22f * sin(t * PI * .96).toFloat()) +
+                .85f * d * sin(i * 1.8).toFloat()
+            val volume = (1.35f + .56f * sin(i * 1.93).toFloat() +
+                if (i % 7 == 0) .6f else 0f).coerceAtLeast(.9f)
+            p.shader = null
+            p.style = Paint.Style.FILL
+            p.color = color(142, 65, 145, 168)
+            canvas.drawOval(RectF(x - volume * 1.40f * d, y - volume * .63f * d,
+                x + volume * 1.2f * d, y + volume * .93f * d), p)
+            p.color = color(221 + (i % 3) * 9, 236, 251, 253)
+            canvas.drawOval(RectF(x - volume * 1.25f * d, y - volume * .84f * d,
+                x + volume * 1.02f * d, y + volume * .21f * d), p)
+            if (i % 3 == 0) {
+                p.color = color(241, 251, 255, 255)
+                canvas.drawCircle(x - .37f * d, y - volume * .48f * d,
+                    .32f * d, p)
+            }
         }
     }
 
