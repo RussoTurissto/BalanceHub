@@ -6,6 +6,9 @@ import android.graphics.ColorFilter
 import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.RectF
+import android.graphics.Region
+import android.os.Build
+import androidx.core.graphics.withSave
 import android.graphics.drawable.Drawable
 import android.widget.TextView
 
@@ -36,25 +39,30 @@ internal class WinterApprovedHeaderDrawable(
         val h = bounds.height().toFloat()
         if (w <= 1f || h <= 1f) return
 
-        val save = canvas.save()
-        canvas.translate(bounds.left.toFloat(), bounds.top.toFloat())
-        canvas.clipRect(0f, 0f, w, h)
-        paint.alpha = opacity
+        canvas.withSave {
+            canvas.translate(bounds.left.toFloat(), bounds.top.toFloat())
+            canvas.clipRect(0f, 0f, w, h)
+            paint.alpha = opacity
 
         // Warm lamps and uneven snow lie BELOW the wordmark.
-        val wireSave = canvas.save()
-        if (wordmark.width > 0 && wordmark.height > 0) {
-            val top = wordmark.top + wordmark.translationY
-            canvas.clipOutRect(
-                wordmark.left - density * 2.5f,
-                top - density * 1.5f,
-                wordmark.right + density * 2.5f,
-                top + wordmark.height + density * 2.5f
-            )
+        canvas.withSave {
+            if (wordmark.width > 0 && wordmark.height > 0) {
+                val top = wordmark.top + wordmark.translationY
+                val left = wordmark.left - density * 2.5f
+                val right = wordmark.right + density * 2.5f
+                val bottom = top + wordmark.height + density * 2.5f
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    canvas.clipOutRect(left, top - density * 1.5f, right, bottom)
+                } else {
+                    // Android 6–7 fallback for the app's minSdk 23.
+                    @Suppress("DEPRECATION")
+                    canvas.clipRect(left, top - density * 1.5f, right, bottom,
+                        Region.Op.DIFFERENCE)
+                }
+            }
+            canvas.drawBitmap(garland, null,
+                RectF(0f, h * .70f, w * .87f, h * 1.045f), paint)
         }
-        canvas.drawBitmap(garland, null,
-            RectF(0f, h * .70f, w * .87f, h * 1.045f), paint)
-        canvas.restoreToCount(wireSave)
 
         // Approved snow-covered spruce, pinecone, bow, glass baubles and star.
         // Preserve the artwork's aspect ratio across Android screen widths.
@@ -80,7 +88,7 @@ internal class WinterApprovedHeaderDrawable(
             canvas.drawBitmap(santaHat, null,
                 RectF(x, y, x + hatWidth, y + hatHeight), paint)
         }
-        canvas.restoreToCount(save)
+        }
     }
 
     override fun setAlpha(alpha: Int) {
