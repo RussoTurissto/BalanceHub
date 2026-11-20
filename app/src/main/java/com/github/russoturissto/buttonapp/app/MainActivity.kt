@@ -827,6 +827,12 @@ class MainActivity : AppCompatActivity() {
         val screen = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = screenGradient()
+            // Winter artwork may extend past the header's view bounds.
+            // Do not clip its decorative overflow; layout sizes stay intact.
+            if (winterActive) {
+                clipChildren = false
+                clipToPadding = false
+            }
         }
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
