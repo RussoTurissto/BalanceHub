@@ -33,7 +33,8 @@ internal class WinterApprovedHeaderDrawable(
     private val density: Float,
     private val wordmark: TextView,
     private val ornaments: Bitmap,
-    private val santaHat: Bitmap
+    private val santaHat: Bitmap,
+    private val garlandOnly: Boolean = false
 ) : Drawable() {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private var opacity = 255
@@ -49,32 +50,12 @@ internal class WinterApprovedHeaderDrawable(
             // The title mask below still keeps the lamps off the native TextView.
             paint.alpha = opacity
 
-        // The wire runs behind the real native title, never through its letters.
-        canvas.withSave {
-            if (wordmark.width > 0 && wordmark.height > 0) {
-                val textTop = wordmark.top + wordmark.translationY
-                // Protect only the ink bounds, not TextView font padding and
-                // empty line height: those previously erased the entire string.
-                val glyphBaseline = textTop + wordmark.baseline
-                val glyphTop = glyphBaseline - wordmark.textSize * .83f
-                val glyphBottom = glyphBaseline + wordmark.textSize * .06f
-                val textWidth = wordmark.paint.measureText("BalanceHub") +
-                    wordmark.letterSpacing * wordmark.textSize * 9f
-                val right = (wordmark.left + textWidth + density * 2.5f)
-                    .coerceAtMost(w)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    canvas.clipOutRect(wordmark.left - density * 2.5f,
-                        glyphTop - density * .6f, right,
-                        glyphBottom + density * .6f)
-                } else {
-                    @Suppress("DEPRECATION")
-                    canvas.clipRect(wordmark.left - density * 2.5f,
-                        glyphTop - density * .6f, right,
-                        glyphBottom + density * .6f,
-                        Region.Op.DIFFERENCE)
-                }
-            }
+        // The cord belongs in the header BACKGROUND so the actual native
+        // title is drawn on top. Cutting out the entire TextView rectangle
+        // made most of the wire and lamps disappear on real Android devices.
+        if (garlandOnly) {
             drawCurvedGarland(canvas, w, h)
+            return@withSave
         }
 
         // Approved snow-covered spruce, pinecone, bow, glass baubles and star.
@@ -137,9 +118,11 @@ internal class WinterApprovedHeaderDrawable(
         // TextView's wrap-content height/translation is not a safe anchor for
         // the cord: it can push all lights beyond the foreground render bounds.
         // Use proportional coordinates with room for glass, halos and overhang.
-        val startY = h * .59f
-        val endY = h * .42f
-        val sag = h * .27f
+        // The approved mockup has a gentle sag under the title with a
+        // gradual rise toward the photo fir, never a flattened light strip.
+        val startY = h * .55f
+        val endY = h * .44f
+        val sag = h * .23f
 
         fun yAt(t: Float): Float {
             val smoothDrop = sag * 4f * t * (1f - t)
