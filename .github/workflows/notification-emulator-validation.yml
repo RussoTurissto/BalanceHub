@@ -73,7 +73,28 @@ jobs:
         run: ./gradlew --no-daemon --console=plain :app:testDebugUnitTest
       - name: Check release Lint before merging RC changes
         if: matrix.api == 29
-        run: ./gradlew --no-daemon --console=plain :app:lintRelease
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            echo "Release Lint attempt $attempt of 3"
+            gradle_args=(--no-daemon --console=plain)
+            if (( attempt > 1 )); then
+              gradle_args+=(--refresh-dependencies)
+            fi
+            if ./gradlew "${gradle_args[@]}" :app:lintRelease 2>&1 | tee "$RUNNER_TEMP/balancehub-release-lint.log"; then
+              exit 0
+            fi
+            if ! grep -Eqi 'Could not resolve all files|Could not find [[:alnum:]_.-]+:[[:alnum:]_.-]+:|Could not (GET|HEAD)|Read timed out|Connection reset|Temporary failure in name resolution' "$RUNNER_TEMP/balancehub-release-lint.log"; then
+              echo "::error::Release Lint failed for a non-dependency reason; not retrying"
+              exit 1
+            fi
+            if (( attempt == 3 )); then
+              echo "::error::Release Lint dependencies unavailable after three attempts"
+              exit 1
+            fi
+            sleep $((attempt * 15))
+          done
       - name: Execute instrumented Android tests
         uses: reactivecircus/android-emulator-runner@v2
         with:
