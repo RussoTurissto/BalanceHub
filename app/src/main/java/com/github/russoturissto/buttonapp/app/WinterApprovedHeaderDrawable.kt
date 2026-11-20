@@ -94,9 +94,11 @@ internal class WinterApprovedHeaderDrawable(
             val hatWidth = wordmark.textSize * 1.89f
             val hatHeight = hatWidth * santaHat.height / santaHat.width
             val textTop = wordmark.top + wordmark.translationY
-            val x = startH - hatWidth * .23f
-            val y = textTop - hatHeight * .47f
-            // The lower edge of the plush brim rests on the top of the H.
+            // The cap sits a little lower, with its white brim on the H.
+            // Shift the trailing pompom away from the following lowercase u.
+            // Keep the original approved bitmap (including its pompom).
+            val x = startH - hatWidth * .43f
+            val y = textTop - hatHeight * .30f
             canvas.drawBitmap(santaHat, null,
                 RectF(x, y, x + hatWidth, y + hatHeight), paint)
         }
