@@ -128,12 +128,15 @@ internal class WinterApprovedHeaderDrawable(
         val d = density
         val startX = -w * .012f
         val endX = w * .75f
+        // Keep the full cord BELOW the native title; the previous negative
+        // offset put its first third into the title exclusion mask.
+        // A shallower sag also keeps glowing bulbs visible inside the header.
         val startY = if (wordmark.height > 0) {
             wordmark.top + wordmark.translationY +
-                wordmark.height - d * 4.5f
-        } else h * .62f
+                wordmark.height + d * 2.5f
+        } else h * .70f
         val endY = (startY - h * .21f).coerceAtLeast(3f * d)
-        val sag = h * .30f
+        val sag = h * .21f
 
         fun yAt(t: Float): Float {
             val smoothDrop = sag * 4f * t * (1f - t)
