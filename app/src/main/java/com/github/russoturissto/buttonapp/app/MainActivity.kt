@@ -543,11 +543,8 @@ class MainActivity : AppCompatActivity() {
         get() = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
             Configuration.UI_MODE_NIGHT_YES
     private val winterActive: Boolean get() = WinterThemeState.active(this)
-    // The three owner-approved art layers are decoded offline only once.
-    // They are cropped from the approved banner, with no redrawn substitutes.
-    private val approvedGarland by lazy {
-        android.graphics.BitmapFactory.decodeResource(resources, R.drawable.approved_garland)
-    }
+    // Photo ornaments and hat remain the two original owner-approved crops.
+    // The garland is now native Canvas artwork to avoid the old raster bar.
     private val approvedOrnaments by lazy {
         android.graphics.BitmapFactory.decodeResource(resources, R.drawable.approved_ornaments)
     }
@@ -852,7 +849,6 @@ class MainActivity : AppCompatActivity() {
             header.foreground = WinterApprovedHeaderDrawable(
                 resources.displayMetrics.density,
                 headerTitle,
-                approvedGarland,
                 approvedOrnaments,
                 approvedSantaHat
             )
