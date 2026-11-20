@@ -1,6 +1,5 @@
 package com.github.russoturissto.buttonapp.app
 
-import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.ColorFilter
@@ -36,8 +35,7 @@ internal object WinterWaveGeometry {
  */
 internal class WinterReferenceHeaderDrawable(
     private val original: Drawable,
-    private val density: Float,
-    private val ornamentArtwork: Bitmap? = null
+    private val density: Float
 ) : Drawable() {
     private val p = Paint(Paint.ANTI_ALIAS_FLAG)
     private val d = density
@@ -139,6 +137,7 @@ internal class WinterReferenceHeaderDrawable(
         }
     }
 
+    /** Dense, anti-aliased individually shaded needles with irregular snow. */
     private fun firSprig(canvas: Canvas, x0: Float, y0: Float,
         x1: Float, y1: Float, length: Float
     ) {
@@ -149,62 +148,94 @@ internal class WinterReferenceHeaderDrawable(
         val ny = vy / distance
         val px = -ny
         val py = nx
-        line(canvas, x0, y0, x1, y1, 1.9f * d, color(230, 11, 57, 45))
-        for (i in 1..30) {
-            val t = i / 31f
-            val baseX = x0 + vx * t
-            val baseY = y0 + vy * t
-            val baseLength = length * (0.40f + 0.6f * sin(PI * t).toFloat())
+        // A thick shaded core makes each frond an actual tree branch.
+        line(canvas, x0, y0 + .5f * d, x1, y1 + .5f * d,
+            3.0f * d, color(125, 2, 30, 32))
+        line(canvas, x0, y0, x1, y1, 1.15f * d, color(236, 24, 77, 64))
+        val needles = 47
+        for (i in 1..needles) {
+            val t = i.toFloat() / (needles + 1)
+            val bx = x0 + vx * t
+            val by = y0 + vy * t
+            val bulge = .20f + .80f * sin(PI * t).toFloat()
+            val stagger = .88f + .12f * sin(i * 1.87).toFloat()
+            val base = length * bulge * stagger
             for (side in listOf(-1f, 1f)) {
-                val needle = baseLength * (if (i % 3 == 0) .85f else 1f)
-                val fx = baseX + px * needle * side + nx * needle * .38f
-                val fy = baseY + py * needle * side + ny * needle * .38f
-                line(canvas, baseX, baseY, fx, fy,
-                    (if (i % 3 == 0) 1.15f else .9f) * d,
-                    if (side > 0) color(247, 25, 108, 85)
-                    else color(245, 9, 75, 57))
-                if (i % 3 != 1) {
-                    line(canvas, fx - nx * needle * .27f,
-                        fy - ny * needle * .27f, fx, fy,
-                        .7f * d, color(210, 229, 249, 249))
-                    p.color = color(165, 248, 251, 250)
-                    canvas.drawCircle(fx, fy, .48f * d, p)
+                val needle = base * (if (i % 5 == 0) .76f else 1f)
+                val tx = bx + px * needle * side + nx * needle * .30f
+                val ty = by + py * needle * side + ny * needle * .30f
+                line(canvas, bx + .35f * d, by + .5f * d, tx + .2f * d, ty + .5f * d,
+                    1.13f * d, color(188, 4, 42, 41))
+                line(canvas, bx, by, tx, ty, .67f * d,
+                    if (side > 0f) color(250, 49, 146, 123)
+                    else color(240, 17, 107, 92))
+                // Snow rests on physically upward-facing needles and catches
+                // at selected tips; don't coat the entire fir in white.
+                if (ty < by && i % 3 != 1) {
+                    val start = .42f + .12f * ((i % 4) / 4f)
+                    line(canvas, bx + (tx - bx) * start,
+                        by + (ty - by) * start - .30f * d, tx, ty - .30f * d,
+                        (.55f + (i % 3) * .07f) * d,
+                        color(174 + i % 3 * 18, 232, 249, 252))
+                    if (i % 4 == 0) {
+                        p.color = color(180, 251, 255, 255)
+                        canvas.drawOval(RectF(tx - .75f * d, ty - .70f * d,
+                            tx + .54f * d, ty + .16f * d), p)
+                    }
                 }
             }
         }
     }
 
     private fun spruce(canvas: Canvas, w: Float, h: Float) {
-        val bx = w * .98f
-        val by = h * .19f
-        // Back branches extend across the top-right; tips are snow-capped.
-        firSprig(canvas, bx, by, w * .66f, h * .45f, 9.4f * d)
-        firSprig(canvas, w * 1.04f, h * .13f, w * .78f, h * .22f, 9f * d)
-        firSprig(canvas, w * 1.01f, h * .28f, w * .79f, h * .60f, 9.5f * d)
-        firSprig(canvas, w * 1.04f, h * .29f, w * .93f, h * .79f, 8.5f * d)
-        firSprig(canvas, w * .94f, h * .12f, w * .81f, h * .55f, 8.4f * d)
-        firSprig(canvas, w * .94f, h * .22f, w * .69f, h * .34f, 11.0f * d)
-        firSprig(canvas, w * 1.01f, h * .30f, w * .72f, h * .50f, 12.6f * d)
-        firSprig(canvas, w * .98f, h * .10f, w * .82f, h * .36f, 11.5f * d)
-        firSprig(canvas, w * .91f, h * .24f, w * .78f, h * .67f, 10.0f * d)
-        // Snow piles over the dark branches instead of looking like wire needles.
-        for (i in 0..13) {
-            val x = w * (.71f + i * .019f)
-            val y = h * (.37f - .15f * sin(i * .39f).toFloat())
-            line(canvas, x, y, x + 2.9f * d, y - .65f * d,
-                .65f * d / d, color(205, 244, 253, 252))
-        }
-        // Irregular ridges of snow settle on the uppermost needles.
-        p.color = color(205, 232, 248, 251)
-        p.style = Paint.Style.STROKE
-        p.strokeWidth = 2.8f * d
+        // Composition stays on the upper-right of the banner. The BalanceHub
+        // wordmark occupies the left; no needles touch its text rectangle.
+        val bx = w * .985f
+        val by = h * .15f
+        firSprig(canvas, bx, by, w * .69f, h * .36f, 8.7f * d)
+        firSprig(canvas, w * 1.03f, h * .08f, w * .77f, h * .17f, 8.9f * d)
+        firSprig(canvas, w * 1.02f, h * .20f, w * .77f, h * .52f, 9.2f * d)
+        firSprig(canvas, w * 1.02f, h * .23f, w * .92f, h * .70f, 8.0f * d)
+        firSprig(canvas, w * .94f, h * .06f, w * .82f, h * .49f, 8.5f * d)
+        firSprig(canvas, w * .94f, h * .16f, w * .66f, h * .28f, 10.0f * d)
+        firSprig(canvas, w * 1.01f, h * .26f, w * .72f, h * .44f, 11.4f * d)
+        firSprig(canvas, w * .99f, h * .03f, w * .82f, h * .29f, 10.1f * d)
+        firSprig(canvas, w * .92f, h * .17f, w * .80f, h * .60f, 8.7f * d)
+
+        // Irregularly piled snow has a blue-shadow underside and a bright
+        // top. Neither the lamps nor the wordmark are covered.
         val snow = Path().apply {
-            moveTo(w * .73f, h * .36f)
-            cubicTo(w * .79f, h * .29f, w * .80f, h * .24f, w * .86f, h * .24f)
-            cubicTo(w * .92f, h * .15f, w * .95f, h * .14f, w, h * .17f)
+            moveTo(w * .705f, h * .30f)
+            cubicTo(w * .735f, h * .27f, w * .76f, h * .19f, w * .79f, h * .22f)
+            cubicTo(w * .815f, h * .16f, w * .83f, h * .18f, w * .85f, h * .17f)
+            cubicTo(w * .885f, h * .08f, w * .91f, h * .12f, w * .94f, h * .09f)
+            cubicTo(w * .97f, h * .07f, w * .99f, h * .11f, w * 1.03f, h * .09f)
         }
+        p.style = Paint.Style.STROKE
+        p.strokeCap = Paint.Cap.ROUND
+        p.shader = null
+        p.strokeWidth = 4.7f * d
+        p.color = color(120, 69, 150, 168)
+        canvas.withTranslation(0f, 1.6f * d) { canvas.drawPath(snow, p) }
+        p.strokeWidth = 3.0f * d
+        p.color = color(238, 234, 251, 253)
         canvas.drawPath(snow, p)
+        p.strokeWidth = .78f * d
+        p.color = color(252, 255, 255, 255)
+        canvas.withTranslation(0f, -1.0f * d) { canvas.drawPath(snow, p) }
         p.style = Paint.Style.FILL
+
+        for (i in 0..37) {
+            // Non-uniform snow clumps on the spruce silhouette.
+            val t = i / 37f
+            val x = w * (.705f + t * .29f)
+            val y = h * (.305f - .205f * sin(t * PI / 1.90).toFloat())
+            val jitter = .7f * sin(i * 2.73).toFloat() * d
+            p.color = color(140 + (i % 4) * 23, 238, 250, 252)
+            canvas.drawOval(RectF(x - 1.2f * d, y - 1.2f * d + jitter,
+                x + (1.0f + (i % 3) * .24f) * d,
+                y + .36f * d + jitter), p)
+        }
     }
 
     /** Fine rime on the top of a glass globe and a reflected warm bulb. */
@@ -236,34 +267,51 @@ internal class WinterReferenceHeaderDrawable(
             x + r * .50f, y + r * .17f), p)
     }
 
+    /** Two glossy glass baubles with translucent edges and warm reflections. */
     private fun glassBall(canvas: Canvas, x: Float, y: Float, r: Float) {
-        line(canvas, x, y - r * 2.5f, x, y - r * 1.1f,
-            .7f * d, color(220, 218, 204, 139))
-        p.color = color(165, 228, 185, 77)
-        canvas.drawRoundRect(RectF(x - r * .22f, y - r * 1.18f,
-            x + r * .22f, y - r * .87f), .9f * d, .9f * d, p)
-        p.color = color(46, 55, 230, 255)
-        canvas.drawCircle(x, y, r * 1.42f, p)
-        p.shader = RadialGradient(x - r * .35f, y - r * .45f,
-            r * 1.6f, intArrayOf(
-                color(245, 211, 254, 255),
-                color(255, 34, 181, 206),
-                color(255, 7, 79, 119),
-                color(255, 4, 49, 74)
-            ), floatArrayOf(0f, .32f, .67f, 1f), Shader.TileMode.CLAMP)
+        line(canvas, x, y - r * 2.48f, x, y - r * 1.11f,
+            .55f * d, color(230, 221, 208, 161))
+        // Suspension fitting and tiny specular rim.
+        p.shader = LinearGradient(x - r * .24f, y - r,
+            x + r * .24f, y - r,
+            intArrayOf(color(225, 125, 91, 24), color(255, 253, 225, 145),
+                color(240, 131, 85, 28)), null, Shader.TileMode.CLAMP)
+        canvas.drawRoundRect(RectF(x - r * .24f, y - r * 1.16f,
+            x + r * .24f, y - r * .88f), 1.2f * d, 1.2f * d, p)
+        p.shader = null
+        for (i in listOf(1.8f, 1.4f, 1.15f)) {
+            p.color = color((48 / i).toInt(), 87, 229, 246)
+            canvas.drawCircle(x, y, r * i, p)
+        }
+        p.shader = RadialGradient(x - r * .36f, y - r * .44f,
+            r * 1.66f, intArrayOf(
+                color(252, 207, 255, 254), color(255, 53, 216, 227),
+                color(255, 9, 125, 157), color(255, 3, 44, 77)),
+            floatArrayOf(0f, .24f, .64f, 1f), Shader.TileMode.CLAMP)
         canvas.drawCircle(x, y, r, p)
         p.shader = null
-        p.color = color(195, 219, 249, 251)
         p.style = Paint.Style.STROKE
-        p.strokeWidth = 1.05f * d
-        canvas.drawCircle(x, y, r * .94f, p)
+        p.strokeWidth = .78f * d
+        p.color = color(205, 199, 246, 249)
+        canvas.drawCircle(x, y, r * .95f, p)
+        p.color = color(210, 247, 255, 254)
+        p.strokeWidth = .75f * d
+        val reflection = Path().apply {
+            moveTo(x - r * .67f, y + r * .10f)
+            cubicTo(x - r * .86f, y - r * .35f,
+                x - r * .49f, y - r * .79f, x - r * .17f, y - r * .80f)
+        }
+        canvas.drawPath(reflection, p)
         p.style = Paint.Style.FILL
-        p.color = color(220, 247, 255, 255)
-        canvas.drawOval(RectF(x - r * .65f, y - r * .73f,
-            x - r * .28f, y - r * .27f), p)
-        p.color = color(80, 211, 253, 255)
-        canvas.drawCircle(x + r * .32f, y + r * .42f, r * .33f, p)
-        flake(canvas, x + r * .10f, y + r * .06f, r * .41f, 180)
+        p.color = color(235, 250, 255, 253)
+        canvas.drawOval(RectF(x - r * .49f, y - r * .70f,
+            x - r * .27f, y - r * .40f), p)
+        p.color = color(90, 251, 228, 132)
+        canvas.drawOval(RectF(x + r * .34f, y - r * .15f,
+            x + r * .57f, y + r * .13f), p)
+        p.color = color(60, 151, 238, 252)
+        canvas.drawCircle(x + r * .24f, y + r * .42f, r * .30f, p)
+        flake(canvas, x + r * .12f, y + r * .05f, r * .39f, 165)
         glassSnow(canvas, x, y, r)
     }
 
@@ -311,6 +359,18 @@ internal class WinterReferenceHeaderDrawable(
         canvas.drawCircle(x, y, size * .22f, p)
         p.color = color(240, 255, 242, 181)
         canvas.drawCircle(x - size * .06f, y - size * .07f, size * .075f, p)
+        // Snow settles along the upper lip of the ribbon, not its tails.
+        val rim = Path().apply {
+            moveTo(x - size * 1.20f, y - size * .10f)
+            quadTo(x - size * .84f, y - size * .71f, x - size * .43f, y - size * .60f)
+            moveTo(x + size * .21f, y - size * .64f)
+            quadTo(x + size * .88f, y - size * .85f, x + size * 1.20f, y - size * .29f)
+        }
+        p.style = Paint.Style.STROKE
+        p.color = color(207, 246, 253, 254)
+        p.strokeWidth = .9f * d
+        canvas.drawPath(rim, p)
+        p.style = Paint.Style.FILL
     }
 
     private fun star(canvas: Canvas, x: Float, y: Float, r: Float) {
@@ -333,6 +393,15 @@ internal class WinterReferenceHeaderDrawable(
         p.strokeWidth = .8f * d
         canvas.drawPath(path, p)
         p.style = Paint.Style.FILL
+        // A touch of snow on the upper face with metallic highlights.
+        line(canvas, x - r * .56f, y - r * .35f,
+            x - r * .22f, y - r * .18f,
+            .78f * d, color(214, 236, 251, 252))
+        line(canvas, x - r * .06f, y - r * .72f,
+            x + r * .06f, y - r * .75f,
+            .74f * d, color(233, 251, 255, 255))
+        p.color = color(225, 255, 247, 197)
+        canvas.drawCircle(x - r * .23f, y - r * .21f, .55f * d, p)
     }
 
     override fun draw(canvas: Canvas) {
@@ -348,35 +417,14 @@ internal class WinterReferenceHeaderDrawable(
                 flake(canvas, w * .53f, h * .35f, 5.3f * d)
                 flake(canvas, w * .61f, h * .66f, 4.4f * d, 170)
                 flake(canvas, w * .69f, h * .21f, 3.0f * d, 150)
-                if (ornamentArtwork != null) {
-                    // This tiny transparent resource is extracted solely from
-                    // the owner's approved ornament reference, without any
-                    // names, numbers or unrelated screenshot areas.
-                    p.shader = null
-                    p.style = Paint.Style.FILL
-                    p.isFilterBitmap = true
-                    p.alpha = opacity
-                    canvas.drawBitmap(ornamentArtwork, null,
-                        RectF(w * .63f, h * .05f, w * 1.02f, h * .98f), p)
-                    p.alpha = 255
-                    // The approved raster remains the base composition.
-                    // Small high-resolution vector needles and snow glints
-                    // counter the coarse pixels when it is scaled to density.
-                    firSprig(canvas, w * .97f, h * .10f,
-                        w * .73f, h * .35f, 4.7f * d)
-                    firSprig(canvas, w * 1.01f, h * .16f,
-                        w * .85f, h * .47f, 4.4f * d)
-                    glassSnow(canvas, w * .80f, h * .79f, 8.8f * d)
-                    glassSnow(canvas, w * .96f, h * .63f, 4.5f * d)
-                } else {
-                    // Preserve a fully offline vector fallback on devices that
-                    // cannot decode the bundled reference artwork.
-                    spruce(canvas, w, h)
-                    glassBall(canvas, w * .80f, h * .79f, 8.8f * d)
-                    glassBall(canvas, w * .96f, h * .63f, 4.5f * d)
-                    goldenBow(canvas, w * .875f, h * .36f, 14.0f * d)
-                    star(canvas, w * .923f, h * .61f, 11.0f * d)
-                }
+                // Always render at native device density. The small legacy
+                // ornament bitmap from rc4 caused pixelation when scaled.
+                // These vectors preserve positions, but stay sharp.
+                spruce(canvas, w, h)
+                glassBall(canvas, w * .80f, h * .79f, 8.8f * d)
+                glassBall(canvas, w * .96f, h * .63f, 4.5f * d)
+                goldenBow(canvas, w * .875f, h * .36f, 14.0f * d)
+                star(canvas, w * .923f, h * .61f, 11.0f * d)
             }
         }
     }

@@ -67,11 +67,11 @@ internal class WinterFrostDrawable(
     private val original: Drawable,
     private val density: Float,
     private val dark: Boolean,
-    private val surface: WinterSurface
+    private val surface: WinterSurface,
+    private val patternSeed: Long = System.nanoTime()
 ) : Drawable() {
-    // Different per widget, but fixed for its lifetime: no frost jitter on redraw.
-    private val uniqueFrostSeed = System.nanoTime() xor
-        System.identityHashCode(this).toLong()
+    // The caller supplies a stable key for each screen/card/menu.
+    // Standalone dialogs can use the unique constructor default.
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
     private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -161,9 +161,9 @@ internal class WinterFrostDrawable(
 
     private fun frame(canvas: Canvas, w: Float, h: Float, radius: Float) {
         for ((inset, thickness, alpha) in listOf(
-            Triple(3.1f, 2.4f, 36),
-            Triple(2.0f, 1.35f, 82),
-            Triple(1.0f, .7f, 195)
+            Triple(3.1f, 1.8f, 26),
+            Triple(2.0f, .95f, 68),
+            Triple(1.0f, .55f, 148)
         )) {
             stroke.shader = null
             stroke.color = ice(alpha)
@@ -203,13 +203,13 @@ internal class WinterFrostDrawable(
                 frame(canvas, w, h, radius)
                 if (surface == WinterSurface.PIN_KEY) return@withSave
 
-                val lip = if (screen) 12f * d else 15f * d
+                val lip = if (screen) 9f * d else 11f * d
                 fill.shader = LinearGradient(0f, 0f, 0f, lip,
-                    ice(if (screen) 65 else 105), Color.TRANSPARENT,
+                    ice(if (screen) 47 else 66), Color.TRANSPARENT,
                     Shader.TileMode.CLAMP)
                 canvas.drawRect(0f, 0f, w, lip, fill)
                 fill.shader = LinearGradient(0f, h, 0f, h - lip,
-                    ice(if (screen) 65 else 95), Color.TRANSPARENT,
+                    ice(if (screen) 47 else 64), Color.TRANSPARENT,
                     Shader.TileMode.CLAMP)
                 canvas.drawRect(0f, h - lip, w, h, fill)
                 fill.shader = null
@@ -217,7 +217,7 @@ internal class WinterFrostDrawable(
                 // Each card, window, menu and navigation bar grows its own
                 // natural crystal pattern. It never repeats the old stamps.
                 WinterNaturalFrost.render(canvas, w, h, d, dark, surface,
-                    opacity, uniqueFrostSeed)
+                    opacity, patternSeed)
             }
         }
     }

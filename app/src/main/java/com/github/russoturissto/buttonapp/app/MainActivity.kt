@@ -543,10 +543,15 @@ class MainActivity : AppCompatActivity() {
         get() = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
             Configuration.UI_MODE_NIGHT_YES
     private val winterActive: Boolean get() = WinterThemeState.active(this)
+    // Reproducible unique patterns: the ordinal is reset when the tab is
+    // rendered, and kept stable while an individual View is redrawn.
+    private var winterFrostOrdinal = 0L
     private fun winterDrawable(original: android.graphics.drawable.Drawable,
         surface: WinterSurface): android.graphics.drawable.Drawable =
         if (winterActive) WinterFrostDrawable(original, resources.displayMetrics.density,
-            isNight, surface) else original
+            isNight, surface,
+            patternSeed = 0x5BC21L + (++winterFrostOrdinal * 32452843L) +
+                currentTab.toLong() * 1000003L) else original
     private val ink: Int get() = if (winterActive) Color.rgb(241, 250, 253)
         else if (isNight) Color.rgb(239, 249, 247) else Color.rgb(30, 57, 59)
     private val muted: Int get() = if (winterActive) Color.rgb(168, 205, 217)
@@ -563,14 +568,8 @@ class MainActivity : AppCompatActivity() {
     private val balanceHubTypeface: Typeface by lazy {
         Typeface.createFromAsset(assets, "fonts/montserrat_bold.ttf")
     }
-    private val winterReferenceOrnaments by lazy {
-        try {
-            android.graphics.BitmapFactory.decodeResource(
-                resources, R.drawable.winter_reference_ornaments
-            )
-        } catch (_: Exception) { null }
-    }
-
+    // Holiday ornaments are drawn directly as anti-aliased vector artwork.
+    // The former low-resolution bitmap was blurred when Android scaled it.
     private fun screenGradient(): android.graphics.drawable.Drawable =
         winterDrawable(GradientDrawable(
             GradientDrawable.Orientation.TOP_BOTTOM,
@@ -812,6 +811,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showDashboard() {
+        winterFrostOrdinal = 0L
         renderedWinter = winterActive
         val screen = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -826,8 +826,7 @@ class MainActivity : AppCompatActivity() {
                 // It remains visible above the gradient without moving the title.
                 foreground = WinterReferenceHeaderDrawable(
                     Color.TRANSPARENT.toDrawable(),
-                    resources.displayMetrics.density,
-                    winterReferenceOrnaments
+                    resources.displayMetrics.density
                 )
             }
         }
@@ -1004,6 +1003,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderTab() {
+        winterFrostOrdinal = 0L
         // The bottom navigation persists across tabs; restore its original
         // drawable and elevation before rendering the next tutorial step.
         clearTutorialHighlights()
@@ -1581,11 +1581,9 @@ class MainActivity : AppCompatActivity() {
     private fun renderBalances() {
         if (operatorDetailsOpen) { renderOperatorDetails(); return }
         contentContainer.addView(textLine("Балансы", 23f, ink, true))
-        contentContainer.addView(verticalGap(if (winterActive) 12 else 8))
-        if (!winterActive) {
-            contentContainer.addView(textLine("Мобильная связь", 14f, muted))
-            contentContainer.addView(verticalGap(14))
-        }
+        contentContainer.addView(verticalGap(8))
+        contentContainer.addView(textLine("Мобильная связь", 14f, muted))
+        contentContainer.addView(verticalGap(14))
 
         val sims = connectedSims()
         val orderedSims = BalanceCardOrder.withBalanceFirst(sims) {
@@ -2260,49 +2258,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderPaymentScreen() {
-        if (winterActive) {
-            contentContainer.addView(textLine("Платежи", 23f, ink, true))
-            contentContainer.addView(verticalGap(11))
-            val row = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                background = cardGradient()
-                setPadding(dp(3), dp(3), dp(3), dp(3))
-                addView(textLine("Активные  ${payments.size}", 13f,
-                    Color.WHITE, true).apply {
-                    gravity = Gravity.CENTER
-                    background = filledButtonGradient()
-                }, LinearLayout.LayoutParams(0, dp(38), 1f))
-                addView(textLine("Архив", 13f, ink, true).apply {
-                    gravity = Gravity.CENTER
-                    contentDescription = "Архив платежей"
-                    isClickable = true
-                    isFocusable = true
-                    setOnClickListener {
-                        archiveOpen = true
-                        expandedArchivePaymentId = null
-                        renderTab()
-                    }
-                }, LinearLayout.LayoutParams(0, dp(38), 1f))
-            }
-            contentContainer.addView(row)
-            contentContainer.addView(verticalGap(12))
-            listContainer = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-            }
-            contentContainer.addView(listContainer)
-            renderPayments()
-            contentContainer.addView(verticalGap(8))
-            val add = primaryButton("＋") { showNewPaymentDialog() }.apply {
-                contentDescription = "Добавить платёж"
-                minWidth = dp(48)
-            }
-            val position = LinearLayout(this).apply {
-                gravity = Gravity.END
-                addView(add, LinearLayout.LayoutParams(dp(51), dp(51)))
-            }
-            contentContainer.addView(position)
-            return
-        }
+        // The normal layout is authoritative; frost only changes its skin.
         contentContainer.addView(textLine("Платежи", 23f, ink, true))
         contentContainer.addView(verticalGap(6))
         contentContainer.addView(textLine(
@@ -2586,30 +2542,17 @@ class MainActivity : AppCompatActivity() {
     }
     private fun settingsPanel(vararg views: View) = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
-        if (winterActive) {
-            // The reference uses an individually frosted tile for each setting.
-            views.forEach { view ->
-                val tile = LinearLayout(this@MainActivity).apply {
-                    orientation = LinearLayout.VERTICAL
-                    background = cardGradient()
-                    addView(view)
-                }
-                addView(tile, LinearLayout.LayoutParams(-1, -2).apply {
-                    bottomMargin = dp(7)
-                })
-            }
-        } else {
-            background = cardGradient()
-            views.forEachIndexed { i, view ->
-                if (i > 0) addView(View(this@MainActivity).apply {
-                    setBackgroundColor(if (isNight) Color.rgb(63, 100, 102)
-                        else Color.rgb(201, 228, 224))
-                }, LinearLayout.LayoutParams(-1, dp(1)).apply {
-                    marginStart = dp(14)
-                    marginEnd = dp(14)
-                })
-                addView(view)
-            }
+        background = cardGradient()
+        views.forEachIndexed { index, view ->
+            if (index > 0) addView(View(this@MainActivity).apply {
+                setBackgroundColor(if (winterActive) Color.rgb(81, 126, 141)
+                    else if (isNight) Color.rgb(63, 100, 102)
+                    else Color.rgb(201, 228, 224))
+            }, LinearLayout.LayoutParams(-1, dp(1)).apply {
+                marginStart = dp(14)
+                marginEnd = dp(14)
+            })
+            addView(view)
         }
     }
     private fun settingsGroup(panel: View) {
@@ -2764,33 +2707,7 @@ class MainActivity : AppCompatActivity() {
         contentContainer.addView(textLine("Управление BalanceHub", 12f, muted))
         contentContainer.addView(verticalGap(16))
         val appInfo = packageManager.getPackageInfo(packageName, 0)
-        if (winterActive) {
-            settingsGroup(settingsPanel(
-                settingsRow("credit-card", "Банки и счета",
-                    "Подключение и управление") { openSettingsPage("banks") },
-                settingsRow("smartphone", "Мобильные операторы",
-                    "Баланс и обновление") { openSettingsPage("mobile") },
-                settingsRow("bell", "Уведомления",
-                    "Напоминания и оповещения") { openSettingsPage("notifications") },
-                settingsRow("settings", "Оформление",
-                    "Тема, цвета и сезонный дизайн") { openSettingsPage("appearance") },
-                settingsRow("download", "Обновления",
-                    "Версия приложения и автообновление") {
-                    openSettingsPage("updates")
-                },
-                settingsRow("shield-check", "Безопасность",
-                    "PIN-код и защита данных") {
-                    if (AppLockSecurity.supported()) openSettingsPage("security")
-                    else Toast.makeText(this, "Защита доступна с Android 11",
-                        Toast.LENGTH_LONG).show()
-                },
-                settingsRow("info", "О приложении",
-                    "Версия, лицензии и контакты") { openSettingsPage("about") },
-                settingsRow("help-circle", "Помощь и диагностика",
-                    "Проверки и инструкции") { openSettingsPage("help") }
-            ))
-            return
-        }
+        // Same order and actions as the classic interface in every theme.
         settingsGroup(settingsPanel(
             settingsRow("settings", "Оформление", "Авто, светлая или тёмная") {
                 openSettingsPage("appearance")
@@ -5916,67 +5833,7 @@ class MainActivity : AppCompatActivity() {
     private fun renderPayments() {
         if (!::listContainer.isInitialized || currentTab != 2 || archiveOpen) return
         listContainer.removeAllViews()
-        if (winterActive) {
-            val sortedWinter = payments.sortedBy {
-                PaymentOccurrenceEngine.upcoming(it, System.currentTimeMillis(), 1)
-                    .firstOrNull()?.dueAt ?: Long.MAX_VALUE
-            }
-            if (sortedWinter.isEmpty()) {
-                listContainer.addView(textLine(
-                    "Пока нет платежей. Добавьте первый платёж кнопкой «＋».",
-                    14f, muted).apply { setPadding(dp(12), dp(20), dp(12), dp(20)) })
-            }
-            sortedWinter.forEach { payment ->
-                val due = PaymentOccurrenceEngine.upcoming(
-                    payment, System.currentTimeMillis(), 1
-                ).firstOrNull()?.dueAt ?: payment.dueAt
-                val dayLabel = SimpleDateFormat("d MMM yyyy", Locale("ru"))
-                    .format(Date(due))
-                val until = ((due - System.currentTimeMillis() + 86_399_999L) /
-                    86_400_000L).coerceAtLeast(0L)
-                val tile = LinearLayout(this).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = Gravity.CENTER_VERTICAL
-                    setPadding(dp(10), dp(9), dp(10), dp(9))
-                    background = cardGradient()
-                    isClickable = true
-                    isFocusable = true
-                    contentDescription = payment.title + ", " + dayLabel +
-                        ", открыть календарь"
-                    addView(iconTile(payment.iconId ?: IconRegistry.select(
-                        payment.title, "calendar-days"), 38),
-                        LinearLayout.LayoutParams(dp(38), dp(38)))
-                    addView(View(this@MainActivity),
-                        LinearLayout.LayoutParams(dp(9), 1))
-                    addView(LinearLayout(this@MainActivity).apply {
-                        orientation = LinearLayout.VERTICAL
-                        addView(textLine(payment.title, 14f, ink, true).apply {
-                            maxLines = 2
-                        })
-                        addView(textLine(dayLabel, 11f, muted))
-                    }, LinearLayout.LayoutParams(0, -2, 1f))
-                    addView(LinearLayout(this@MainActivity).apply {
-                        orientation = LinearLayout.VERTICAL
-                        gravity = Gravity.END
-                        addView(textLine(
-                            PaymentCurrencyFormatter.amountForList(payment.amount),
-                            13f, ink, true).apply { gravity = Gravity.END })
-                        addView(verticalGap(3))
-                        addView(textLine("$until дн.", 11f,
-                            Color.WHITE, true).apply {
-                            gravity = Gravity.CENTER
-                            setPadding(dp(7), dp(2), dp(7), dp(2))
-                            background = filledButtonGradient()
-                        })
-                    })
-                    setOnClickListener { showPaymentSchedule(payment) }
-                }
-                listContainer.addView(tile, LinearLayout.LayoutParams(-1, -2).apply {
-                    bottomMargin = dp(8)
-                })
-            }
-            return
-        }
+        // A single collapsible list + archive row for every appearance.
         val sorted = payments.sortedBy {
             PaymentOccurrenceEngine.upcoming(it, System.currentTimeMillis(), 1)
                 .firstOrNull()?.dueAt ?: Long.MAX_VALUE
@@ -6847,47 +6704,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderEvents() {
         EventStore.reconcileElapsed(this)
-        if (winterActive && EventStore.active(this).isEmpty()) {
-            contentContainer.addView(textLine("События", 23f, ink, true))
-            contentContainer.addView(verticalGap(10))
-            val archiveCount = EventStore.archived(this).size
-            val segments = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                background = cardGradient()
-                setPadding(dp(3), dp(3), dp(3), dp(3))
-                addView(textLine("Предстоящие  0", 13f, Color.WHITE, true).apply {
-                    gravity = Gravity.CENTER
-                    background = filledButtonGradient()
-                }, LinearLayout.LayoutParams(0, dp(39), 1f))
-                addView(textLine("Архив", 13f, ink, true).apply {
-                    gravity = Gravity.CENTER
-                    isClickable = true
-                    isFocusable = true
-                    contentDescription = "Архив событий, $archiveCount записей"
-                    setOnClickListener {
-                        eventArchiveExpanded = true
-                        renderTab()
-                    }
-                }, LinearLayout.LayoutParams(0, dp(39), 1f))
-            }
-            contentContainer.addView(segments)
-            contentContainer.addView(verticalGap(14))
-            contentContainer.addView(View(this).apply {
-                background = WinterEmptyEventsDrawable(resources.displayMetrics.density)
-                contentDescription = "Заснеженный лес и календарь со снежинкой"
-            }, LinearLayout.LayoutParams(-1, dp(225)))
-            contentContainer.addView(textLine("Нет предстоящих событий",
-                17f, ink, true).apply { gravity = Gravity.CENTER })
-            contentContainer.addView(verticalGap(7))
-            contentContainer.addView(textLine(
-                "Добавьте важные события,\nчтобы ничего не забыть",
-                13f, muted).apply { gravity = Gravity.CENTER })
-            contentContainer.addView(verticalGap(18))
-            contentContainer.addView(primaryButton("＋  Добавить событие") {
-                showEventEditor()
-            })
-            return
-        }
+        // Empty and non-empty event lists share the same normal-mode layout.
         contentContainer.addView(textLine("События", 23f, ink, true))
         contentContainer.addView(verticalGap(6))
         contentContainer.addView(textLine(
@@ -7994,16 +7811,10 @@ class MainActivity : AppCompatActivity() {
             if (cancel != null) setOnClickListener { cancel() }
         }, LinearLayout.LayoutParams(-1, dp(44)))
         body.addView(verticalGap(10))
-        if (winterActive) {
-            body.addView(iconTile("lock", 76).apply {
-                contentDescription = "Замок, защита PIN-кодом"
-            }, LinearLayout.LayoutParams(dp(76), dp(76)))
-        } else {
-            body.addView(ImageView(this).apply {
-                setImageResource(R.mipmap.ic_launcher)
-                contentDescription = "Иконка BalanceHub"
-            }, LinearLayout.LayoutParams(dp(76), dp(76)))
-        }
+        body.addView(ImageView(this).apply {
+            setImageResource(R.mipmap.ic_launcher)
+            contentDescription = "Иконка BalanceHub"
+        }, LinearLayout.LayoutParams(dp(76), dp(76)))
         body.addView(verticalGap(17))
         body.addView(textLine(title, 22f, ink, true).apply {
             gravity = Gravity.CENTER

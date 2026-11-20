@@ -3,6 +3,8 @@ package com.github.russoturissto.buttonapp.app
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.RadialGradient
+import android.graphics.Shader
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
@@ -159,11 +161,30 @@ internal object WinterNaturalFrost {
             canvas.drawCircle(x, y, grain, powder)
         }
 
+        // A few almost transparent ice-cloud bases soften the microscopic
+        // grains into an organic bloom, rather than looking like wire drawings.
+        // Their positions are seeded per surface and remain fixed on redraw.
+        if (surface != WinterSurface.PIN_KEY) {
+            repeat(7) {
+                val edge = random.nextInt(4)
+                val cx = if (edge < 2) width * random.nextFloat()
+                    else if (edge == 2) 2.6f * density else width - 2.6f * density
+                val cy = if (edge == 0) 2.6f * density
+                    else if (edge == 1) height - 2.6f * density
+                    else height * random.nextFloat()
+                val radius = (9f + random.nextFloat() * 9f) * density
+                powder.shader = RadialGradient(cx, cy, radius,
+                    intArrayOf(ice(42f), ice(16f), Color.TRANSPARENT),
+                    floatArrayOf(0f, .43f, 1f), Shader.TileMode.CLAMP)
+                canvas.drawCircle(cx, cy, radius, powder)
+            }
+            powder.shader = null
+        }
         if (surface == WinterSurface.PIN_KEY) return
 
         val isScreen = surface == WinterSurface.SCREEN
-        val base = if (isScreen) 31f else if (surface == WinterSurface.DIALOG) 31f
-            else if (surface == WinterSurface.NAVIGATION) 22f else 28f
+        val base = if (isScreen) 26f else if (surface == WinterSurface.DIALOG) 27f
+            else if (surface == WinterSurface.NAVIGATION) 17f else 23f
         val growLength = base * density
         // Corner growths are purposefully different in size and direction.
         val cornerInset = (if (isScreen) 4.5f else 6.3f) * density
@@ -174,7 +195,7 @@ internal object WinterNaturalFrost {
             Triple(width - cornerInset, height - cornerInset, -PI * 3 / 4)
         )
         corners.forEachIndexed { i, corner ->
-            val count = 3 + random.nextInt(2)
+            val count = 2 + random.nextInt(2)
             repeat(count) {
                 val startAngle = corner.third + (random.nextDouble() - .5) * 1.20
                 val length = growLength * (.74f + random.nextFloat() * .43f)
@@ -186,7 +207,7 @@ internal object WinterNaturalFrost {
 
         // Independent crystal colonies on the top and bottom, no repeated
         // equally spaced vertical marks from rc3.
-        val horizontal = (width / (79f * density)).toInt().coerceIn(2, 7)
+        val horizontal = (width / (85f * density)).toInt().coerceIn(2, 6)
         repeat(horizontal) {
             val x = (width * (.10f + random.nextFloat() * .80f))
             val top = random.nextBoolean()

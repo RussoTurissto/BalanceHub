@@ -7,11 +7,14 @@ import android.provider.MediaStore
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.view.View
 import android.view.ViewGroup
+import android.widget.TextView
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.core.content.pm.PackageInfoCompat
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -89,6 +92,128 @@ class WinterThemeVisualEmulatorTest {
             }, null, null)
         } finally {
             image.recycle()
+        }
+    }
+
+    /** Compare the functional View tree, not decorative colors or outlines. */
+    private fun functionalLayout(activity: MainActivity): List<String> {
+        val container = activity.findViewById<ViewGroup>(android.R.id.content)
+        val screen = container.getChildAt(0) as ViewGroup
+        val header = screen.getChildAt(0) as ViewGroup
+        val headerTitle = header.getChildAt(0)
+        val scroller = screen.getChildAt(1) as ViewGroup
+        val root = scroller.getChildAt(0)
+        val tree = mutableListOf<String>()
+        tree += "BalanceHubTitle:${headerTitle.left},${headerTitle.top}," +
+            "${headerTitle.width},${headerTitle.height},${headerTitle.translationY}"
+        fun walk(view: View, path: String) {
+            if (view.visibility != View.VISIBLE) return
+            if (view is TextView && view.text.isNotBlank()) {
+                tree += "text:${view.text}@$path:${view.left},${view.top}," +
+                    "${view.width},${view.height}"
+            }
+            if (view.isClickable) {
+                tree += "button:${view.javaClass.simpleName}@$path:" +
+                    "${view.left},${view.top},${view.width},${view.height}"
+            }
+            if (view is ViewGroup) {
+                for (i in 0 until view.childCount) {
+                    walk(view.getChildAt(i), "$path/$i")
+                }
+            }
+        }
+        walk(root, "root")
+        return tree
+    }
+
+    @Test fun winterOnlyChangesDecorationAcrossAllTabs() {
+        val prefs = context.getSharedPreferences("balancehub_data", Context.MODE_PRIVATE)
+        val oldOnboarding = prefs.all["onboarding_completed"]
+        val oldWelcome = prefs.all["release_welcome_version"]
+        val oldAppearance = prefs.all["appearance"]
+        val oldOverride = prefs.all["winter_theme_test_mode"]
+        val oldPaymentsExpanded = prefs.all["payments_list_expanded"]
+        val oldEventsExpanded = prefs.all["event_list_expanded"]
+        val code = PackageInfoCompat.getLongVersionCode(
+            context.packageManager.getPackageInfo(context.packageName, 0))
+        val chooseTab = MainActivity::class.java.getDeclaredMethod(
+            "selectTab", Int::class.javaPrimitiveType).apply { isAccessible = true }
+        val redraw = MainActivity::class.java.getDeclaredMethod(
+            "renderTab").apply { isAccessible = true }
+        val layouts = mutableMapOf<String, List<String>>()
+        try {
+            for (appearance in listOf("night", "day")) {
+                for (season in listOf("normal", "winter")) {
+                    val winter = season == "winter"
+                    assertTrue(prefs.edit().putBoolean("onboarding_completed", true)
+                        .putLong("release_welcome_version", code)
+                        .putBoolean("payments_list_expanded", false)
+                        .putBoolean("event_list_expanded", false)
+                        .putString("appearance", appearance)
+                        .putString("winter_theme_test_mode",
+                            if (winter) WinterThemePolicy.FORCE_ON
+                            else WinterThemePolicy.FORCE_OFF).commit())
+                    ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                        for (tab in 0..4) {
+                            scenario.onActivity { activity ->
+                                chooseTab.invoke(activity, tab)
+                            }
+                            instrumentation.waitForIdleSync()
+                            scenario.onActivity { activity ->
+                                layouts["$season-$appearance-$tab"] =
+                                    functionalLayout(activity)
+                                if (!winter) screenshot(activity,
+                                    "normal-$appearance-tab$tab", false)
+                            }
+                        }
+                        // Collapsible payment/event lists must share their
+                        // exact positions and actions in both appearances.
+                        for ((tab, fieldName) in listOf(
+                            2 to "upcomingListExpanded", 3 to "eventListExpanded")) {
+                            scenario.onActivity { activity ->
+                                chooseTab.invoke(activity, tab)
+                                MainActivity::class.java.getDeclaredField(fieldName)
+                                    .apply { isAccessible = true }
+                                    .setBoolean(activity, true)
+                                redraw.invoke(activity)
+                            }
+                            instrumentation.waitForIdleSync()
+                            scenario.onActivity { activity ->
+                                layouts["$season-$appearance-$tab-expanded"] =
+                                    functionalLayout(activity)
+                                screenshot(activity, "$season-$appearance-tab$tab-expanded", false)
+                            }
+                        }
+                    }
+                }
+                for (tab in 0..4) {
+                    assertEquals("Theme changed functional layout on tab $tab ($appearance)",
+                        layouts["normal-$appearance-$tab"],
+                        layouts["winter-$appearance-$tab"])
+                }
+                for (tab in listOf(2, 3)) {
+                    assertEquals("Theme changed expanded tab $tab ($appearance)",
+                        layouts["normal-$appearance-$tab-expanded"],
+                        layouts["winter-$appearance-$tab-expanded"])
+                }
+            }
+        } finally {
+            val editor = prefs.edit()
+            if (oldOnboarding is Boolean) editor.putBoolean(
+                "onboarding_completed", oldOnboarding) else editor.remove("onboarding_completed")
+            if (oldWelcome is Long) editor.putLong(
+                "release_welcome_version", oldWelcome) else editor.remove("release_welcome_version")
+            if (oldAppearance is String) editor.putString(
+                "appearance", oldAppearance) else editor.remove("appearance")
+            if (oldOverride is String) editor.putString(
+                "winter_theme_test_mode", oldOverride) else editor.remove("winter_theme_test_mode")
+            if (oldPaymentsExpanded is Boolean) editor.putBoolean(
+                "payments_list_expanded", oldPaymentsExpanded)
+                else editor.remove("payments_list_expanded")
+            if (oldEventsExpanded is Boolean) editor.putBoolean(
+                "event_list_expanded", oldEventsExpanded)
+                else editor.remove("event_list_expanded")
+            editor.commit()
         }
     }
 
