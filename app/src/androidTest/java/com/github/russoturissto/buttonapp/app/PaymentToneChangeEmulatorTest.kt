@@ -2,6 +2,7 @@ package com.github.russoturissto.buttonapp.app
 
 import android.app.NotificationManager
 import android.content.Context
+import android.media.RingtoneManager
 import android.os.Build
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -36,6 +37,10 @@ class PaymentToneChangeEmulatorTest {
         val oldMode = BalanceNotificationSounds.vibrationMode(
             context, BalanceNotificationSounds.PAYMENT)
         val oldCompatibility = BalanceNotificationSounds.colorOsCompatibility(context)
+        // Some clean emulators have no actual system notification ringtone.
+        // The app must reject that trial without touching the working channel.
+        val systemToneAvailable = RingtoneManager.getActualDefaultRingtoneUri(
+            context, RingtoneManager.TYPE_NOTIFICATION) != null
         var count = 0
         try {
             // A test-only, ephemeral opt-in. Do not migrate or replace other channels.
@@ -47,6 +52,15 @@ class PaymentToneChangeEmulatorTest {
                     activeId, BalanceNotificationSounds.channelId(
                         context, BalanceNotificationSounds.PAYMENT))
                 val issue = PaymentToneChange.begin(context, sound, 100)
+                if (sound == "system" && !systemToneAvailable) {
+                    assertEquals("Не удалось открыть новую мелодию платежей", issue)
+                    assertNull(PaymentToneChange.pending(context))
+                    assertEquals(activeId, BalanceNotificationSounds.channelId(
+                        context, BalanceNotificationSounds.PAYMENT))
+                    assertNotNull(manager.getNotificationChannel(activeId))
+                    count++
+                    continue
+                }
                 assertNull("Cannot stage $sound/$mode: $issue", issue)
                 val trial = PaymentToneChange.pending(context)
                 assertNotNull(trial)

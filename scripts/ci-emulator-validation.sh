@@ -11,10 +11,9 @@ if [[ "$api" == "35" ]]; then
   adb shell input keyevent KEYCODE_HOME || true
 fi
 
-# On API 35 the full 55-test session exhausted or destabilised the emulator
-# while rendering many winter snapshots. Run the 4 visual tests first on a fresh
-# emulator session, then ALL other tests separately (no test is silently skipped).
-# Keep both reports and screenshots for manual inspection.
+# On API 35 a monolithic winter visual run can destabilise the emulator
+# during repeated ActivityScenario rendering. Isolate every visual test, then
+# execute all other tests; no coverage is omitted. Retain individual reports.
 results_dir="app/build/outputs/androidTest-results/connected/debug"
 visual_class="com.github.russoturissto.buttonapp.app.WinterThemeVisualEmulatorTest"
 
@@ -43,16 +42,34 @@ run_suite() {
 
 test_status=0
 if [[ "$api" == "35" ]]; then
-  if run_suite "winter-visual" \
-      "-Pandroid.testInstrumentationRunnerArguments.class=$visual_class"; then
-    # Gradle overwrites connected-test reports on the next invocation.
-    mkdir -p app/build/emulator-focus-retry
-    cp -a "$results_dir" app/build/emulator-focus-retry/winter-visual-success
+  # Each visual test gets a fresh instrumentation process, reducing Android 15
+  # emulator memory pressure from repeated ActivityScenario screenshots.
+  # Test order puts the approved banner check before multi-screen redraws.
+  for method in \
+      approvedFestiveBannerKeepsAccessibleTextAndRedHatOverCapitalH \
+      festiveAppearanceIsVisibleOnAllTabsInDarkAndLight \
+      winterOnlyChangesDecorationAcrossAllTabs \
+      frostIsUniquePerWindowAndStableBetweenDraws; do
+    label="winter-$method"
+    if run_suite "$label" \
+        "-Pandroid.testInstrumentationRunnerArguments.class=$visual_class#$method"; then
+      # Reject false-green Gradle runs that reused an earlier test report.
+      if ! grep -Rql "<testcase name=\"$method\"" "$results_dir"; then
+        echo "::error::Instrumented visual test did not run: $method"
+        test_status=1
+        break
+      fi
+      mkdir -p app/build/emulator-focus-retry
+      cp -a "$results_dir" "app/build/emulator-focus-retry/${label}-success"
+    else
+      test_status=$?
+      break
+    fi
+  done
+  if [[ "$test_status" -eq 0 ]]; then
     run_suite "all-other-tests" \
       "-Pandroid.testInstrumentationRunnerArguments.notClass=$visual_class" \
       || test_status=$?
-  else
-    test_status=$?
   fi
 else
   run_suite "full-regression" || test_status=$?
