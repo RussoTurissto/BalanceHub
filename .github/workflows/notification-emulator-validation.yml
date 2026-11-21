@@ -11,6 +11,8 @@ on:
       - "app/src/androidTest/**"
       - "app/build.gradle.kts"
       - "gradle.properties"
+      # Stable marker must trigger fresh same-SHA test runs on main.
+      - "release/approved-stable-version.txt"
       - "scripts/ci-emulator-validation.sh"
       - ".github/workflows/notification-emulator-validation.yml"
       - "library-android/src/main/**"
@@ -25,6 +27,8 @@ on:
       - "app/src/androidTest/**"
       - "app/build.gradle.kts"
       - "gradle.properties"
+      # Stable marker must trigger fresh same-SHA test runs on main.
+      - "release/approved-stable-version.txt"
       - "scripts/ci-emulator-validation.sh"
       - ".github/workflows/notification-emulator-validation.yml"
       - "library-android/src/main/**"
@@ -42,7 +46,9 @@ concurrency:
 jobs:
   emulators:
     name: "Android API ${{ matrix.api }} (${{ matrix.suite }})"
-    runs-on: ubuntu-latest
+    # Intel macOS has Hypervisor.Framework hardware acceleration instead of KVM.
+    # Linux API 35/36 emulators repeatedly disconnected mid-instrumentation.
+    runs-on: ${{ (matrix.api == 35 || matrix.api == 36) && 'macos-15-intel' || 'ubuntu-latest' }}
     timeout-minutes: 55
     strategy:
       fail-fast: false
@@ -64,6 +70,7 @@ jobs:
           distribution: temurin
           java-version: "17"
       - name: Enable KVM acceleration
+        if: runner.os == 'Linux'
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
             | sudo tee /etc/udev/rules.d/99-kvm4all.rules

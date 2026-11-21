@@ -20,6 +20,8 @@ on:
     paths:
       # Runtime changes and explicitly approved version updates trigger release checks.
       - "gradle.properties"
+      # Owner-approved stable marker starts verified publication on main.
+      - "release/approved-stable-version.txt"
       # A CI-only correction must also be able to launch the signed test build.
       - ".github/workflows/balancehub-apk.yml"
       - ".github/workflows/notification-emulator-validation.yml"
