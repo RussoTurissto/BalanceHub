@@ -132,7 +132,11 @@ jobs:
           profile: pixel_5
           ram-size: ${{ (matrix.api == 35 || matrix.api == 36) && '3072M' || '2048M' }}
           disable-animations: true
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
+          # The old swiftshader_indirect/Vulkan path can terminate API 35/36
+          # headless emulators during heavy UI drawing, taking ADB down with it.
+          # Use supported SwiftShader GLES-only rendering on those two APIs.
+          # Preserve the already-passing Android 10/11 graphics environment.
+          emulator-options: ${{ (matrix.api == 35 || matrix.api == 36) && '-no-window -gpu swiftshader -feature -Vulkan -noaudio -no-boot-anim -camera-back none -camera-front none' || '-no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none' }}
           script: |
             set -euo pipefail
             adb shell getprop ro.build.version.release
