@@ -51,7 +51,7 @@ sha256="$(sha256sum "$apk" | awk '{print $1}')"
 bytes="$(stat -c %s "$apk")"
 previous_stable="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq '.tag_name')"
 
-# CI must confirm Android API 29, 35 and 36 on this *exact commit*, whether
+# CI must confirm Android API 29, 30, 35 and 36 on this *exact commit*, whether
 # this was an ordinary push or an explicitly approved manual stable run.
 # Emulator matrix jobs have a 55-minute timeout; reserve a full 60 minutes
 # for same-commit results so a slow Android 36 run does not block a valid APK.
@@ -72,10 +72,18 @@ for attempt in $(seq 1 "$max_attempts"); do
         exit 1
       }
       jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs?per_page=100")"
-      for api in 29 35 36; do
-        printf '%s' "$jobs" | jq -e --arg name "Android API $api" \
+      # Require every independent suite, including Android 11 and both
+      # appearance/layout checks on Android 15/16, on this exact SHA.
+      for suite_name in \
+          "Android API 29 (full)" \
+          "Android API 30 (full)" \
+          "Android API 35 (captures)" \
+          "Android API 35 (layout)" \
+          "Android API 36 (captures)" \
+          "Android API 36 (layout)"; do
+        printf '%s' "$jobs" | jq -e --arg name "$suite_name" \
           'any(.jobs[]; .name == $name and .conclusion == "success")' >/dev/null || {
-          echo "::error::Android API $api did not pass in run $run_id"
+          echo "::error::$suite_name did not pass in run $run_id"
           exit 1
         }
       done
