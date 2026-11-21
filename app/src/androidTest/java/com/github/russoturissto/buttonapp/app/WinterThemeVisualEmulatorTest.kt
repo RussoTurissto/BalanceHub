@@ -365,7 +365,10 @@ class WinterThemeVisualEmulatorTest {
                             val seamX = (bitmap.width * .55f).toInt()
                             val photoHeight = bitmap.width * .45f * 206f / 368f
                             val photoTop = (bitmap.height - photoHeight) * .12f
-                            val seamY = (photoTop + photoHeight * .695f).toInt()
+                            // The joint is anchored to the real photographed
+                            // wire at y=145.5/206, not the old 69.5% estimate.
+                            val seamY = (photoTop + photoHeight * 145.5f / 206f)
+                                .toInt()
                             val left = (seamX - density * 1.8f).toInt()
                                 .coerceAtLeast(0)
                             val right = (seamX + density * 2.4f).toInt()

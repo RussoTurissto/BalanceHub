@@ -40,7 +40,12 @@ internal class WinterApprovedHeaderDrawable(
     private val garlandOnly: Boolean = false,
     private val darkMode: Boolean = true
 ) : Drawable() {
-    private companion object { const val PHOTO_WIDTH_FRACTION = 0.45f }
+    private companion object {
+        const val PHOTO_WIDTH_FRACTION = 0.45f
+        // Measured directly from the left edge of approved_ornaments.webp.
+        const val PHOTO_WIRE_START_Y = 145.5f
+        const val PHOTO_WIRE_SLOPE = -0.20f
+    }
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private var opacity = 255
 
@@ -113,11 +118,15 @@ internal class WinterApprovedHeaderDrawable(
             ornaments.height.toFloat() / ornaments.width
         val photoTop = (h - photoHeight) * .12f
         val startY = h * .67f
-        // At the left-most pixels of the owner-approved photo the real wire
-        // is around 69.5% down; 72% was the source of the visible kink.
-        val seamY = photoTop + photoHeight * .695f
-        return CableGeometry(-w * .012f, seam, startY, seamY,
-            startY + h * .10f, seamY + h * .095f)
+        val startX = -w * .012f
+        // Match BOTH the photographed cable's first pixel and its -0.20
+        // source-pixel slope. A percentage estimate landed above the real
+        // cable and made a small kink at the vector/photo boundary.
+        val seamY = photoTop + photoHeight * PHOTO_WIRE_START_Y /
+            ornaments.height.toFloat()
+        val control2Y = seamY - PHOTO_WIRE_SLOPE * (seam - startX) / 3f
+        return CableGeometry(startX, seam, startY, seamY,
+            startY + h * .10f, control2Y)
     }
 
     override fun draw(canvas: Canvas) {
@@ -206,7 +215,7 @@ internal class WinterApprovedHeaderDrawable(
         val photoScale = w * PHOTO_WIDTH_FRACTION / ornaments.width
         val fromX = geometry.seamX - d * 2.8f
         val toX = geometry.seamX + photoScale * 6.0f
-        val targetY = geometry.seamY + photoScale * .35f
+        val targetY = geometry.seamY + PHOTO_WIRE_SLOPE * photoScale * 6f
 
         // This is ONLY the sub-centimeter join to the retinted original
         // photographic wire. Never paint a second cable along the photograph.
@@ -217,8 +226,10 @@ internal class WinterApprovedHeaderDrawable(
                 val y = geometry.yAtX(x)
                 if (i == 0) moveTo(x, y) else lineTo(x, y)
             }
-            cubicTo(geometry.seamX + photoScale * 1.9f, geometry.seamY,
-                geometry.seamX + photoScale * 4.0f, targetY,
+            cubicTo(geometry.seamX + photoScale * 1.9f,
+                geometry.seamY + PHOTO_WIRE_SLOPE * photoScale * 1.9f,
+                geometry.seamX + photoScale * 4.0f,
+                geometry.seamY + PHOTO_WIRE_SLOPE * photoScale * 4.0f,
                 toX, targetY)
         }
         val wire = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -256,7 +267,11 @@ internal class WinterApprovedHeaderDrawable(
             val x = left + width * px / ornaments.width
             val y = top + height * py / ornaments.height
             val radius = density * (if (index < 3) 12.5f else 10.0f)
-            val strength = if (index < 3) 67 else 42
+            val strength = if (index < 3) {
+                if (darkMode) 67 else 52
+            } else {
+                if (darkMode) 42 else 32
+            }
             glow.shader = RadialGradient(x, y, radius,
                 intArrayOf(
                     Color.argb(strength, 255, 244, 191),
@@ -273,8 +288,8 @@ internal class WinterApprovedHeaderDrawable(
                 val glassRadius = density * (if (index == 0) 3.5f else 3.0f)
                 glow.shader = RadialGradient(x, y, glassRadius,
                     intArrayOf(
-                        Color.argb(145, 255, 250, 207),
-                        Color.argb(112, 255, 208, 102),
+                        Color.argb(if (darkMode) 145 else 117, 255, 250, 207),
+                        Color.argb(if (darkMode) 112 else 87, 255, 208, 102),
                         Color.TRANSPARENT
                     ), floatArrayOf(0f, .38f, 1f), Shader.TileMode.CLAMP)
                 canvas.drawCircle(x, y, glassRadius, glow)
@@ -392,6 +407,10 @@ internal class WinterApprovedHeaderDrawable(
         }
 
         val fill = Paint(Paint.ANTI_ALIAS_FLAG)
+        // Soft light reads clearly at night without washing out the daytime
+        // approved photo and its glass ornaments.
+        val glowWeight = if (darkMode) 1f else .80f
+        fun glowAlpha(alpha: Int) = (alpha * glowWeight).toInt()
         for (i in 0 until 10) {
             val t = (i + .48f) / 10f
             val x = geometry.xAt(t)
@@ -404,9 +423,9 @@ internal class WinterApprovedHeaderDrawable(
             val ambientRadius = radius * 7.2f
             fill.shader = RadialGradient(x, centerY, ambientRadius,
                 intArrayOf(
-                    Color.argb(64, 255, 210, 100),
-                    Color.argb(38, 255, 166, 38),
-                    Color.argb(11, 242, 117, 20),
+                    Color.argb(glowAlpha(64), 255, 210, 100),
+                    Color.argb(glowAlpha(38), 255, 166, 38),
+                    Color.argb(glowAlpha(11), 242, 117, 20),
                     Color.TRANSPARENT
                 ), floatArrayOf(0f, .20f, .54f, 1f),
                 Shader.TileMode.CLAMP)
@@ -414,9 +433,9 @@ internal class WinterApprovedHeaderDrawable(
             val innerRadius = radius * 3.45f
             fill.shader = RadialGradient(x, centerY, innerRadius,
                 intArrayOf(
-                    Color.argb(162, 255, 250, 197),
-                    Color.argb(119, 255, 193, 67),
-                    Color.argb(45, 255, 135, 27),
+                    Color.argb(glowAlpha(162), 255, 250, 197),
+                    Color.argb(glowAlpha(119), 255, 193, 67),
+                    Color.argb(glowAlpha(45), 255, 135, 27),
                     Color.TRANSPARENT
                 ), floatArrayOf(0f, .16f, .52f, 1f),
                 Shader.TileMode.CLAMP)
