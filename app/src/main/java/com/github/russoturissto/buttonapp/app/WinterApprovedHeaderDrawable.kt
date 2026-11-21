@@ -77,7 +77,7 @@ internal class WinterApprovedHeaderDrawable(
                 photo[x, y] = Color.argb(Color.alpha(p),
                     blend(red, 95f + 157f * strength),
                     blend(green, 56f + 156f * strength),
-                    blend(blue, 22f + 98f * strength)))
+                    blend(blue, 22f + 98f * strength))
             }
         }
         photo
