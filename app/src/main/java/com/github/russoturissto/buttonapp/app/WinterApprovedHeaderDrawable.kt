@@ -42,6 +42,45 @@ internal class WinterApprovedHeaderDrawable(
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private var opacity = 255
 
+    // Retouch ONLY the actual snowy photographic wire (72 of 368 source
+    // columns). A second painted strand alongside it always looked doubled.
+    // This preserves the original wire's snow texture, bulbs, fir and bow.
+    private val warmPhoto by lazy(LazyThreadSafetyMode.NONE) {
+        val photo = ornaments.copy(Bitmap.Config.ARGB_8888, true)
+        val xs = floatArrayOf(0f, 10f, 20f, 30f, 40f, 50f, 60f, 70f)
+        val ys = floatArrayOf(145.5f, 143.5f, 142f, 141.5f,
+            141f, 139f, 137f, 135f)
+        for (x in 0 until minOf(72, photo.width)) {
+            val k = (x / 10).coerceIn(0, xs.lastIndex - 1)
+            val center = ys[k] + (ys[k + 1] - ys[k]) *
+                ((x - xs[k]) / (xs[k + 1] - xs[k]))
+            val first = (center - 5f).toInt().coerceAtLeast(0)
+            val last = (center + 6f).toInt().coerceAtMost(photo.height - 1)
+            for (y in first..last) {
+                val p = photo.getPixel(x, y)
+                val red = Color.red(p)
+                val green = Color.green(p)
+                val blue = Color.blue(p)
+                val brightness = (red + green + blue) / 3f
+                val neutral = kotlin.math.abs(red - green) < 35 ||
+                    blue > green * .70f
+                if (brightness <= 45f || green <= 52 || blue <= 37 || !neutral)
+                    continue
+                val strength = ((brightness - 30f) / 225f).coerceIn(0f, 1f)
+                val tint = ((5.2f - kotlin.math.abs(y - center)) / 2.8f)
+                    .coerceIn(0f, 1f) *
+                    (.7f + .3f * ((72f - x) / 12f).coerceIn(0f, 1f))
+                fun blend(old: Int, gold: Float) =
+                    (old + (gold - old) * tint).toInt().coerceIn(0, 255)
+                photo.setPixel(x, y, Color.argb(Color.alpha(p),
+                    blend(red, 95f + 157f * strength),
+                    blend(green, 56f + 156f * strength),
+                    blend(blue, 22f + 98f * strength)))
+            }
+        }
+        photo
+    }
+
     // Both drawable layers use this same cubic. Its endpoint is calibrated
     // to the actual cable entering approved_ornaments.webp, not to a guessed
     // bend drawn over the photograph.
@@ -107,7 +146,7 @@ internal class WinterApprovedHeaderDrawable(
         val rightWidth = w * PHOTO_WIDTH_FRACTION
         val rightHeight = rightWidth * ornaments.height / ornaments.width
         val ornamentTop = (h - rightHeight) * .12f
-        canvas.drawBitmap(ornaments, null,
+        canvas.drawBitmap(warmPhoto, null,
             RectF(w - rightWidth, ornamentTop,
                 w, ornamentTop + rightHeight), paint)
         // Only warm, translucent halos are laid over the original photo
@@ -162,58 +201,41 @@ internal class WinterApprovedHeaderDrawable(
     private fun drawCableJoin(canvas: Canvas, w: Float, h: Float) {
         val geometry = cableGeometry(w, h)
         val d = density
-        val photoWidth = w * PHOTO_WIDTH_FRACTION
-        val photoScale = photoWidth / ornaments.width
-        val photoHeight = photoWidth * ornaments.height / ornaments.width
-        val photoTop = (h - photoHeight) * .12f
+        val photoScale = w * PHOTO_WIDTH_FRACTION / ornaments.width
         val fromX = geometry.seamX - d * 2.8f
-        val toX = geometry.seamX + photoScale * 133f
+        val toX = geometry.seamX + photoScale * 6.0f
+        val targetY = geometry.seamY + photoScale * .35f
 
-        // Continue the SAME physical strand over the pale cable already
-        // present in the approved photograph. It follows the photographed
-        // wire, restores its copper tint and disappears underneath the fir.
-        // There is no second drooping string and no replacement light bulb.
+        // This is ONLY the sub-centimeter join to the retinted original
+        // photographic wire. Never paint a second cable along the photograph.
         val continuous = Path().apply {
-            val points = 20
+            val points = 12
             for (i in 0..points) {
                 val x = fromX + (geometry.seamX - fromX) * i / points
                 val y = geometry.yAtX(x)
                 if (i == 0) moveTo(x, y) else lineTo(x, y)
             }
-            cubicTo(
-                // Follow the measured pale wire rather than drawing a
-                // visibly parallel copper line above it. On the approved
-                // photo the wire lies at y~141, 138, 135, 130 and 125
-                // for source x~38, 53, 68, 83 and 98 respectively.
-                geometry.seamX + photoScale * 25f,
-                geometry.seamY - photoScale * 2f,
-                geometry.seamX + photoScale * 87f,
-                photoTop + photoScale * 136f,
-                toX,
-                photoTop + photoScale * 110f
-            )
+            cubicTo(geometry.seamX + photoScale * 1.9f, geometry.seamY,
+                geometry.seamX + photoScale * 4.0f, targetY,
+                toX, targetY)
         }
         val wire = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
             strokeCap = Paint.Cap.ROUND
             strokeJoin = Paint.Join.ROUND
         }
-        // Blend both ends; the broad copper undercoat covers the old gray
-        // cable while a fine reflective core makes it read as a single wire.
-        val copperStops = floatArrayOf(0f, .095f, .70f, 1f)
-        wire.strokeWidth = d * 2.55f
-        wire.shader = LinearGradient(fromX, geometry.seamY, toX,
-            geometry.seamY,
+        val stops = floatArrayOf(0f, .28f, .76f, 1f)
+        wire.strokeWidth = d * 1.7f
+        wire.shader = LinearGradient(fromX, geometry.seamY, toX, targetY,
             intArrayOf(Color.TRANSPARENT, Color.argb(205, 76, 58, 36),
-                Color.argb(190, 77, 60, 37), Color.TRANSPARENT),
-            copperStops, Shader.TileMode.CLAMP)
+                Color.argb(186, 77, 60, 37), Color.TRANSPARENT),
+            stops, Shader.TileMode.CLAMP)
         canvas.drawPath(continuous, wire)
-        wire.strokeWidth = d * .98f
-        wire.shader = LinearGradient(fromX, geometry.seamY, toX,
-            geometry.seamY,
+        wire.strokeWidth = d * .85f
+        wire.shader = LinearGradient(fromX, geometry.seamY, toX, targetY,
             intArrayOf(Color.TRANSPARENT, Color.argb(245, 219, 174, 99),
-                Color.argb(232, 225, 187, 115), Color.TRANSPARENT),
-            copperStops, Shader.TileMode.CLAMP)
+                Color.argb(218, 225, 187, 115), Color.TRANSPARENT),
+            stops, Shader.TileMode.CLAMP)
         canvas.drawPath(continuous, wire)
         wire.shader = null
     }
