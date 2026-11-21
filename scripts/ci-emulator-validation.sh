@@ -33,12 +33,12 @@ fi
 results_dir="app/build/outputs/androidTest-results/connected/debug"
 visual_class="com.github.russoturissto.buttonapp.app.WinterThemeVisualEmulatorTest"
 
-# Use already-compiled APKs for the Mac emulator tests.
+# Use already-compiled APKs on Android 15/16 in both Linux KVM and macOS.
 # Re-running Gradle during instrumentation triggers extensive Kotlin/D8
 # transformation (tens of MB of warnings), delaying actual tests.
 # We explicitly validate the AndroidJUnitRunner result; adb's exit status
 # alone does not indicate whether JUnit assertions passed.
-macos_direct=false
+direct_instrumentation=false
 adb_results_dir="app/build/emulator-adb-results"
 
 # Capture the context of an ANR, not just the instrumentation "Process crashed"
@@ -118,8 +118,8 @@ install_test_apk() {
   return 1
 }
 
-if [[ "$(uname -s)" == "Darwin" && ( "$api" == "35" || "$api" == "36" ) ]]; then
-  macos_direct=true
+if [[ "$api" == "35" || "$api" == "36" ]]; then
+  direct_instrumentation=true
   mkdir -p "$adb_results_dir"
   apk="app/build/outputs/apk/debug/app-debug.apk"
   test_apk="app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk"
@@ -137,7 +137,7 @@ run_suite() {
   shift
   local status=0
   echo "::group::Android API $api: $label"
-  if [[ "$macos_direct" == "true" ]]; then
+  if [[ "$direct_instrumentation" == "true" ]]; then
     local filter_kind="" filter_value="" argument
     for argument in "$@"; do
       case "$argument" in
@@ -222,7 +222,7 @@ if [[ "$api" == "35" || "$api" == "36" ]]; then
     if run_suite "$label" \
         "-Pandroid.testInstrumentationRunnerArguments.class=$visual_class#$method"; then
       # Do not count an unexecuted method or a stale test report as green.
-      if [[ "$macos_direct" == "true" ]]; then
+      if [[ "$direct_instrumentation" == "true" ]]; then
         if ! grep -Fq "INSTRUMENTATION_STATUS: test=$method" \
             "$adb_results_dir/${label}.log"; then
           echo "::error::Required visual test did not run: $method"
