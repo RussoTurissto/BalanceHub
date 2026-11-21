@@ -74,9 +74,10 @@ jobs:
   emulators:
     needs: prepare-android-apks
     name: "Android API ${{ matrix.api }} (${{ matrix.suite }})"
-    # Intel macOS has Hypervisor.Framework hardware acceleration instead of KVM.
-    # Linux API 35/36 emulators repeatedly disconnected mid-instrumentation.
-    runs-on: ${{ (matrix.api == 35 || matrix.api == 36) && 'macos-15-intel' || 'ubuntu-latest' }}
+    # macOS Intel hosts have only one virtual Android CPU and repeatedly ANR
+    # during startup. Linux KVM has hardware acceleration and the test APKs
+    # run directly via ADB, without Gradle competition while Android is up.
+    runs-on: ubuntu-latest
     timeout-minutes: 55
     strategy:
       fail-fast: false
@@ -136,18 +137,17 @@ jobs:
             fi
             sleep $((attempt * 30))
           done
-      # Keep Gradle/Kotlin compilation away from the running Android VM:
+      # Keep Gradle/Kotlin compilation away from Android 15/16 VMs:
       # concurrent dexing + emulator snapshots can exhaust hosted-runner memory.
-      # The macOS emulator installs the byte-identical Linux-built app and
-      # test APKs. Do not dex them again on macOS.
+      # Install byte-identical test APKs compiled by prepare-android-apks.
       - name: Download Linux-built test APKs
-        if: runner.os == 'macOS'
+        if: matrix.api == 35 || matrix.api == 36
         uses: actions/download-artifact@v4
         with:
           name: balancehub-instrumentation-apks-${{ github.sha }}
           path: app/build/outputs/apk
       - name: Prebuild test APKs before starting the Android emulator
-        if: runner.os == 'Linux'
+        if: matrix.api == 29 || matrix.api == 30
         shell: bash
         run: |
           set -euo pipefail
