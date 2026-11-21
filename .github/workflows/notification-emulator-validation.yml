@@ -122,7 +122,12 @@ jobs:
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: ${{ matrix.api }}
-          target: google_apis
+          # Android 15/16 Google API images start heavyweight Play services
+          # during instrumentation. On hosted CI they can starve the VM and
+          # disconnect ADB before UI assertions finish. Use the plain AOSP
+          # image for UI/notification regression tests; keep older API
+          # coverage on its already-verified Google APIs image.
+          target: ${{ (matrix.api == 35 || matrix.api == 36) && 'default' || 'google_apis' }}
           arch: x86_64
           profile: pixel_5
           ram-size: ${{ (matrix.api == 35 || matrix.api == 36) && '3072M' || '2048M' }}
