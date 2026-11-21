@@ -87,6 +87,10 @@ run_suite() {
         grep -Eq 'INSTRUMENTATION_STATUS_CODE: -2|FAILURES!!!|INSTRUMENTATION_FAILED|INSTRUMENTATION_ABORTED' "$log"
       }; then
         echo "::error::Instrumentation failed or ran zero tests: $label"
+        # Preserve the actual Android exception before the emulator is torn
+        # down; a bare 'Process crashed' result is not enough to diagnose.
+        adb logcat -d -b crash > "$adb_results_dir/${label}-crash.log" 2>&1 || true
+        adb logcat -d -t 400 > "$adb_results_dir/${label}-recent.log" 2>&1 || true
         status=1
       fi
     elif [[ "$status" -eq 0 ]]; then
