@@ -127,9 +127,11 @@ internal class WinterApprovedHeaderDrawable(
         val yAtSeam = photoTop + photoHeight * .72f +
             density * .36f * kotlin.math.sin(6.65).toFloat()
         val bridge = Path().apply {
-            moveTo(photoLeft - density * 2.2f, yAtSeam)
-            cubicTo(photoLeft + density * 1.5f, yAtSeam,
-                photoLeft + density * 5f, photoTop + photoHeight * .68f,
+            // Start exactly where the existing vector cable terminates.
+            // Beginning earlier created a visible fork at this junction.
+            moveTo(photoLeft - density * .15f, yAtSeam)
+            cubicTo(photoLeft + density * 3f, yAtSeam - density * .4f,
+                photoLeft + density * 6.3f, photoTop + photoHeight * .69f,
                 photoLeft + density * 9.5f, photoTop + photoHeight * .67f)
         }
         val cable = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -178,6 +180,31 @@ internal class WinterApprovedHeaderDrawable(
                 if (i == 0) ridge.moveTo(x, y) else ridge.lineTo(x, y)
             }
             canvas.drawPath(ridge, line)
+
+            // Sparse fronds alone left the middle of the top edge bare.
+            // Tiny uneven crystalline stems knit the continuous rim into
+            // the organic corners without forming a repeated stamped motif.
+            val growths = (w / (23f * d)).toInt().coerceAtLeast(5)
+            line.strokeWidth = d * .34f
+            for (i in 0 until growths) {
+                val wave = kotlin.math.sin(i * 2.41).toFloat()
+                val x = w * (i + .50f + wave * .17f) / growths
+                val length = d * (4.0f + (i * 17 % 11) * .48f)
+                val drift = kotlin.math.sin(i * 1.71).toFloat() * length * .30f
+                val xEnd = x + drift
+                val startY = d * 1.1f
+                canvas.drawLine(x, startY, xEnd, length, line)
+                for (branch in 1..3) {
+                    val t = branch / 4f
+                    val bx = x + drift * t
+                    val by = startY + (length - startY) * t
+                    val barb = length * (.15f + (i + branch) % 3 * .04f)
+                    canvas.drawLine(bx, by,
+                        bx + barb, by - barb * .56f, line)
+                    canvas.drawLine(bx, by,
+                        bx - barb * .85f, by - barb * .49f, line)
+                }
+            }
         }
     }
 
