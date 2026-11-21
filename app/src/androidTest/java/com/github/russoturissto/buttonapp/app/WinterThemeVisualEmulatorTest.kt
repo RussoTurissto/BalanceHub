@@ -299,6 +299,27 @@ class WinterThemeVisualEmulatorTest {
                             assertTrue("Garland background layer missing",
                                 header.background is
                                     android.graphics.drawable.LayerDrawable)
+                            // The original right-hand photo already carries
+                            // warm bulbs. The vector background must not paint
+                            // a second wire, bulb or glow over that photograph.
+                            val garlandLayer = (header.background as
+                                android.graphics.drawable.LayerDrawable).getDrawable(1)
+                            val garlandBitmap = Bitmap.createBitmap(
+                                header.width, header.height, Bitmap.Config.ARGB_8888)
+                            try {
+                                garlandLayer.setBounds(0, 0, header.width, header.height)
+                                garlandLayer.draw(Canvas(garlandBitmap))
+                                var overlappingPixels = 0
+                                for (y in 0 until garlandBitmap.height step 2) {
+                                    for (x in (garlandBitmap.width * .56f).toInt()
+                                        until garlandBitmap.width step 2) {
+                                        if (Color.alpha(garlandBitmap.getPixel(x, y)) != 0)
+                                            overlappingPixels++
+                                    }
+                                }
+                                assertEquals("Duplicate vector garland over photo lights",
+                                    0, overlappingPixels)
+                            } finally { garlandBitmap.recycle() }
                             var whiteTitlePixels = 0
                             val top = (wordmark.top + wordmark.translationY)
                                 .toInt().coerceAtLeast(0)
