@@ -162,8 +162,10 @@ internal class WinterApprovedHeaderDrawable(
     private fun drawCableJoin(canvas: Canvas, w: Float, h: Float) {
         val geometry = cableGeometry(w, h)
         val d = density
-        val fromX = geometry.seamX - d * .70f
-        val toX = geometry.seamX + d * 5.5f
+        // Cover antialiasing at BOTH sides of the boundary so there is
+        // never even a one-pixel break between the background and photo.
+        val fromX = geometry.seamX - d * 2.8f
+        val toX = geometry.seamX + d * 8.0f
         // One extension of the SAME spline, with its exact end tangent.
         // A second independently shaped Bezier created the old fork.
         val continuation = Path().apply {
@@ -184,15 +186,19 @@ internal class WinterApprovedHeaderDrawable(
         // a golden overlay all the way to the first original light bulb.
         wire.strokeWidth = d * 1.55f
         wire.shader = LinearGradient(fromX, geometry.seamY, toX, geometry.seamY,
-            intArrayOf(Color.argb(215, 50, 43, 28),
-                Color.argb(115, 63, 58, 43), Color.TRANSPARENT),
-            null, Shader.TileMode.CLAMP)
+            intArrayOf(Color.TRANSPARENT,
+                Color.argb(215, 50, 43, 28),
+                Color.argb(175, 63, 58, 43),
+                Color.TRANSPARENT),
+            floatArrayOf(0f, .25f, .62f, 1f), Shader.TileMode.CLAMP)
         canvas.drawPath(continuation, wire)
         wire.strokeWidth = d * .78f
         wire.shader = LinearGradient(fromX, geometry.seamY, toX, geometry.seamY,
-            intArrayOf(Color.argb(248, 195, 156, 90),
-                Color.argb(175, 225, 214, 178), Color.TRANSPARENT),
-            null, Shader.TileMode.CLAMP)
+            intArrayOf(Color.TRANSPARENT,
+                Color.argb(248, 195, 156, 90),
+                Color.argb(220, 225, 214, 178),
+                Color.TRANSPARENT),
+            floatArrayOf(0f, .25f, .62f, 1f), Shader.TileMode.CLAMP)
         canvas.drawPath(continuation, wire)
     }
 
