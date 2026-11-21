@@ -36,6 +36,7 @@ internal class WinterApprovedHeaderDrawable(
     private val santaHat: Bitmap,
     private val garlandOnly: Boolean = false
 ) : Drawable() {
+    private companion object { const val PHOTO_WIDTH_FRACTION = 0.45f }
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private var opacity = 255
 
@@ -54,13 +55,17 @@ internal class WinterApprovedHeaderDrawable(
         // title is drawn on top. Cutting out the entire TextView rectangle
         // made most of the wire and lamps disappear on real Android devices.
         if (garlandOnly) {
+            // The real ornaments bitmap already includes the right-hand bulbs.
+            // Clip the vector strand at the photo's exact left edge: no second
+            // cable or glow can appear across the photographic garland.
+            canvas.clipRect(0f, 0f, w * (1f - PHOTO_WIDTH_FRACTION), h)
             drawCurvedGarland(canvas, w, h)
             return@withSave
         }
 
         // Approved snow-covered spruce, pinecone, bow, glass baubles and star.
         // Preserve the artwork's aspect ratio across Android screen widths.
-        val rightWidth = w * .45f
+        val rightWidth = w * PHOTO_WIDTH_FRACTION
         val rightHeight = rightWidth * ornaments.height / ornaments.width
         val ornamentTop = (h - rightHeight) * .12f
         canvas.drawBitmap(ornaments, null,
@@ -113,7 +118,11 @@ internal class WinterApprovedHeaderDrawable(
     private fun drawCurvedGarland(canvas: Canvas, w: Float, h: Float) {
         val d = density
         val startX = -w * .012f
-        val endX = w * .75f
+        val endX = w * (1f - PHOTO_WIDTH_FRACTION)
+        // Match the cable embedded at the left edge of the original spruce
+        // photograph. Its snowy wire enters roughly 72% down that bitmap.
+        val photoHeight = w * PHOTO_WIDTH_FRACTION * ornaments.height / ornaments.width
+        val photoTop = (h - photoHeight) * .12f
         // Keep the chord and the bulb centres inside the measured header.
         // TextView's wrap-content height/translation is not a safe anchor for
         // the cord: it can push all lights beyond the foreground render bounds.
@@ -124,8 +133,10 @@ internal class WinterApprovedHeaderDrawable(
         // capitals on narrow screens, while keeping glass bulbs within
         // the existing header height (no layout or TextView changes).
         val startY = h * .67f
-        val endY = h * .44f
-        val sag = h * .25f
+        val endY = photoTop + photoHeight * .72f
+        // The wire is now shorter and meets the photograph at its natural
+        // height. The former 25% sag would drop the bulbs below the banner.
+        val sag = h * .09f
 
         fun yAt(t: Float): Float {
             val smoothDrop = sag * 4f * t * (1f - t)
