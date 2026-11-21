@@ -9,6 +9,8 @@ on:
       - feature/balancehub-winter-rc7
       - feature/balancehub-winter-rc8
       - feature/balancehub-winter-rc9
+      # Only a signed test APK: remove double-light overlap, no stable release.
+      - feature/balancehub-garland-rc1
     paths:
       # Runtime changes and explicitly approved version updates trigger release checks.
       - "gradle.properties"
@@ -60,7 +62,7 @@ jobs:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.rollback_rc13 && '2ea6f89b1c5688abef38fa25854cb52a5555a3ad' || github.sha }}
 
       - name: Configure signed winter test APK on the isolated branch
-        if: ${{ github.ref == 'refs/heads/feature/balancehub-winter-rc6' || github.ref == 'refs/heads/feature/balancehub-winter-rc7' || github.ref == 'refs/heads/feature/balancehub-winter-rc8' || github.ref == 'refs/heads/feature/balancehub-winter-rc9' }}
+        if: ${{ github.ref == 'refs/heads/feature/balancehub-winter-rc6' || github.ref == 'refs/heads/feature/balancehub-winter-rc7' || github.ref == 'refs/heads/feature/balancehub-winter-rc8' || github.ref == 'refs/heads/feature/balancehub-winter-rc9' || github.ref == 'refs/heads/feature/balancehub-garland-rc1' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -80,6 +82,10 @@ jobs:
             refs/heads/feature/balancehub-winter-rc9)
               expected_name=1.2.5-rc9
               expected_code=761
+              ;;
+            refs/heads/feature/balancehub-garland-rc1)
+              expected_name=1.2.6-rc1
+              expected_code=781
               ;;
             *)
               echo "::error::Unauthorized winter test branch"
@@ -138,7 +144,8 @@ jobs:
           elif [[ "$GITHUB_REF" == "refs/heads/feature/balancehub-winter-rc6" ||
                 "$GITHUB_REF" == "refs/heads/feature/balancehub-winter-rc7" ||
                 "$GITHUB_REF" == "refs/heads/feature/balancehub-winter-rc8" ||
-                "$GITHUB_REF" == "refs/heads/feature/balancehub-winter-rc9" ]]; then
+                "$GITHUB_REF" == "refs/heads/feature/balancehub-winter-rc9" ||
+                "$GITHUB_REF" == "refs/heads/feature/balancehub-garland-rc1" ]]; then
             # Isolated test APKs use the exact owner-approved versionCode.
             code=$configured_code
           else
