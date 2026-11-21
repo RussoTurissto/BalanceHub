@@ -15,6 +15,16 @@ if [[ "$api" == "35" || "$api" == "36" || "$api" == "30" ]]; then
   adb shell wm dismiss-keyguard || true
   adb shell input keyevent KEYCODE_HOME || true
 fi
+# Hosted runners sometimes kill the 3-GB Android 15/16 VM during large
+# Skia screenshot tests. Keep the same ~360dp phone layout at a lower pixel
+# resolution, cutting framebuffer and bitmap pressure without skipping tests.
+if [[ "$api" == "35" || "$api" == "36" ]]; then
+  adb shell wm size 720x1600
+  adb shell wm density 320
+  adb shell settings put global window_animation_scale 0
+  adb shell settings put global transition_animation_scale 0
+  adb shell settings put global animator_duration_scale 0
+fi
 
 # API 35/36 run captures and structure in separate GitHub Actions jobs,
 # each with a fresh emulator. This avoids cumulative ActivityScenario/GPU
@@ -28,7 +38,13 @@ run_suite() {
   shift
   local status=0
   echo "::group::Android API $api: $label"
-  ./gradlew --no-daemon --console=plain :app:connectedDebugAndroidTest "$@" || status=$?
+  local gradle_args=(--no-daemon --console=plain)
+  if [[ "$api" == "35" || "$api" == "36" ]]; then
+    # The actual test APKs were compiled before boot. Cap the runner-side
+    # Gradle worker heap while the Android VM is alive to avoid host OOM.
+    gradle_args+=("-Dorg.gradle.jvmargs=-Xmx1024m" "--max-workers=2")
+  fi
+  ./gradlew "${gradle_args[@]}" :app:connectedDebugAndroidTest "$@" || status=$?
   echo "::endgroup::"
   if [[ "$status" -ne 0 ]] \
       && [[ -d "$results_dir" ]] \
@@ -40,7 +56,7 @@ run_suite() {
     adb shell input keyevent KEYCODE_HOME || true
     sleep 2
     status=0
-    ./gradlew --no-daemon --console=plain --rerun-tasks \
+    ./gradlew "${gradle_args[@]}" --rerun-tasks \
       :app:connectedDebugAndroidTest "$@" || status=$?
   fi
   return "$status"
