@@ -299,6 +299,42 @@ class WinterThemeVisualEmulatorTest {
                             assertTrue("Garland background layer missing",
                                 header.background is
                                     android.graphics.drawable.LayerDrawable)
+                            // The native screen frost was previously hidden by
+                            // this header's opaque background. Ensure its own
+                            // top foreground and upper-left corner have ice in
+                            // BOTH day and night while remaining transparent
+                            // away from the perimeter.
+                            val edgeBitmap = Bitmap.createBitmap(
+                                header.width, header.height, Bitmap.Config.ARGB_8888)
+                            try {
+                                header.foreground.setBounds(0, 0,
+                                    header.width, header.height)
+                                header.foreground.draw(Canvas(edgeBitmap))
+                                val d = activity.resources.displayMetrics.density
+                                val topMaxX = (edgeBitmap.width * .40f).toInt()
+                                val topMaxY = (8f * d).toInt()
+                                    .coerceAtMost(edgeBitmap.height)
+                                var topIce = 0
+                                for (y in 0 until topMaxY step 2) {
+                                    for (x in 0 until topMaxX step 2) {
+                                        if (Color.alpha(edgeBitmap.getPixel(x, y)) > 40)
+                                            topIce++
+                                    }
+                                }
+                                assertTrue("Winter frost missing along top edge (" +
+                                    appearance + "): " + topIce, topIce > 30)
+                                var cornerIce = 0
+                                for (y in 0 until (22f * d).toInt()
+                                    .coerceAtMost(edgeBitmap.height) step 2) {
+                                    for (x in 0 until (14f * d).toInt()
+                                        .coerceAtMost(edgeBitmap.width) step 2) {
+                                        if (Color.alpha(edgeBitmap.getPixel(x, y)) > 45)
+                                            cornerIce++
+                                    }
+                                }
+                                assertTrue("Hoarfrost missing in upper-left corner (" +
+                                    appearance + "): " + cornerIce, cornerIce > 15)
+                            } finally { edgeBitmap.recycle() }
                             // The original right-hand photo already carries
                             // warm bulbs. The vector background must not paint
                             // a second wire, bulb or glow over that photograph.
