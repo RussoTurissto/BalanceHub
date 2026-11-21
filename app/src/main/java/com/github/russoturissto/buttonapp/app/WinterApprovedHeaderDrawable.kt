@@ -45,22 +45,35 @@ internal class WinterApprovedHeaderDrawable(
         // Measured directly from the left edge of approved_ornaments.webp.
         const val PHOTO_WIRE_START_Y = 145.5f
         const val PHOTO_WIRE_SLOPE = -0.20f
+        // Paint only a short connector along the EXISTING photo wire, up
+        // to the first fully colored pixels. Fade out before the lit bulb.
+        const val PHOTO_JOIN_SOURCE_PX = 44
     }
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private var opacity = 255
 
-    // Retouch ONLY the actual snowy photographic wire (72 of 368 source
-    // columns). A second painted strand alongside it always looked doubled.
-    // This preserves the original wire's snow texture, bulbs, fir and bow.
+    // Shared source-pixel trace: the copper connector and photo tint must
+    // follow the SAME physical wire, never two different parallel curves.
+    private val photoWireSourceX =
+        floatArrayOf(0f, 10f, 20f, 30f, 40f, 50f, 60f, 70f)
+    private val photoWireSourceY =
+        floatArrayOf(145.5f, 143.5f, 142f, 141.5f, 141f, 139f, 137f, 135f)
+
+    private fun photoWireYAt(sourceX: Float): Float {
+        val k = (sourceX / 10f).toInt().coerceIn(
+            0, photoWireSourceX.lastIndex - 1)
+        return photoWireSourceY[k] +
+            (photoWireSourceY[k + 1] - photoWireSourceY[k]) *
+            ((sourceX - photoWireSourceX[k]) /
+                (photoWireSourceX[k + 1] - photoWireSourceX[k]))
+    }
+
+    // Retouch ONLY the photographed snowy wire (72 of 368 source
+    // columns). Keep the original wire texture, bulbs, fir and bow.
     private val warmPhoto by lazy(LazyThreadSafetyMode.NONE) {
         val photo = ornaments.copy(Bitmap.Config.ARGB_8888, true)
-        val xs = floatArrayOf(0f, 10f, 20f, 30f, 40f, 50f, 60f, 70f)
-        val ys = floatArrayOf(145.5f, 143.5f, 142f, 141.5f,
-            141f, 139f, 137f, 135f)
         for (x in 0 until minOf(72, photo.width)) {
-            val k = (x / 10).coerceIn(0, xs.lastIndex - 1)
-            val center = ys[k] + (ys[k + 1] - ys[k]) *
-                ((x - xs[k]) / (xs[k + 1] - xs[k]))
+            val center = photoWireYAt(x.toFloat())
             val first = (center - 5f).toInt().coerceAtLeast(0)
             val last = (center + 6f).toInt().coerceAtMost(photo.height - 1)
             for (y in first..last) {
@@ -213,12 +226,20 @@ internal class WinterApprovedHeaderDrawable(
         val geometry = cableGeometry(w, h)
         val d = density
         val photoScale = w * PHOTO_WIDTH_FRACTION / ornaments.width
+        val photoHeight = w * PHOTO_WIDTH_FRACTION *
+            ornaments.height.toFloat() / ornaments.width
+        val photoTop = (h - photoHeight) * .12f
         val fromX = geometry.seamX - d * 2.8f
-        val toX = geometry.seamX + photoScale * 6.0f
-        val targetY = geometry.seamY + PHOTO_WIRE_SLOPE * photoScale * 6f
+        val toX = geometry.seamX + photoScale * PHOTO_JOIN_SOURCE_PX
+        val toY = photoTop + photoScale *
+            photoWireYAt(PHOTO_JOIN_SOURCE_PX.toFloat())
 
-        // This is ONLY the sub-centimeter join to the retinted original
-        // photographic wire. Never paint a second cable along the photograph.
+        // The first ~30 photographed source pixels have a snowy/gray,
+        // almost invisible cord. RC3 stopped at pixel 6, leaving a visible
+        // empty interval despite the small seam test passing. Lay this warm
+        // translucent stroke over the EXACT source-pixel cord, through the
+        // faded interval, and taper it away into the existing cable.
+        // No second cord, branches, sockets or bulbs are added.
         val continuous = Path().apply {
             val points = 12
             for (i in 0..points) {
@@ -226,28 +247,31 @@ internal class WinterApprovedHeaderDrawable(
                 val y = geometry.yAtX(x)
                 if (i == 0) moveTo(x, y) else lineTo(x, y)
             }
-            cubicTo(geometry.seamX + photoScale * 1.9f,
-                geometry.seamY + PHOTO_WIRE_SLOPE * photoScale * 1.9f,
-                geometry.seamX + photoScale * 4.0f,
-                geometry.seamY + PHOTO_WIRE_SLOPE * photoScale * 4.0f,
-                toX, targetY)
+            for (px in 2..PHOTO_JOIN_SOURCE_PX step 2) {
+                lineTo(geometry.seamX + photoScale * px,
+                    photoTop + photoScale * photoWireYAt(px.toFloat()))
+            }
         }
         val wire = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
             strokeCap = Paint.Cap.ROUND
             strokeJoin = Paint.Join.ROUND
         }
-        val stops = floatArrayOf(0f, .28f, .76f, 1f)
-        wire.strokeWidth = d * 1.7f
-        wire.shader = LinearGradient(fromX, geometry.seamY, toX, targetY,
-            intArrayOf(Color.TRANSPARENT, Color.argb(205, 76, 58, 36),
-                Color.argb(186, 77, 60, 37), Color.TRANSPARENT),
+        val stops = floatArrayOf(0f, .16f, .60f, .90f, 1f)
+        wire.strokeWidth = d * 1.45f
+        wire.shader = LinearGradient(fromX, geometry.seamY, toX, toY,
+            intArrayOf(Color.TRANSPARENT,
+                Color.argb(203, 79, 59, 38),
+                Color.argb(183, 87, 64, 42),
+                Color.argb(62, 80, 59, 39), Color.TRANSPARENT),
             stops, Shader.TileMode.CLAMP)
         canvas.drawPath(continuous, wire)
-        wire.strokeWidth = d * .85f
-        wire.shader = LinearGradient(fromX, geometry.seamY, toX, targetY,
-            intArrayOf(Color.TRANSPARENT, Color.argb(245, 219, 174, 99),
-                Color.argb(218, 225, 187, 115), Color.TRANSPARENT),
+        wire.strokeWidth = d * .74f
+        wire.shader = LinearGradient(fromX, geometry.seamY, toX, toY,
+            intArrayOf(Color.TRANSPARENT,
+                Color.argb(228, 228, 185, 110),
+                Color.argb(215, 224, 174, 91),
+                Color.argb(67, 210, 158, 87), Color.TRANSPARENT),
             stops, Shader.TileMode.CLAMP)
         canvas.drawPath(continuous, wire)
         wire.shader = null

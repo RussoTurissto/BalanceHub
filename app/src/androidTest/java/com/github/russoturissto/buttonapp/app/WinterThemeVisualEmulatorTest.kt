@@ -369,16 +369,32 @@ class WinterThemeVisualEmulatorTest {
                             // wire at y=145.5/206, not the old 69.5% estimate.
                             val seamY = (photoTop + photoHeight * 145.5f / 206f)
                                 .toInt()
+                            val photoScale = bitmap.width * .45f / 368f
                             val left = (seamX - density * 1.8f).toInt()
                                 .coerceAtLeast(0)
-                            val right = (seamX + density * 2.4f).toInt()
+                            // Follow the ENTIRE previously missing segment,
+                            // not just the first 2.4dp (the old false positive).
+                            val right = (seamX + photoScale * 40f).toInt()
                                 .coerceAtMost(bitmap.width - 1)
+                            val traceY = floatArrayOf(145.5f, 143.5f, 142f,
+                                141.5f, 141f)
                             var missingColumns = 0
                             for (x in left..right) {
+                                val centerY = if (x <= seamX) seamY.toFloat()
+                                else {
+                                    val srcX = ((x - seamX) / photoScale)
+                                        .coerceIn(0f, 40f)
+                                    val k = (srcX / 10f).toInt()
+                                        .coerceIn(0, traceY.lastIndex - 1)
+                                    val yInPhoto = traceY[k] +
+                                        (traceY[k + 1] - traceY[k]) *
+                                        ((srcX - k * 10f) / 10f)
+                                    photoTop + photoScale * yInPhoto
+                                }
                                 var cableVisible = false
-                                for (y in (seamY - density * 3f).toInt()
+                                for (y in (centerY - density * 3f).toInt()
                                     .coerceAtLeast(0)..
-                                    (seamY + density * 3f).toInt()
+                                    (centerY + density * 3f).toInt()
                                         .coerceAtMost(bitmap.height - 1)) {
                                     val pixel = bitmap.getPixel(x, y)
                                     val r = Color.red(pixel)
@@ -391,9 +407,9 @@ class WinterThemeVisualEmulatorTest {
                                 }
                                 if (!cableVisible) missingColumns++
                             }
-                            assertTrue("Broken garland at photo seam (" +
+                            assertTrue("Broken garland across faded photo cord (" +
                                 appearance + "): " + missingColumns +
-                                " empty columns", missingColumns <= 1)
+                                " empty columns", missingColumns <= 2)
 
                             var whiteTitlePixels = 0
                             val top = (wordmark.top + wordmark.translationY)
