@@ -861,7 +861,8 @@ class MainActivity : AppCompatActivity() {
                 resources.displayMetrics.density,
                 headerTitle,
                 approvedOrnaments,
-                approvedSantaHat
+                approvedSantaHat,
+                darkMode = isNight
             )
         }
         screen.addView(header)

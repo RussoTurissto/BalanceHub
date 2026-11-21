@@ -299,6 +299,99 @@ class WinterThemeVisualEmulatorTest {
                             assertTrue("Garland background layer missing",
                                 header.background is
                                     android.graphics.drawable.LayerDrawable)
+                            // The native screen frost was previously hidden by
+                            // this header's opaque background. Ensure its own
+                            // top foreground and upper-left corner have ice in
+                            // BOTH day and night while remaining transparent
+                            // away from the perimeter.
+                            val edgeBitmap = Bitmap.createBitmap(
+                                header.width, header.height, Bitmap.Config.ARGB_8888)
+                            try {
+                                header.foreground.setBounds(0, 0,
+                                    header.width, header.height)
+                                header.foreground.draw(Canvas(edgeBitmap))
+                                val d = activity.resources.displayMetrics.density
+                                val topMaxX = (edgeBitmap.width * .40f).toInt()
+                                val topMaxY = (8f * d).toInt()
+                                    .coerceAtMost(edgeBitmap.height)
+                                var topIce = 0
+                                for (y in 0 until topMaxY step 2) {
+                                    for (x in 0 until topMaxX step 2) {
+                                        if (Color.alpha(edgeBitmap.getPixel(x, y)) > 40)
+                                            topIce++
+                                    }
+                                }
+                                assertTrue("Winter frost missing along top edge (" +
+                                    appearance + "): " + topIce, topIce > 30)
+                                var cornerIce = 0
+                                for (y in 0 until (22f * d).toInt()
+                                    .coerceAtMost(edgeBitmap.height) step 2) {
+                                    for (x in 0 until (14f * d).toInt()
+                                        .coerceAtMost(edgeBitmap.width) step 2) {
+                                        if (Color.alpha(edgeBitmap.getPixel(x, y)) > 45)
+                                            cornerIce++
+                                    }
+                                }
+                                assertTrue("Hoarfrost missing in upper-left corner (" +
+                                    appearance + "): " + cornerIce, cornerIce > 15)
+                            } finally { edgeBitmap.recycle() }
+                            // The original right-hand photo already carries
+                            // warm bulbs. The vector background must not paint
+                            // a second wire, bulb or glow over that photograph.
+                            val garlandLayer = (header.background as
+                                android.graphics.drawable.LayerDrawable).getDrawable(1)
+                            val garlandBitmap = Bitmap.createBitmap(
+                                header.width, header.height, Bitmap.Config.ARGB_8888)
+                            try {
+                                garlandLayer.setBounds(0, 0, header.width, header.height)
+                                garlandLayer.draw(Canvas(garlandBitmap))
+                                var overlappingPixels = 0
+                                for (y in 0 until garlandBitmap.height step 2) {
+                                    for (x in (garlandBitmap.width * .56f).toInt()
+                                        until garlandBitmap.width step 2) {
+                                        if (Color.alpha(garlandBitmap.getPixel(x, y)) != 0)
+                                            overlappingPixels++
+                                    }
+                                }
+                                assertEquals("Duplicate vector garland over photo lights",
+                                    0, overlappingPixels)
+                            } finally { garlandBitmap.recycle() }
+
+                            // Pixel-level seam check: a real cable must be
+                            // visible in EVERY column across the vector/photo
+                            // boundary. Earlier tests missed a broken fork,
+                            // because both sets of bulbs existed separately.
+                            val density = activity.resources.displayMetrics.density
+                            val seamX = (bitmap.width * .55f).toInt()
+                            val photoHeight = bitmap.width * .45f * 206f / 368f
+                            val photoTop = (bitmap.height - photoHeight) * .12f
+                            val seamY = (photoTop + photoHeight * .695f).toInt()
+                            val left = (seamX - density * 1.8f).toInt()
+                                .coerceAtLeast(0)
+                            val right = (seamX + density * 2.4f).toInt()
+                                .coerceAtMost(bitmap.width - 1)
+                            var missingColumns = 0
+                            for (x in left..right) {
+                                var cableVisible = false
+                                for (y in (seamY - density * 3f).toInt()
+                                    .coerceAtLeast(0)..
+                                    (seamY + density * 3f).toInt()
+                                        .coerceAtMost(bitmap.height - 1)) {
+                                    val pixel = bitmap.getPixel(x, y)
+                                    val r = Color.red(pixel)
+                                    val g = Color.green(pixel)
+                                    val b = Color.blue(pixel)
+                                    if (r > 110 && g > 79 && r > b * 1.20f) {
+                                        cableVisible = true
+                                        break
+                                    }
+                                }
+                                if (!cableVisible) missingColumns++
+                            }
+                            assertTrue("Broken garland at photo seam (" +
+                                appearance + "): " + missingColumns +
+                                " empty columns", missingColumns <= 1)
+
                             var whiteTitlePixels = 0
                             val top = (wordmark.top + wordmark.translationY)
                                 .toInt().coerceAtLeast(0)
