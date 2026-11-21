@@ -14,6 +14,8 @@ import android.graphics.RectF
 import android.graphics.Region
 import android.os.Build
 import androidx.core.graphics.withSave
+import androidx.core.graphics.get
+import androidx.core.graphics.set
 import android.graphics.drawable.Drawable
 import android.widget.TextView
 
@@ -57,7 +59,7 @@ internal class WinterApprovedHeaderDrawable(
             val first = (center - 5f).toInt().coerceAtLeast(0)
             val last = (center + 6f).toInt().coerceAtMost(photo.height - 1)
             for (y in first..last) {
-                val p = photo.getPixel(x, y)
+                val p = photo[x, y]
                 val red = Color.red(p)
                 val green = Color.green(p)
                 val blue = Color.blue(p)
@@ -72,7 +74,7 @@ internal class WinterApprovedHeaderDrawable(
                     (.7f + .3f * ((72f - x) / 12f).coerceIn(0f, 1f))
                 fun blend(old: Int, gold: Float) =
                     (old + (gold - old) * tint).toInt().coerceIn(0, 255)
-                photo.setPixel(x, y, Color.argb(Color.alpha(p),
+                photo[x, y] = Color.argb(Color.alpha(p),
                     blend(red, 95f + 157f * strength),
                     blend(green, 56f + 156f * strength),
                     blend(blue, 22f + 98f * strength)))
