@@ -110,6 +110,10 @@ internal class WinterApprovedHeaderDrawable(
         canvas.drawBitmap(ornaments, null,
             RectF(w - rightWidth, ornamentTop,
                 w, ornamentTop + rightHeight), paint)
+        // Only warm, translucent halos are laid over the original photo
+        // bulbs. No replacement bulbs and no second strand are introduced.
+        drawPhotographicLightHalos(canvas, w - rightWidth, ornamentTop,
+            rightWidth, rightHeight)
         // The photograph starts with a tiny alpha-fringed gap before its
         // physical cable. Add only a short foreground wire connector; bulbs
         // are never redrawn over the photographed lights.
@@ -190,6 +194,34 @@ internal class WinterApprovedHeaderDrawable(
                 Color.argb(175, 225, 214, 178), Color.TRANSPARENT),
             null, Shader.TileMode.CLAMP)
         canvas.drawPath(continuation, wire)
+    }
+
+    private fun drawPhotographicLightHalos(
+        canvas: Canvas, left: Float, top: Float, width: Float, height: Float
+    ) {
+        // Original 368x206 approved_ornaments.webp has these six actual bulbs.
+        // Their glass and filament stay intact: this adds ambient light only.
+        val lights = arrayOf(
+            31f to 154f, 82f to 144f, 106f to 122f,
+            194f to 67f, 277f to 62f, 354f to 63f
+        )
+        val glow = Paint(Paint.ANTI_ALIAS_FLAG)
+        lights.forEachIndexed { index, (px, py) ->
+            val x = left + width * px / ornaments.width
+            val y = top + height * py / ornaments.height
+            val radius = density * (if (index < 3) 12.5f else 10.0f)
+            val strength = if (index < 3) 67 else 42
+            glow.shader = RadialGradient(x, y, radius,
+                intArrayOf(
+                    Color.argb(strength, 255, 244, 191),
+                    Color.argb(strength / 2, 255, 176, 42),
+                    Color.argb(9, 251, 119, 24),
+                    Color.TRANSPARENT
+                ), floatArrayOf(0f, .22f, .61f, 1f),
+                Shader.TileMode.CLAMP)
+            canvas.drawCircle(x, y, radius, glow)
+        }
+        glow.shader = null
     }
 
     private fun drawHeaderPerimeterFrost(canvas: Canvas, w: Float, h: Float) {
@@ -307,15 +339,29 @@ internal class WinterApprovedHeaderDrawable(
             val wireY = geometry.yAt(t)
             val radius = d * (2.75f + (i % 3) * .25f)
             val centerY = wireY + radius * 1.65f
-            val glowRadius = radius * 3.65f
             fill.style = Paint.Style.FILL
-            fill.shader = RadialGradient(x, centerY, glowRadius,
-                intArrayOf(Color.argb(195, 255, 242, 179),
-                    Color.argb(117, 255, 184, 45),
-                    Color.argb(35, 252, 134, 26), Color.TRANSPARENT),
-                floatArrayOf(0f, .20f, .53f, 1f),
+            // Wide scattered glow plus a tighter amber halo. Neither is an
+            // opaque disk: the native text/background remain fully visible.
+            val ambientRadius = radius * 7.2f
+            fill.shader = RadialGradient(x, centerY, ambientRadius,
+                intArrayOf(
+                    Color.argb(64, 255, 210, 100),
+                    Color.argb(38, 255, 166, 38),
+                    Color.argb(11, 242, 117, 20),
+                    Color.TRANSPARENT
+                ), floatArrayOf(0f, .20f, .54f, 1f),
                 Shader.TileMode.CLAMP)
-            canvas.drawCircle(x, centerY, glowRadius, fill)
+            canvas.drawCircle(x, centerY, ambientRadius, fill)
+            val innerRadius = radius * 3.45f
+            fill.shader = RadialGradient(x, centerY, innerRadius,
+                intArrayOf(
+                    Color.argb(162, 255, 250, 197),
+                    Color.argb(119, 255, 193, 67),
+                    Color.argb(45, 255, 135, 27),
+                    Color.TRANSPARENT
+                ), floatArrayOf(0f, .16f, .52f, 1f),
+                Shader.TileMode.CLAMP)
+            canvas.drawCircle(x, centerY, innerRadius, fill)
             fill.shader = null
 
             // Dark-metal socket plus the tiny suspension strand.
@@ -354,10 +400,24 @@ internal class WinterApprovedHeaderDrawable(
             art.color = Color.argb(215, 255, 225, 128)
             art.strokeWidth = d * .44f
             canvas.drawPath(glass, art)
-            fill.color = Color.argb(230, 255, 255, 243)
-            canvas.drawOval(RectF(x - radius * .43f,
-                centerY - radius * .64f, x - radius * .13f,
-                centerY - radius * .24f), fill)
+            // Individually visible hot filament suspended inside the glass.
+            art.color = Color.argb(236, 255, 247, 204)
+            art.strokeWidth = d * .32f
+            canvas.drawLine(x - radius * .27f, centerY + radius * .16f,
+                x - radius * .15f, centerY - radius * .14f, art)
+            canvas.drawLine(x - radius * .15f, centerY - radius * .14f,
+                x + radius * .16f, centerY + radius * .12f, art)
+            canvas.drawLine(x + radius * .16f, centerY + radius * .12f,
+                x + radius * .26f, centerY - radius * .15f, art)
+            fill.color = Color.argb(228, 255, 255, 243)
+            canvas.drawOval(RectF(x - radius * .52f,
+                centerY - radius * .66f, x - radius * .24f,
+                centerY - radius * .19f), fill)
+            // Fine reflection along the upper right of the pear-shaped glass.
+            art.color = Color.argb(155, 255, 250, 223)
+            art.strokeWidth = d * .23f
+            canvas.drawLine(x + radius * .38f, centerY - radius * .56f,
+                x + radius * .56f, centerY - radius * .31f, art)
         }
     }
 
