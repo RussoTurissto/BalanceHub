@@ -160,4 +160,5 @@ jobs:
             app/build/reports/androidTests/**
             app/build/winter-previews/**
             app/build/emulator-focus-retry/**
+            app/build/emulator-adb-results/**
           if-no-files-found: ignore

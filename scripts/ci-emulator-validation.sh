@@ -33,32 +33,87 @@ fi
 results_dir="app/build/outputs/androidTest-results/connected/debug"
 visual_class="com.github.russoturissto.buttonapp.app.WinterThemeVisualEmulatorTest"
 
+# Use already-compiled APKs for the Mac emulator tests.
+# Re-running Gradle during instrumentation triggers extensive Kotlin/D8
+# transformation (tens of MB of warnings), delaying actual tests.
+# We explicitly validate the AndroidJUnitRunner result; adb's exit status
+# alone does not indicate whether JUnit assertions passed.
+macos_direct=false
+adb_results_dir="app/build/emulator-adb-results"
+if [[ "$(uname -s)" == "Darwin" && ( "$api" == "35" || "$api" == "36" ) ]]; then
+  macos_direct=true
+  mkdir -p "$adb_results_dir"
+  apk="app/build/outputs/apk/debug/app-debug.apk"
+  test_apk="app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk"
+  [[ -s "$apk" && -s "$test_apk" ]] || {
+    echo "::error::Prebuilt Android test APKs are missing"
+    exit 1
+  }
+  adb install -r "$apk" || exit 1
+  adb install -r "$test_apk" || exit 1
+fi
+
 run_suite() {
   local label="$1"
   shift
   local status=0
   echo "::group::Android API $api: $label"
-  local gradle_args=(--no-daemon --console=plain)
-  if [[ "$api" == "35" || "$api" == "36" ]]; then
-    # The actual test APKs were compiled before boot. Cap the runner-side
-    # Gradle worker heap while the Android VM is alive to avoid host OOM.
-    gradle_args+=("-Dorg.gradle.jvmargs=-Xmx1024m" "--max-workers=2")
+  if [[ "$macos_direct" == "true" ]]; then
+    local filter_kind="" filter_value="" argument
+    for argument in "$@"; do
+      case "$argument" in
+        -Pandroid.testInstrumentationRunnerArguments.class=*)
+          filter_kind=class
+          filter_value="${argument#*=}"
+          ;;
+        -Pandroid.testInstrumentationRunnerArguments.notClass=*)
+          filter_kind=notClass
+          filter_value="${argument#*=}"
+          ;;
+        *)
+          echo "::error::Unsupported instrumentation selection: $argument"
+          status=2
+          ;;
+      esac
+    done
+    local log="$adb_results_dir/${label}.log"
+    if [[ "$status" -eq 0 && -n "$filter_kind" && -n "$filter_value" ]]; then
+      adb shell am instrument -w -r -e "$filter_kind" "$filter_value" \
+        "com.github.russoturissto.buttonapp.app.test/androidx.test.runner.AndroidJUnitRunner" \
+        2>&1 | tee "$log" || status=$?
+      if [[ "$status" -eq 0 ]] && {
+        ! grep -Eq 'INSTRUMENTATION_CODE: -1' "$log" ||
+        ! grep -Eq 'OK \\([1-9][0-9]* tests?\\)' "$log" ||
+        grep -Eq 'INSTRUMENTATION_STATUS_CODE: -2|FAILURES!!!|INSTRUMENTATION_FAILED|INSTRUMENTATION_ABORTED' "$log"
+      }; then
+        echo "::error::Instrumentation failed or ran zero tests: $label"
+        status=1
+      fi
+    elif [[ "$status" -eq 0 ]]; then
+      echo "::error::Missing instrumentation selection for $label"
+      status=2
+    fi
+  else
+    local gradle_args=(--no-daemon --console=plain)
+    if [[ "$api" == "35" || "$api" == "36" ]]; then
+      gradle_args+=("-Dorg.gradle.jvmargs=-Xmx1024m" "--max-workers=2")
+    fi
+    ./gradlew "${gradle_args[@]}" :app:connectedDebugAndroidTest "$@" || status=$?
+    if [[ "$status" -ne 0 ]] \
+        && [[ -d "$results_dir" ]] \
+        && grep -Rql 'RootViewWithoutFocusException' "$results_dir"; then
+      echo "::warning::Android lost window focus in $label; retrying once"
+      mkdir -p "app/build/emulator-focus-retry"
+      cp -a "$results_dir" "app/build/emulator-focus-retry/${label}-first-attempt"
+      adb shell wm dismiss-keyguard || true
+      adb shell input keyevent KEYCODE_HOME || true
+      sleep 2
+      status=0
+      ./gradlew "${gradle_args[@]}" --rerun-tasks \
+        :app:connectedDebugAndroidTest "$@" || status=$?
+    fi
   fi
-  ./gradlew "${gradle_args[@]}" :app:connectedDebugAndroidTest "$@" || status=$?
   echo "::endgroup::"
-  if [[ "$status" -ne 0 ]] \
-      && [[ -d "$results_dir" ]] \
-      && grep -Rql 'RootViewWithoutFocusException' "$results_dir"; then
-    echo "::warning::Android 15 lost window focus in $label; preserving report and retrying once"
-    mkdir -p "app/build/emulator-focus-retry"
-    cp -a "$results_dir" "app/build/emulator-focus-retry/${label}-first-attempt"
-    adb shell wm dismiss-keyguard || true
-    adb shell input keyevent KEYCODE_HOME || true
-    sleep 2
-    status=0
-    ./gradlew "${gradle_args[@]}" --rerun-tasks \
-      :app:connectedDebugAndroidTest "$@" || status=$?
-  fi
   return "$status"
 }
 
@@ -84,14 +139,23 @@ if [[ "$api" == "35" || "$api" == "36" ]]; then
     label="winter-$method"
     if run_suite "$label" \
         "-Pandroid.testInstrumentationRunnerArguments.class=$visual_class#$method"; then
-      # Reject false-green Gradle runs that reused an earlier test report.
-      if ! grep -Rql "<testcase name=\"$method\"" "$results_dir"; then
-        echo "::error::Instrumented visual test did not run: $method"
-        test_status=1
-        break
+      # Do not count an unexecuted method or a stale test report as green.
+      if [[ "$macos_direct" == "true" ]]; then
+        if ! grep -Fq "INSTRUMENTATION_STATUS: test=$method" \
+            "$adb_results_dir/${label}.log"; then
+          echo "::error::Required visual test did not run: $method"
+          test_status=1
+          break
+        fi
+      else
+        if ! grep -Rql "<testcase name=\\\"$method\\\"" "$results_dir"; then
+          echo "::error::Required visual test did not run: $method"
+          test_status=1
+          break
+        fi
+        mkdir -p app/build/emulator-focus-retry
+        cp -a "$results_dir" "app/build/emulator-focus-retry/${label}-success"
       fi
-      mkdir -p app/build/emulator-focus-retry
-      cp -a "$results_dir" "app/build/emulator-focus-retry/${label}-success"
     else
       test_status=$?
       break
