@@ -40,6 +40,84 @@ visual_class="com.github.russoturissto.buttonapp.app.WinterThemeVisualEmulatorTe
 # alone does not indicate whether JUnit assertions passed.
 macos_direct=false
 adb_results_dir="app/build/emulator-adb-results"
+
+# Capture the context of an ANR, not just the instrumentation "Process crashed"
+# summary. These files are uploaded even when the suite fails.
+collect_emulator_diagnostics() {
+  local label="$1"
+  mkdir -p "$adb_results_dir"
+  {
+    date -u
+    adb devices -l || true
+    adb shell getprop sys.boot_completed || true
+    adb shell getprop dev.bootcomplete || true
+    adb shell cat /proc/pressure/cpu || true
+    adb shell cat /proc/pressure/io || true
+    adb shell cat /proc/pressure/memory || true
+    adb shell dumpsys cpuinfo || true
+    adb shell dumpsys activity processes || true
+    adb shell ls -lt /data/anr || true
+  } > "$adb_results_dir/${label}-system.log" 2>&1
+  adb logcat -d -b crash > "$adb_results_dir/${label}-crash.log" 2>&1 || true
+  adb logcat -d -t 3000 -v threadtime -b main -b system -b events \
+    > "$adb_results_dir/${label}-recent.log" 2>&1 || true
+}
+
+# ADB's boot_completed does not imply that PackageManager and ActivityManager
+# are responsive. New Android 15/16 VMs have previously ANR'd *during startup*
+# alongside com.android.phone and Bluetooth. Wait for consecutive healthy
+# checks and allow post-boot dex/graphics work to settle, with a hard limit.
+wait_for_android_services() {
+  local attempt steady=0
+  for ((attempt = 1; attempt <= 24; attempt++)); do
+    if [[ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == "1" ]] \
+        && adb shell cmd package list packages android >/dev/null 2>&1 \
+        && adb shell dumpsys activity activities >/dev/null 2>&1; then
+      steady=$((steady + 1))
+      if ((steady >= 3)); then
+        echo "Android API $api services responsive; waiting 45s for post-boot load"
+        sleep 45
+        if adb shell cmd package list packages android >/dev/null 2>&1 \
+            && adb shell dumpsys activity activities >/dev/null 2>&1; then
+          return 0
+        fi
+        steady=0
+      fi
+    else
+      steady=0
+    fi
+    echo "Android API $api readiness: attempt $attempt/24, consecutive=$steady"
+    sleep 10
+  done
+  echo "::error::Android API $api did not become ready for instrumentation"
+  collect_emulator_diagnostics "readiness-failed"
+  return 1
+}
+
+# Only retry temporary emulator/ADB verification problems. Genuine install
+# failures remain fatal; never disable the Android package verifier.
+install_test_apk() {
+  local apk="$1" label="$2" attempt log rc
+  for ((attempt = 1; attempt <= 3; attempt++)); do
+    log="$adb_results_dir/install-${label}-attempt-${attempt}.log"
+    adb install -r "$apk" > "$log" 2>&1
+    rc=$?
+    cat "$log"
+    if ((rc == 0)) && grep -Eq '^Success' "$log"; then
+      return 0
+    fi
+    if ((attempt == 3)) || ! grep -Eqi \
+        'INSTALL_FAILED_VERIFICATION_FAILURE|Integrity verification timed out|device offline|device not found|timed out|timeout|Broken pipe' "$log"; then
+      break
+    fi
+    echo "::warning::Transient $label installation failure; retry $attempt/3"
+    sleep $((attempt * 20))
+  done
+  echo "::error::Unable to install Android test APK: $label"
+  collect_emulator_diagnostics "install-${label}-failed"
+  return 1
+}
+
 if [[ "$(uname -s)" == "Darwin" && ( "$api" == "35" || "$api" == "36" ) ]]; then
   macos_direct=true
   mkdir -p "$adb_results_dir"
@@ -49,8 +127,9 @@ if [[ "$(uname -s)" == "Darwin" && ( "$api" == "35" || "$api" == "36" ) ]]; then
     echo "::error::Prebuilt Android test APKs are missing"
     exit 1
   }
-  adb install -r "$apk" || exit 1
-  adb install -r "$test_apk" || exit 1
+  wait_for_android_services || exit 1
+  install_test_apk "$apk" app || exit 1
+  install_test_apk "$test_apk" androidTest || exit 1
 fi
 
 run_suite() {
@@ -87,11 +166,10 @@ run_suite() {
         grep -Eq 'INSTRUMENTATION_STATUS_CODE: -2|FAILURES!!!|INSTRUMENTATION_FAILED|INSTRUMENTATION_ABORTED' "$log"
       }; then
         echo "::error::Instrumentation failed or ran zero tests: $label"
-        # Preserve the actual Android exception before the emulator is torn
-        # down; a bare 'Process crashed' result is not enough to diagnose.
-        adb logcat -d -b crash > "$adb_results_dir/${label}-crash.log" 2>&1 || true
-        adb logcat -d -t 400 > "$adb_results_dir/${label}-recent.log" 2>&1 || true
         status=1
+      fi
+      if [[ "$status" -ne 0 ]]; then
+        collect_emulator_diagnostics "$label"
       fi
     elif [[ "$status" -eq 0 ]]; then
       echo "::error::Missing instrumentation selection for $label"
