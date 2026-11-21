@@ -356,6 +356,42 @@ class WinterThemeVisualEmulatorTest {
                                 assertEquals("Duplicate vector garland over photo lights",
                                     0, overlappingPixels)
                             } finally { garlandBitmap.recycle() }
+
+                            // Pixel-level seam check: a real cable must be
+                            // visible in EVERY column across the vector/photo
+                            // boundary. Earlier tests missed a broken fork,
+                            // because both sets of bulbs existed separately.
+                            val density = activity.resources.displayMetrics.density
+                            val seamX = (bitmap.width * .55f).toInt()
+                            val photoHeight = bitmap.width * .45f * 206f / 368f
+                            val photoTop = (bitmap.height - photoHeight) * .12f
+                            val seamY = (photoTop + photoHeight * .695f).toInt()
+                            val left = (seamX - density * 1.8f).toInt()
+                                .coerceAtLeast(0)
+                            val right = (seamX + density * 2.4f).toInt()
+                                .coerceAtMost(bitmap.width - 1)
+                            var missingColumns = 0
+                            for (x in left..right) {
+                                var cableVisible = false
+                                for (y in (seamY - density * 3f).toInt()
+                                    .coerceAtLeast(0)..
+                                    (seamY + density * 3f).toInt()
+                                        .coerceAtMost(bitmap.height - 1)) {
+                                    val pixel = bitmap.getPixel(x, y)
+                                    val r = Color.red(pixel)
+                                    val g = Color.green(pixel)
+                                    val b = Color.blue(pixel)
+                                    if (r > 110 && g > 79 && r > b * 1.20f) {
+                                        cableVisible = true
+                                        break
+                                    }
+                                }
+                                if (!cableVisible) missingColumns++
+                            }
+                            assertTrue("Broken garland at photo seam (" +
+                                appearance + "): " + missingColumns +
+                                " empty columns", missingColumns <= 1)
+
                             var whiteTitlePixels = 0
                             val top = (wordmark.top + wordmark.translationY)
                                 .toInt().coerceAtLeast(0)
