@@ -83,7 +83,7 @@ run_suite() {
         2>&1 | tee "$log" || status=$?
       if [[ "$status" -eq 0 ]] && {
         ! grep -Eq 'INSTRUMENTATION_CODE: -1' "$log" ||
-        ! grep -Eq 'OK \\([1-9][0-9]* tests?\\)' "$log" ||
+        ! grep -Eq 'OK \([1-9][0-9]* tests?\)' "$log" ||
         grep -Eq 'INSTRUMENTATION_STATUS_CODE: -2|FAILURES!!!|INSTRUMENTATION_FAILED|INSTRUMENTATION_ABORTED' "$log"
       }; then
         echo "::error::Instrumentation failed or ran zero tests: $label"
