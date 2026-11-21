@@ -3,6 +3,7 @@ package com.github.russoturissto.buttonapp.app
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.ColorFilter
+import android.graphics.LinearGradient
 import android.graphics.Color
 import android.graphics.Path
 import android.graphics.RadialGradient
@@ -40,6 +41,43 @@ internal class WinterApprovedHeaderDrawable(
     private companion object { const val PHOTO_WIDTH_FRACTION = 0.45f }
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private var opacity = 255
+
+    // Both drawable layers use this same cubic. Its endpoint is calibrated
+    // to the actual cable entering approved_ornaments.webp, not to a guessed
+    // bend drawn over the photograph.
+    private data class CableGeometry(
+        val startX: Float, val seamX: Float,
+        val startY: Float, val seamY: Float,
+        val control1Y: Float, val control2Y: Float
+    ) {
+        fun xAt(t: Float): Float = startX + (seamX - startX) * t
+        fun yAt(t: Float): Float {
+            val u = 1f - t
+            return u * u * u * startY +
+                3f * u * u * t * control1Y +
+                3f * u * t * t * control2Y + t * t * t * seamY
+        }
+        fun yAtX(x: Float): Float {
+            val t = ((x - startX) / (seamX - startX)).coerceIn(0f, 1f)
+            return yAt(t)
+        }
+        // End tangent of the cubic, continued into the photographed cable.
+        fun continuationY(x: Float): Float =
+            seamY + 3f * (seamY - control2Y) / (seamX - startX) * (x - seamX)
+    }
+
+    private fun cableGeometry(w: Float, h: Float): CableGeometry {
+        val seam = w * (1f - PHOTO_WIDTH_FRACTION)
+        val photoHeight = w * PHOTO_WIDTH_FRACTION *
+            ornaments.height.toFloat() / ornaments.width
+        val photoTop = (h - photoHeight) * .12f
+        val startY = h * .67f
+        // At the left-most pixels of the owner-approved photo the real wire
+        // is around 69.5% down; 72% was the source of the visible kink.
+        val seamY = photoTop + photoHeight * .695f
+        return CableGeometry(-w * .012f, seam, startY, seamY,
+            startY + h * .10f, seamY + h * .095f)
+    }
 
     override fun draw(canvas: Canvas) {
         val w = bounds.width().toFloat()
@@ -118,32 +156,40 @@ internal class WinterApprovedHeaderDrawable(
     }
 
     private fun drawCableJoin(canvas: Canvas, w: Float, h: Float) {
-        val photoLeft = w * (1f - PHOTO_WIDTH_FRACTION)
-        val photoHeight = w * PHOTO_WIDTH_FRACTION *
-            ornaments.height.toFloat() / ornaments.width
-        val photoTop = (h - photoHeight) * .12f
-        // First visible cable in approved_ornaments.webp enters near 72%
-        // of its height and rises to 67% within the first few pixels.
-        val yAtSeam = photoTop + photoHeight * .72f +
-            density * .36f * kotlin.math.sin(6.65).toFloat()
-        val bridge = Path().apply {
-            // Start exactly where the existing vector cable terminates.
-            // Beginning earlier created a visible fork at this junction.
-            moveTo(photoLeft - density * .15f, yAtSeam)
-            cubicTo(photoLeft + density * 3f, yAtSeam - density * .4f,
-                photoLeft + density * 6.3f, photoTop + photoHeight * .69f,
-                photoLeft + density * 9.5f, photoTop + photoHeight * .67f)
+        val geometry = cableGeometry(w, h)
+        val d = density
+        val fromX = geometry.seamX - d * .70f
+        val toX = geometry.seamX + d * 5.5f
+        // One extension of the SAME spline, with its exact end tangent.
+        // A second independently shaped Bezier created the old fork.
+        val continuation = Path().apply {
+            val segments = 32
+            for (i in 0..segments) {
+                val x = fromX + (toX - fromX) * i / segments
+                val y = if (x <= geometry.seamX) geometry.yAtX(x)
+                    else geometry.continuationY(x)
+                if (i == 0) moveTo(x, y) else lineTo(x, y)
+            }
         }
-        val cable = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        val wire = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
             strokeCap = Paint.Cap.ROUND
-            color = Color.argb(192, 47, 42, 23)
-            strokeWidth = density * 1.4f
+            strokeJoin = Paint.Join.ROUND
         }
-        canvas.drawPath(bridge, cable)
-        cable.color = Color.rgb(197, 157, 91)
-        cable.strokeWidth = density * .72f
-        canvas.drawPath(bridge, cable)
+        // Fade toward the photographed, snow-dusted wire rather than adding
+        // a golden overlay all the way to the first original light bulb.
+        wire.strokeWidth = d * 1.55f
+        wire.shader = LinearGradient(fromX, geometry.seamY, toX, geometry.seamY,
+            intArrayOf(Color.argb(215, 50, 43, 28),
+                Color.argb(115, 63, 58, 43), Color.TRANSPARENT),
+            null, Shader.TileMode.CLAMP)
+        canvas.drawPath(continuation, wire)
+        wire.strokeWidth = d * .78f
+        wire.shader = LinearGradient(fromX, geometry.seamY, toX, geometry.seamY,
+            intArrayOf(Color.argb(248, 195, 156, 90),
+                Color.argb(175, 225, 214, 178), Color.TRANSPARENT),
+            null, Shader.TileMode.CLAMP)
+        canvas.drawPath(continuation, wire)
     }
 
     private fun drawHeaderPerimeterFrost(canvas: Canvas, w: Float, h: Float) {
@@ -216,41 +262,16 @@ internal class WinterApprovedHeaderDrawable(
      */
     private fun drawCurvedGarland(canvas: Canvas, w: Float, h: Float) {
         val d = density
-        val startX = -w * .012f
-        val endX = w * (1f - PHOTO_WIDTH_FRACTION)
-        // Match the cable embedded at the left edge of the original spruce
-        // photograph. Its snowy wire enters roughly 72% down that bitmap.
-        val photoHeight = w * PHOTO_WIDTH_FRACTION * ornaments.height / ornaments.width
-        val photoTop = (h - photoHeight) * .12f
-        // Keep the chord and the bulb centres inside the measured header.
-        // TextView's wrap-content height/translation is not a safe anchor for
-        // the cord: it can push all lights beyond the foreground render bounds.
-        // Use proportional coordinates with room for glass, halos and overhang.
-        // The approved mockup has a gentle sag under the title with a
-        // gradual rise toward the photo fir, never a flattened light strip.
-        // Lower the cord enough to sit beneath the actual BalanceHub
-        // capitals on narrow screens, while keeping glass bulbs within
-        // the existing header height (no layout or TextView changes).
-        val startY = h * .67f
-        val endY = photoTop + photoHeight * .72f
-        // The wire is now shorter and meets the photograph at its natural
-        // height. The former 25% sag would drop the bulbs below the banner.
-        val sag = h * .09f
-
-        fun yAt(t: Float): Float {
-            val smoothDrop = sag * 4f * t * (1f - t)
-            val smallIrregularity = d * .36f *
-                kotlin.math.sin((t * 6.5f + .15f).toDouble()).toFloat()
-            return startY + (endY - startY) * t + smoothDrop +
-                smallIrregularity
-        }
+        val geometry = cableGeometry(w, h)
+        // All bulb sockets are placed on the same physical continuous cable
+        // that leads to the left-most wire in the photograph.
 
         val wire = Path()
         val segments = 160
         for (i in 0..segments) {
             val t = i.toFloat() / segments
-            val x = startX + (endX - startX) * t
-            val y = yAt(t)
+            val x = geometry.xAt(t)
+            val y = geometry.yAt(t)
             if (i == 0) wire.moveTo(x, y) else wire.lineTo(x, y)
         }
 
@@ -271,8 +292,8 @@ internal class WinterApprovedHeaderDrawable(
         for (i in 0..100) {
             if (i % 7 == 2 || i % 9 == 5 || i % 13 == 4) {
                 val t = (i + .35f) / 101f
-                val x = startX + (endX - startX) * t
-                val y = yAt(t) - d * .65f
+                val x = geometry.xAt(t)
+                val y = geometry.yAt(t) - d * .65f
                 art.color = Color.argb(205, 226, 244, 242)
                 canvas.drawLine(x - d * 1.45f, y,
                     x + d * .85f, y - d * .13f, art)
@@ -282,8 +303,8 @@ internal class WinterApprovedHeaderDrawable(
         val fill = Paint(Paint.ANTI_ALIAS_FLAG)
         for (i in 0 until 10) {
             val t = (i + .48f) / 10f
-            val x = startX + (endX - startX) * t
-            val wireY = yAt(t)
+            val x = geometry.xAt(t)
+            val wireY = geometry.yAt(t)
             val radius = d * (2.75f + (i % 3) * .25f)
             val centerY = wireY + radius * 1.65f
             val glowRadius = radius * 3.65f
