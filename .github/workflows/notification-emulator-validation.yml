@@ -41,13 +41,20 @@ concurrency:
 
 jobs:
   emulators:
-    name: "Android API ${{ matrix.api }}"
+    name: "Android API ${{ matrix.api }} (${{ matrix.suite }})"
     runs-on: ubuntu-latest
     timeout-minutes: 55
     strategy:
       fail-fast: false
       matrix:
-        api: [29, 30, 35, 36]
+        include:
+          - { api: 29, suite: full }
+          - { api: 30, suite: full }
+          # Independent Android VMs avoid cumulative graphics/ActivityScenario pressure.
+          - { api: 35, suite: captures }
+          - { api: 35, suite: layout }
+          - { api: 36, suite: captures }
+          - { api: 36, suite: layout }
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -125,13 +132,13 @@ jobs:
             set -euo pipefail
             adb shell getprop ro.build.version.release
             adb shell getprop ro.build.version.sdk
-            bash scripts/ci-emulator-validation.sh "${{ matrix.api }}"
+            bash scripts/ci-emulator-validation.sh "${{ matrix.api }}" "${{ matrix.suite }}"
             adb shell dumpsys notification --noredact | grep -E 'balancehub\\.channel|content://.*sounds|vibration' | head -n 80 || true
       - name: Upload Android test reports and logcat
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: notification-emulator-api-${{ matrix.api }}
+          name: notification-emulator-api-${{ matrix.api }}-${{ matrix.suite }}
           path: |
             app/build/outputs/androidTest-results/**
             app/build/reports/androidTests/**
