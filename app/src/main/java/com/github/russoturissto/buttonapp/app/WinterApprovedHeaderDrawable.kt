@@ -162,44 +162,56 @@ internal class WinterApprovedHeaderDrawable(
     private fun drawCableJoin(canvas: Canvas, w: Float, h: Float) {
         val geometry = cableGeometry(w, h)
         val d = density
-        // Cover antialiasing at BOTH sides of the boundary so there is
-        // never even a one-pixel break between the background and photo.
+        val photoWidth = w * PHOTO_WIDTH_FRACTION
+        val photoScale = photoWidth / ornaments.width
+        val photoHeight = photoWidth * ornaments.height / ornaments.width
+        val photoTop = (h - photoHeight) * .12f
         val fromX = geometry.seamX - d * 2.8f
-        val toX = geometry.seamX + d * 8.0f
-        // One extension of the SAME spline, with its exact end tangent.
-        // A second independently shaped Bezier created the old fork.
-        val continuation = Path().apply {
-            val segments = 32
-            for (i in 0..segments) {
-                val x = fromX + (toX - fromX) * i / segments
-                val y = if (x <= geometry.seamX) geometry.yAtX(x)
-                    else geometry.continuationY(x)
+        val toX = geometry.seamX + photoScale * 133f
+
+        // Continue the SAME physical strand over the pale cable already
+        // present in the approved photograph. It follows the photographed
+        // wire, restores its copper tint and disappears underneath the fir.
+        // There is no second drooping string and no replacement light bulb.
+        val continuous = Path().apply {
+            val points = 20
+            for (i in 0..points) {
+                val x = fromX + (geometry.seamX - fromX) * i / points
+                val y = geometry.yAtX(x)
                 if (i == 0) moveTo(x, y) else lineTo(x, y)
             }
+            cubicTo(
+                geometry.seamX + photoScale * 16f,
+                geometry.seamY - photoScale * 1.8f,
+                geometry.seamX + photoScale * 74f,
+                photoTop + photoScale * 135f,
+                toX,
+                photoTop + photoScale * 115f
+            )
         }
         val wire = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
             strokeCap = Paint.Cap.ROUND
             strokeJoin = Paint.Join.ROUND
         }
-        // Fade toward the photographed, snow-dusted wire rather than adding
-        // a golden overlay all the way to the first original light bulb.
-        wire.strokeWidth = d * 1.55f
-        wire.shader = LinearGradient(fromX, geometry.seamY, toX, geometry.seamY,
-            intArrayOf(Color.TRANSPARENT,
-                Color.argb(215, 50, 43, 28),
-                Color.argb(175, 63, 58, 43),
-                Color.TRANSPARENT),
-            floatArrayOf(0f, .25f, .62f, 1f), Shader.TileMode.CLAMP)
-        canvas.drawPath(continuation, wire)
-        wire.strokeWidth = d * .78f
-        wire.shader = LinearGradient(fromX, geometry.seamY, toX, geometry.seamY,
-            intArrayOf(Color.TRANSPARENT,
-                Color.argb(248, 195, 156, 90),
-                Color.argb(220, 225, 214, 178),
-                Color.TRANSPARENT),
-            floatArrayOf(0f, .25f, .62f, 1f), Shader.TileMode.CLAMP)
-        canvas.drawPath(continuation, wire)
+        // Blend both ends; the broad copper undercoat covers the old gray
+        // cable while a fine reflective core makes it read as a single wire.
+        val copperStops = floatArrayOf(0f, .095f, .70f, 1f)
+        wire.strokeWidth = d * 2.05f
+        wire.shader = LinearGradient(fromX, geometry.seamY, toX,
+            geometry.seamY,
+            intArrayOf(Color.TRANSPARENT, Color.argb(205, 76, 58, 36),
+                Color.argb(190, 77, 60, 37), Color.TRANSPARENT),
+            copperStops, Shader.TileMode.CLAMP)
+        canvas.drawPath(continuous, wire)
+        wire.strokeWidth = d * .98f
+        wire.shader = LinearGradient(fromX, geometry.seamY, toX,
+            geometry.seamY,
+            intArrayOf(Color.TRANSPARENT, Color.argb(245, 219, 174, 99),
+                Color.argb(232, 225, 187, 115), Color.TRANSPARENT),
+            copperStops, Shader.TileMode.CLAMP)
+        canvas.drawPath(continuous, wire)
+        wire.shader = null
     }
 
     private fun drawPhotographicLightHalos(
@@ -226,6 +238,19 @@ internal class WinterApprovedHeaderDrawable(
                 ), floatArrayOf(0f, .22f, .61f, 1f),
                 Shader.TileMode.CLAMP)
             canvas.drawCircle(x, y, radius, glow)
+            // The first photographed bulbs were noticeably cold/gray next
+            // to the hand-rendered amber glass. Warm their existing glass
+            // interior only; preserve the photographed socket and silhouette.
+            if (index < 3) {
+                val glassRadius = density * (if (index == 0) 3.5f else 3.0f)
+                glow.shader = RadialGradient(x, y, glassRadius,
+                    intArrayOf(
+                        Color.argb(145, 255, 250, 207),
+                        Color.argb(112, 255, 208, 102),
+                        Color.TRANSPARENT
+                    ), floatArrayOf(0f, .38f, 1f), Shader.TileMode.CLAMP)
+                canvas.drawCircle(x, y, glassRadius, glow)
+            }
         }
         glow.shader = null
     }
