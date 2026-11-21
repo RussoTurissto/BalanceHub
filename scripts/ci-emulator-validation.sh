@@ -3,6 +3,11 @@
 set -uo pipefail
 
 api="${1:?Android API level is required}"
+suite="${2:-full}"
+case "$api:$suite" in
+  29:full|30:full|35:captures|35:layout|36:captures|36:layout) ;;
+  *) echo "::error::Unsupported emulator suite: Android $api / $suite"; exit 2 ;;
+esac
 
 # Android 15 can return from boot to a background window with no input focus.
 # Put the launcher in the foreground before instrumentation opens MainActivity.
@@ -11,9 +16,10 @@ if [[ "$api" == "35" || "$api" == "36" || "$api" == "30" ]]; then
   adb shell input keyevent KEYCODE_HOME || true
 fi
 
-# On API 35 a monolithic winter visual run can destabilise the emulator
-# during repeated ActivityScenario rendering. Isolate every visual test, then
-# execute all other tests; no coverage is omitted. Retain individual reports.
+# API 35/36 run captures and structure in separate GitHub Actions jobs,
+# each with a fresh emulator. This avoids cumulative ActivityScenario/GPU
+# pressure that previously disconnected ADB on the fifth visual method.
+# Every visual method and every non-visual test still runs.
 results_dir="app/build/outputs/androidTest-results/connected/debug"
 visual_class="com.github.russoturissto.buttonapp.app.WinterThemeVisualEmulatorTest"
 
@@ -42,16 +48,23 @@ run_suite() {
 
 test_status=0
 if [[ "$api" == "35" || "$api" == "36" ]]; then
-  # Each visual test gets a fresh instrumentation process, reducing Android 15
-  # emulator memory pressure from repeated ActivityScenario screenshots.
-  # Test order puts the approved banner check before multi-screen redraws.
-  for method in \
-      approvedFestiveBannerKeepsAccessibleTextAndRedHatOverCapitalH \
-      festiveAppearanceIsVisibleOnAllTabsInDarkAndLight \
-      normalAppearanceIsVisibleOnAllTabsInDarkAndLight \
-      winterOnlyChangesDecorationInNightMode \
-      winterOnlyChangesDecorationInDayMode \
-      frostIsUniquePerWindowAndStableBetweenDraws; do
+  if [[ "$suite" == "captures" ]]; then
+    # Snapshots and approved art checks share one fresh emulator.
+    methods=(
+      approvedFestiveBannerKeepsAccessibleTextAndRedHatOverCapitalH
+      festiveAppearanceIsVisibleOnAllTabsInDarkAndLight
+      normalAppearanceIsVisibleOnAllTabsInDarkAndLight
+      frostIsUniquePerWindowAndStableBetweenDraws
+    )
+  else
+    # The day/night structural comparisons have their own emulator and
+    # cannot be crowded out by earlier screenshot/bitmap-heavy tests.
+    methods=(
+      winterOnlyChangesDecorationInDayMode
+      winterOnlyChangesDecorationInNightMode
+    )
+  fi
+  for method in "${methods[@]}"; do
     label="winter-$method"
     if run_suite "$label" \
         "-Pandroid.testInstrumentationRunnerArguments.class=$visual_class#$method"; then
@@ -68,7 +81,7 @@ if [[ "$api" == "35" || "$api" == "36" ]]; then
       break
     fi
   done
-  if [[ "$test_status" -eq 0 ]]; then
+  if [[ "$test_status" -eq 0 && "$suite" == "layout" ]]; then
     run_suite "all-other-tests" \
       "-Pandroid.testInstrumentationRunnerArguments.notClass=$visual_class" \
       || test_status=$?
@@ -77,7 +90,7 @@ else
   run_suite "full-regression" || test_status=$?
 fi
 
-if [[ "$api" == "35" ]]; then
+if [[ "$api" == "35" && "$suite" == "captures" ]]; then
   # MediaStore screenshots persist outside the app sandbox after test cleanup.
   # This executes even after test failures; the upload-artifact step uses always().
   mkdir -p app/build/winter-previews
