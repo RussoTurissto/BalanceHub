@@ -181,12 +181,16 @@ internal class WinterApprovedHeaderDrawable(
                 if (i == 0) moveTo(x, y) else lineTo(x, y)
             }
             cubicTo(
-                geometry.seamX + photoScale * 16f,
-                geometry.seamY - photoScale * 1.8f,
-                geometry.seamX + photoScale * 74f,
-                photoTop + photoScale * 135f,
+                // Follow the measured pale wire rather than drawing a
+                // visibly parallel copper line above it. On the approved
+                // photo the wire lies at y~141, 138, 135, 130 and 125
+                // for source x~38, 53, 68, 83 and 98 respectively.
+                geometry.seamX + photoScale * 25f,
+                geometry.seamY - photoScale * 2f,
+                geometry.seamX + photoScale * 87f,
+                photoTop + photoScale * 136f,
                 toX,
-                photoTop + photoScale * 115f
+                photoTop + photoScale * 110f
             )
         }
         val wire = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -197,7 +201,7 @@ internal class WinterApprovedHeaderDrawable(
         // Blend both ends; the broad copper undercoat covers the old gray
         // cable while a fine reflective core makes it read as a single wire.
         val copperStops = floatArrayOf(0f, .095f, .70f, 1f)
-        wire.strokeWidth = d * 2.05f
+        wire.strokeWidth = d * 2.55f
         wire.shader = LinearGradient(fromX, geometry.seamY, toX,
             geometry.seamY,
             intArrayOf(Color.TRANSPARENT, Color.argb(205, 76, 58, 36),
