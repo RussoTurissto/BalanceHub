@@ -34,7 +34,8 @@ internal class WinterApprovedHeaderDrawable(
     private val wordmark: TextView,
     private val ornaments: Bitmap,
     private val santaHat: Bitmap,
-    private val garlandOnly: Boolean = false
+    private val garlandOnly: Boolean = false,
+    private val darkMode: Boolean = true
 ) : Drawable() {
     private companion object { const val PHOTO_WIDTH_FRACTION = 0.45f }
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
@@ -71,6 +72,10 @@ internal class WinterApprovedHeaderDrawable(
         canvas.drawBitmap(ornaments, null,
             RectF(w - rightWidth, ornamentTop,
                 w, ornamentTop + rightHeight), paint)
+        // The photograph starts with a tiny alpha-fringed gap before its
+        // physical cable. Add only a short foreground wire connector; bulbs
+        // are never redrawn over the photographed lights.
+        drawCableJoin(canvas, w, h)
 
         if (wordmark.width > 0 && wordmark.height > 0) {
             val p = wordmark.paint
@@ -106,6 +111,73 @@ internal class WinterApprovedHeaderDrawable(
                     RectF(x, y, x + hatWidth, y + hatHeight), paint)
             }
         }
+        // Draw hoarfrost after the header's opaque gradient and photograph:
+        // the screen background frost alone was hidden by this child view.
+        drawHeaderPerimeterFrost(canvas, w, h)
+        }
+    }
+
+    private fun drawCableJoin(canvas: Canvas, w: Float, h: Float) {
+        val photoLeft = w * (1f - PHOTO_WIDTH_FRACTION)
+        val photoHeight = w * PHOTO_WIDTH_FRACTION *
+            ornaments.height.toFloat() / ornaments.width
+        val photoTop = (h - photoHeight) * .12f
+        // First visible cable in approved_ornaments.webp enters near 72%
+        // of its height and rises to 67% within the first few pixels.
+        val yAtSeam = photoTop + photoHeight * .72f +
+            density * .36f * kotlin.math.sin(6.65).toFloat()
+        val bridge = Path().apply {
+            moveTo(photoLeft - density * 2.2f, yAtSeam)
+            cubicTo(photoLeft + density * 1.5f, yAtSeam,
+                photoLeft + density * 5f, photoTop + photoHeight * .68f,
+                photoLeft + density * 9.5f, photoTop + photoHeight * .67f)
+        }
+        val cable = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeCap = Paint.Cap.ROUND
+            color = Color.argb(192, 47, 42, 23)
+            strokeWidth = density * 1.4f
+        }
+        canvas.drawPath(bridge, cable)
+        cable.color = Color.rgb(197, 157, 91)
+        cable.strokeWidth = density * .72f
+        canvas.drawPath(bridge, cable)
+    }
+
+    private fun drawHeaderPerimeterFrost(canvas: Canvas, w: Float, h: Float) {
+        val d = density
+        canvas.withSave {
+            // The header covers the underlying screen's top and side frost.
+            // Retain only a narrow 3-sided perimeter, not a divider at the
+            // bottom of the header or a film over interactive content.
+            val allowed = Path().apply {
+                addRect(0f, 0f, w, (29f * d).coerceAtMost(h),
+                    Path.Direction.CW)
+                addRect(0f, 0f, (17f * d).coerceAtMost(w), h,
+                    Path.Direction.CW)
+                addRect((w - 17f * d).coerceAtLeast(0f), 0f, w, h,
+                    Path.Direction.CW)
+            }
+            canvas.clipPath(allowed)
+            WinterNaturalFrost.render(canvas, w, h, d, darkMode,
+                WinterSurface.SCREEN, opacity, 0x6e1e1234L)
+            // An unbroken fine crystalline rim joins the feathery colonies.
+            // Keep its width below 1dp so it never resembles another garland.
+            val line = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.STROKE
+                strokeWidth = d * .55f
+                strokeCap = Paint.Cap.ROUND
+                color = if (darkMode) Color.argb(opacity * 158 / 255, 217, 248, 252)
+                    else Color.argb(opacity * 170 / 255, 171, 237, 249)
+            }
+            val ridge = Path()
+            for (i in 0..100) {
+                val x = w * i / 100f
+                val y = d * (.9f + .22f *
+                    kotlin.math.sin(i * 1.33).toFloat())
+                if (i == 0) ridge.moveTo(x, y) else ridge.lineTo(x, y)
+            }
+            canvas.drawPath(ridge, line)
         }
     }
 
