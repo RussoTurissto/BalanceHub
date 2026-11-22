@@ -176,11 +176,12 @@ jobs:
           profile: pixel_5
           ram-size: ${{ (matrix.api == 35 || matrix.api == 36) && '3072M' || '2048M' }}
           disable-animations: true
-          # The old swiftshader_indirect/Vulkan path can terminate API 35/36
-          # headless emulators during heavy UI drawing, taking ADB down with it.
-          # Use supported SwiftShader GLES-only rendering on those two APIs.
-          # Preserve the already-passing Android 10/11 graphics environment.
-          emulator-options: ${{ (matrix.api == 35 || matrix.api == 36) && '-no-window -gpu swiftshader -feature -Vulkan -noaudio -no-boot-anim -camera-back none -camera-front none' || '-no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none' }}
+          # On API 35/36 the SwiftShader host renderer lost ColorBuffers and
+          # ADB went offline immediately after a UI test started. Use Mesa's
+          # supported Lavapipe software renderer to isolate GPU backend faults,
+          # and disable quick-boot snapshots so every job starts cleanly.
+          # Older Android 10/11 retain their already-passing configuration.
+          emulator-options: ${{ (matrix.api == 35 || matrix.api == 36) && '-no-window -gpu lavapipe -feature -Vulkan -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none' || '-no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none' }}
           script: |
             set -euo pipefail
             adb shell getprop ro.build.version.release
