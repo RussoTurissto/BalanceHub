@@ -163,6 +163,13 @@ class MainActivity : AppCompatActivity() {
     private var expandedPaymentId: String? = null
     private var selectedOperatorId: Int? = null
     private var sessionAutoRefreshStarted = false
+    private val bankForegroundHandler = Handler(Looper.getMainLooper())
+    private val bankForegroundTick = object : Runnable {
+        override fun run() {
+            SberPushNotificationListener.refreshForeground(this@MainActivity)
+            bankForegroundHandler.postDelayed(this, 7_500L)
+        }
+    }
     private var tutorialStep = -1
     private var renderedWinter = false
     private val winterDateHandler = Handler(Looper.getMainLooper())
@@ -427,6 +434,8 @@ class MainActivity : AppCompatActivity() {
             IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE),
             ContextCompat.RECEIVER_EXPORTED)
         scheduleWinterDateTick()
+        bankForegroundHandler.removeCallbacks(bankForegroundTick)
+        bankForegroundHandler.post(bankForegroundTick)
     }
 
     override fun onStop() {
@@ -441,6 +450,7 @@ class MainActivity : AppCompatActivity() {
         closeEngineeringMenu()
         BalanceNotificationSounds.stopPreview()
         winterDateHandler.removeCallbacks(winterDateTick)
+        bankForegroundHandler.removeCallbacks(bankForegroundTick)
         unregisterReceiver(bankUpdateReceiver)
         unregisterReceiver(eventChangedReceiver)
         unregisterReceiver(paymentChangedReceiver)
@@ -468,6 +478,9 @@ class MainActivity : AppCompatActivity() {
                 return
             }
         }
+        // Reconcile bank notifications that arrived while this activity had focus
+        // or while the user expanded the system shade.
+        SberPushNotificationListener.refreshForeground(this)
         PaymentArchiveStore.archiveDue(this)
         // The background receiver may already have archived a payment while the
         // activity was paused. Always reconcile the in-memory list with history.
@@ -3747,6 +3760,7 @@ class MainActivity : AppCompatActivity() {
         })
         contentContainer.addView(summary)
         contentContainer.addView(verticalGap(12))
+        renderBankPushForegroundProbe(bank)
 
         val events = if (enabled) RussianBankDiagnostics.recent(this, bank)
             else emptyList()
@@ -4683,6 +4697,61 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+
+    /** Interactive real-notification tests belong exclusively to the engineering menu. */
+    private fun renderBankPushForegroundProbe(bank: RussianBank) {
+        if (!engineeringMenuOpen) return
+        val panel = card()
+        panel.addView(textLine("Проверки Push при работе приложения", 16f, ink, true))
+        panel.addView(verticalGap(7))
+        panel.addView(textLine(
+            "Служба уведомлений: " + if (SberPushNotificationListener.isConnected())
+                "подключена" else "не подключена",
+            13f, muted))
+        panel.addView(verticalGap(6))
+        panel.addView(textLine(
+            "Проверки используют только настоящий банковский Push. " +
+                "Не изменяют сумму баланса, не создают операций и не сохраняют текст уведомлений.",
+            12f, muted))
+        val session = BankPushForegroundProbe.snapshot(this, bank.id)
+        if (session != null) {
+            val formatter = DateFormat.getDateTimeInstance(
+                DateFormat.SHORT, DateFormat.SHORT)
+            panel.addView(verticalGap(9))
+            panel.addView(textLine("Сценарий: " + session.mode.label, 13f, ink, true))
+            panel.addView(textLine("Начало: " +
+                formatter.format(Date(session.startedAt)), 12f, muted))
+            panel.addView(textLine(
+                "Новые Push через обработчик: " + session.callbacks +
+                    " · восстановлены сверкой: " + session.recovered,
+                12f, muted))
+            panel.addView(textLine(if (session.lastSeenAt > 0L)
+                "Последнее событие: " + formatter.format(Date(session.lastSeenAt))
+                else "Ожидается новый банковский Push", 12f, muted))
+            if (session.lastOutcome.isNotEmpty()) {
+                panel.addView(textLine("Результат обработки: " +
+                    session.lastOutcome, 12f, muted))
+            }
+        }
+        panel.addView(verticalGap(9))
+        for (mode in BankPushForegroundProbe.Mode.entries) {
+            panel.addView(secondaryButton("Начать: " + mode.label) {
+                BankPushForegroundProbe.begin(this, bank.id, mode)
+                SberPushNotificationListener.refreshForeground(this)
+                renderTab()
+            })
+            panel.addView(verticalGap(6))
+        }
+        panel.addView(textLine(
+            "Для теста со шторкой: начните проверку, раскройте шторку, " +
+                "дождитесь реального Push и вернитесь в диагностику. " +
+                "Для фона: сверните приложение и откройте диагностику после Push. " +
+                "Инженерное меню может закрываться при сворачивании — это нормально.",
+            12f, muted))
+        contentContainer.addView(panel)
+        contentContainer.addView(verticalGap(12))
+    }
+
     private fun renderBankSettings() {
         if (!engineeringMenuOpen) {
             bankSettingsOpen = false
@@ -4742,6 +4811,7 @@ class MainActivity : AppCompatActivity() {
         }
         contentContainer.addView(bankCard)
         contentContainer.addView(verticalGap(12))
+        RussianBankCatalog.byId("sber")?.let { renderBankPushForegroundProbe(it) }
         val diagnostics = card()
         diagnostics.addView(sberHeading("Диагностика Push", 16f))
         diagnostics.addView(verticalGap(8))
