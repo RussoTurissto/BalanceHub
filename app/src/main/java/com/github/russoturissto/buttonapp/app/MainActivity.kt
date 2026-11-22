@@ -6220,26 +6220,24 @@ class MainActivity : AppCompatActivity() {
                 val cell = LinearLayout(this).apply {
                     gravity = Gravity.CENTER
                     setPadding(dp(3), dp(3), dp(3), dp(3))
-                    contentDescription = "Дата ${dayFormat.format(Date(date))}, " +
-                        if (active) "выбрана" else "не выбрана"
-                    isClickable = true
-                    isFocusable = true
                 }
                 val label = textLine(day.toString(), 15f,
                     if (active) Color.WHITE else if (weekend) accent else ink, active).apply {
                     gravity = Gravity.CENTER
                     background = rounded(if (active) accent else surface, 24)
-                    // The cell owns the full-date accessibility description.
-                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                    // The visible day is the *actual* touch and accessibility
+                    // target. Forwarding through a clickable parent could make
+                    // Android 15 accept the gesture without toggling the date.
+                    contentDescription = "Дата ${dayFormat.format(Date(date))}, " +
+                        if (active) "выбрана" else "не выбрана"
+                    isClickable = true
+                    isFocusable = true
+                    setOnClickListener {
+                        if (!chosen.add(date)) chosen.remove(date)
+                        refresh()
+                    }
                 }
                 cell.addView(label, LinearLayout.LayoutParams(-1, -1))
-                cell.setOnClickListener {
-                    if (!chosen.add(date)) chosen.remove(date)
-                    refresh()
-                }
-                // The number fills the touch target. Forward its click to the
-                // cell so touches work consistently across Android versions.
-                label.setOnClickListener { cell.performClick() }
                 grid.addView(cell, android.view.ViewGroup.LayoutParams(cellWidth, dp(46)))
             }
         }
