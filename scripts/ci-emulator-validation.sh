@@ -48,18 +48,19 @@ collect_emulator_diagnostics() {
   mkdir -p "$adb_results_dir"
   {
     date -u
-    adb devices -l || true
-    adb shell getprop sys.boot_completed || true
-    adb shell getprop dev.bootcomplete || true
-    adb shell cat /proc/pressure/cpu || true
-    adb shell cat /proc/pressure/io || true
-    adb shell cat /proc/pressure/memory || true
-    adb shell dumpsys cpuinfo || true
-    adb shell dumpsys activity processes || true
-    adb shell ls -lt /data/anr || true
+    timeout -k 2s 8s adb devices -l || true
+    timeout -k 2s 8s adb shell getprop sys.boot_completed || true
+    timeout -k 2s 8s adb shell getprop dev.bootcomplete || true
+    timeout -k 2s 8s adb shell cat /proc/pressure/cpu || true
+    timeout -k 2s 8s adb shell cat /proc/pressure/io || true
+    timeout -k 2s 8s adb shell cat /proc/pressure/memory || true
+    timeout -k 2s 8s adb shell dumpsys cpuinfo || true
+    timeout -k 2s 8s adb shell dumpsys activity processes || true
+    timeout -k 2s 8s adb shell ls -lt /data/anr || true
   } > "$adb_results_dir/${label}-system.log" 2>&1
-  adb logcat -d -b crash > "$adb_results_dir/${label}-crash.log" 2>&1 || true
-  adb logcat -d -t 3000 -v threadtime -b main -b system -b events \
+  timeout -k 2s 12s adb logcat -d -b crash \
+    > "$adb_results_dir/${label}-crash.log" 2>&1 || true
+  timeout -k 2s 12s adb logcat -d -t 3000 -v threadtime -b main -b system -b events \
     > "$adb_results_dir/${label}-recent.log" 2>&1 || true
 }
 
@@ -70,15 +71,15 @@ collect_emulator_diagnostics() {
 wait_for_android_services() {
   local attempt steady=0
   for ((attempt = 1; attempt <= 24; attempt++)); do
-    if [[ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == "1" ]] \
-        && adb shell cmd package list packages android >/dev/null 2>&1 \
-        && adb shell dumpsys activity activities >/dev/null 2>&1; then
+    if [[ "$(timeout -k 2s 8s adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == "1" ]] \
+        && timeout -k 2s 8s adb shell cmd package list packages android >/dev/null 2>&1 \
+        && timeout -k 2s 8s adb shell dumpsys activity activities >/dev/null 2>&1; then
       steady=$((steady + 1))
       if ((steady >= 3)); then
         echo "Android API $api services responsive; waiting 45s for post-boot load"
         sleep 45
-        if adb shell cmd package list packages android >/dev/null 2>&1 \
-            && adb shell dumpsys activity activities >/dev/null 2>&1; then
+        if timeout -k 2s 8s adb shell cmd package list packages android >/dev/null 2>&1 \
+            && timeout -k 2s 8s adb shell dumpsys activity activities >/dev/null 2>&1; then
           return 0
         fi
         steady=0
@@ -100,14 +101,14 @@ install_test_apk() {
   local apk="$1" label="$2" attempt log rc
   for ((attempt = 1; attempt <= 3; attempt++)); do
     log="$adb_results_dir/install-${label}-attempt-${attempt}.log"
-    adb install -r "$apk" > "$log" 2>&1
+    timeout -k 5s 90s adb install -r "$apk" > "$log" 2>&1
     rc=$?
     cat "$log"
     if ((rc == 0)) && grep -Eq '^Success' "$log"; then
       return 0
     fi
-    if ((attempt == 3)) || ! grep -Eqi \
-        'INSTALL_FAILED_VERIFICATION_FAILURE|Integrity verification timed out|device offline|device not found|timed out|timeout|Broken pipe' "$log"; then
+    if ((attempt == 3)) || { ((rc != 124 && rc != 137)) && ! grep -Eqi \
+        'INSTALL_FAILED_VERIFICATION_FAILURE|Integrity verification timed out|device offline|device not found|timed out|timeout|Broken pipe' "$log"; }; then
       break
     fi
     echo "::warning::Transient $label installation failure; retry $attempt/3"
@@ -130,6 +131,12 @@ if [[ "$api" == "35" || "$api" == "36" ]]; then
   wait_for_android_services || exit 1
   install_test_apk "$apk" app || exit 1
   install_test_apk "$test_apk" androidTest || exit 1
+  # Stream crash/system logs *before* a graphics test can disconnect ADB.
+  # Post-mortem adb logcat cannot retrieve anything from an offline emulator.
+  adb logcat -v threadtime -b crash -b system -b events \
+    > "$adb_results_dir/live-logcat.log" 2>&1 &
+  live_logcat_pid=$!
+  trap 'kill "$live_logcat_pid" >/dev/null 2>&1 || true' EXIT
 fi
 
 run_suite() {
@@ -157,9 +164,15 @@ run_suite() {
     done
     local log="$adb_results_dir/${label}.log"
     if [[ "$status" -eq 0 && -n "$filter_kind" && -n "$filter_value" ]]; then
-      adb shell am instrument -w -r -e "$filter_kind" "$filter_value" \
+      # A disconnected emulator otherwise leaves "adb shell am instrument -w"
+      # waiting until the entire 55-minute GitHub Actions job is cancelled.
+      # Treat any timeout as a failed test and upload its partial runner log.
+      timeout -k 10s 240s adb shell am instrument -w -r -e "$filter_kind" "$filter_value" \
         "com.github.russoturissto.buttonapp.app.test/androidx.test.runner.AndroidJUnitRunner" \
         2>&1 | tee "$log" || status=$?
+      if [[ "$status" -eq 124 || "$status" -eq 137 ]]; then
+        echo "::error::Android API $api instrumentation timed out: $label"
+      fi
       if [[ "$status" -eq 0 ]] && {
         ! grep -Eq 'INSTRUMENTATION_CODE: -1' "$log" ||
         ! grep -Eq 'OK \([1-9][0-9]* tests?\)' "$log" ||
@@ -256,7 +269,7 @@ if [[ "$api" == "35" && "$suite" == "captures" ]]; then
   # MediaStore screenshots persist outside the app sandbox after test cleanup.
   # This executes even after test failures; the upload-artifact step uses always().
   mkdir -p app/build/winter-previews
-  if ! adb pull /sdcard/Pictures/BalanceHubWinter app/build/winter-previews; then
+  if ! timeout -k 5s 35s adb pull /sdcard/Pictures/BalanceHubWinter app/build/winter-previews; then
     echo '::error::Could not retrieve winter screenshots from Android 15 emulator'
     if [[ "$test_status" -eq 0 ]]; then test_status=1; fi
   fi
