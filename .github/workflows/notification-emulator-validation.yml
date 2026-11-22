@@ -11,6 +11,8 @@ on:
       - "app/src/androidTest/**"
       - "app/build.gradle.kts"
       - "gradle.properties"
+      # Stable marker must trigger fresh same-SHA test runs on main.
+      - "release/approved-stable-version.txt"
       - "scripts/ci-emulator-validation.sh"
       - ".github/workflows/notification-emulator-validation.yml"
       - "library-android/src/main/**"
@@ -25,6 +27,8 @@ on:
       - "app/src/androidTest/**"
       - "app/build.gradle.kts"
       - "gradle.properties"
+      # Stable marker must trigger fresh same-SHA test runs on main.
+      - "release/approved-stable-version.txt"
       - "scripts/ci-emulator-validation.sh"
       - ".github/workflows/notification-emulator-validation.yml"
       - "library-android/src/main/**"
@@ -40,8 +44,39 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Build the test APKs once on the already-proven Linux toolchain.
+  # On macOS, locally dexed Kotlin metadata caused AndroidJUnitRunner to
+  # crash before any JUnit test ran. Transfer the exact Linux-built APKs.
+  prepare-android-apks:
+    name: Prepare Linux-built Android instrumentation APKs
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Compile app and test APKs
+        run: ./gradlew --no-daemon --console=plain :app:assembleDebug :app:assembleDebugAndroidTest
+      - name: Upload same-commit Android test APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: balancehub-instrumentation-apks-${{ github.sha }}
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
+
   emulators:
+    needs: prepare-android-apks
     name: "Android API ${{ matrix.api }} (${{ matrix.suite }})"
+    # macOS Intel hosts have only one virtual Android CPU and repeatedly ANR
+    # during startup. Linux KVM has hardware acceleration and the test APKs
+    # run directly via ADB, without Gradle competition while Android is up.
     runs-on: ubuntu-latest
     timeout-minutes: 55
     strategy:
@@ -64,6 +99,7 @@ jobs:
           distribution: temurin
           java-version: "17"
       - name: Enable KVM acceleration
+        if: runner.os == 'Linux'
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
             | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -101,9 +137,17 @@ jobs:
             fi
             sleep $((attempt * 30))
           done
-      # Keep Gradle/Kotlin compilation away from the running Android VM:
+      # Keep Gradle/Kotlin compilation away from Android 15/16 VMs:
       # concurrent dexing + emulator snapshots can exhaust hosted-runner memory.
+      # Install byte-identical test APKs compiled by prepare-android-apks.
+      - name: Download Linux-built test APKs
+        if: matrix.api == 35 || matrix.api == 36
+        uses: actions/download-artifact@v4
+        with:
+          name: balancehub-instrumentation-apks-${{ github.sha }}
+          path: app/build/outputs/apk
       - name: Prebuild test APKs before starting the Android emulator
+        if: matrix.api == 29 || matrix.api == 30
         shell: bash
         run: |
           set -euo pipefail
@@ -122,12 +166,22 @@ jobs:
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: ${{ matrix.api }}
-          target: google_apis
+          # Android 15/16 Google API images start heavyweight Play services
+          # during instrumentation. On hosted CI they can starve the VM and
+          # disconnect ADB before UI assertions finish. Use the plain AOSP
+          # image for UI/notification regression tests; keep older API
+          # coverage on its already-verified Google APIs image.
+          target: ${{ (matrix.api == 35 || matrix.api == 36) && 'default' || 'google_apis' }}
           arch: x86_64
           profile: pixel_5
           ram-size: ${{ (matrix.api == 35 || matrix.api == 36) && '3072M' || '2048M' }}
           disable-animations: true
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
+          # On API 35/36 the SwiftShader host renderer lost ColorBuffers and
+          # ADB went offline immediately after a UI test started. Use Mesa's
+          # supported Lavapipe software renderer to isolate GPU backend faults,
+          # and disable quick-boot snapshots so every job starts cleanly.
+          # Older Android 10/11 retain their already-passing configuration.
+          emulator-options: ${{ (matrix.api == 35 || matrix.api == 36) && '-no-window -gpu lavapipe -feature -Vulkan -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none' || '-no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none' }}
           script: |
             set -euo pipefail
             adb shell getprop ro.build.version.release
@@ -144,4 +198,5 @@ jobs:
             app/build/reports/androidTests/**
             app/build/winter-previews/**
             app/build/emulator-focus-retry/**
+            app/build/emulator-adb-results/**
           if-no-files-found: ignore
