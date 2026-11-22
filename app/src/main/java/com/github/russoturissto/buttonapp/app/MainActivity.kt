@@ -6229,12 +6229,17 @@ class MainActivity : AppCompatActivity() {
                     if (active) Color.WHITE else if (weekend) accent else ink, active).apply {
                     gravity = Gravity.CENTER
                     background = rounded(if (active) accent else surface, 24)
+                    // The cell owns the full-date accessibility description.
+                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
                 }
                 cell.addView(label, LinearLayout.LayoutParams(-1, -1))
                 cell.setOnClickListener {
                     if (!chosen.add(date)) chosen.remove(date)
                     refresh()
                 }
+                // The number fills the touch target. Forward its click to the
+                // cell so touches work consistently across Android versions.
+                label.setOnClickListener { cell.performClick() }
                 grid.addView(cell, android.view.ViewGroup.LayoutParams(cellWidth, dp(46)))
             }
         }
