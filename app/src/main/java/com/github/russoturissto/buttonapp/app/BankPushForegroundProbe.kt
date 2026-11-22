@@ -1,6 +1,7 @@
 package com.github.russoturissto.buttonapp.app
 
 import android.content.Context
+import androidx.core.content.edit
 
 /**
  * Opt-in engineering probe for real bank notifications.
@@ -30,15 +31,15 @@ internal object BankPushForegroundProbe {
 
     fun begin(context: Context, bankId: String, mode: Mode) = synchronized(lock) {
         require(RussianBankCatalog.byId(bankId) != null)
-        prefs(context).edit()
-            .putString("bank", bankId)
-            .putString("mode", mode.name)
-            .putLong("started", System.currentTimeMillis())
-            .putInt("callbacks", 0)
-            .putInt("recovered", 0)
-            .putLong("seen", 0L)
-            .remove("outcome")
-            .apply()
+        prefs(context).edit {
+            putString("bank", bankId)
+            putString("mode", mode.name)
+            putLong("started", System.currentTimeMillis())
+            putInt("callbacks", 0)
+            putInt("recovered", 0)
+            putLong("seen", 0L)
+            remove("outcome")
+        }
     }
 
     fun snapshot(context: Context, bankId: String): Snapshot? = synchronized(lock) {
@@ -64,15 +65,17 @@ internal object BankPushForegroundProbe {
         if (p.getString("bank", null) != bankId || started <= 0L ||
             (recovered && postedAt < started)) return@synchronized false
         val counter = if (recovered) "recovered" else "callbacks"
-        p.edit().putInt(counter, p.getInt(counter, 0) + 1)
-            .putLong("seen", System.currentTimeMillis())
-            .remove("outcome").apply()
+        p.edit {
+            putInt(counter, p.getInt(counter, 0) + 1)
+            putLong("seen", System.currentTimeMillis())
+            remove("outcome")
+        }
         true
     }
 
     fun outcome(context: Context, bankId: String, status: String) = synchronized(lock) {
         val p = prefs(context)
         if (p.getString("bank", null) == bankId && p.getLong("seen", 0) > 0)
-            p.edit().putString("outcome", status.take(96)).apply()
+            p.edit { putString("outcome", status.take(96)) }
     }
 }
