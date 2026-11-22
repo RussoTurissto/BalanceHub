@@ -7,6 +7,8 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.PowerManager
+import android.os.SystemClock
+import java.lang.ref.WeakReference
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 
@@ -17,29 +19,48 @@ class SberPushNotificationListener : NotificationListenerService() {
             "com.github.russoturissto.buttonapp.app.SBER_BALANCE_UPDATED"
         const val STATE_LOCKED = 1
         const val STATE_SCREEN_OFF = 2
+
+        @Volatile private var liveListener: WeakReference<SberPushNotificationListener>? = null
+        @Volatile private var lastRebindRequest = 0L
+
+        fun isConnected(): Boolean = liveListener?.get()?.listenerConnected == true
+
+        /** Only invoke the platform API after the listener has connected. */
+        fun refreshForeground(context: Context) {
+            val listener = liveListener?.get()
+            if (listener?.listenerConnected == true) {
+                listener.scanActiveBankNotifications()
+                return
+            }
+            val anyEnabled = RussianBankCatalog.banks.any {
+                BankCardPreferences.enabled(context, it.id)
+            }
+            if (!anyEnabled || !SberBalanceStore.isAccessGranted(context) ||
+                Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return
+            val now = SystemClock.elapsedRealtime()
+            if (now - lastRebindRequest < 60_000L) return
+            lastRebindRequest = now
+            try {
+                NotificationListenerService.requestRebind(
+                    ComponentName(context, SberPushNotificationListener::class.java))
+            } catch (_: SecurityException) { /* System controls binding. */ }
+              catch (_: IllegalStateException) { /* Not available on this device. */ }
+        }
     }
+
+    @Volatile private var listenerConnected = false
+    private val handledFingerprint = LinkedHashMap<String, Int>()
 
     override fun onListenerConnected() {
         super.onListenerConnected()
-        val bankEnabled = RussianBankCatalog.banks.any {
-            it.id != "sber" && BankCardPreferences.enabled(this, it.id)
-        }
-        if (!SberBalanceStore.isEnabled(this) && !bankEnabled) return
-        val cutoff = System.currentTimeMillis() - 15L * 60L * 1_000L
-        try {
-            activeNotifications?.asSequence()
-                ?.filter { it.postTime >= cutoff &&
-                    ((it.packageName == SberPushParser.SBER_PACKAGE &&
-                        SberBalanceStore.isEnabled(this)) ||
-                        (RussianBankCatalog.byPackage(it.packageName)?.let { bank ->
-                            bank.id != "sber" && BankCardPreferences.enabled(this, bank.id)
-                        } == true)) }
-                ?.sortedBy { it.postTime }
-                ?.forEach { processBankNotification(it) }
-        } catch (_: SecurityException) { /* Access was revoked */ }
+        listenerConnected = true
+        liveListener = WeakReference(this)
+        scanActiveBankNotifications()
     }
 
     override fun onListenerDisconnected() {
+        listenerConnected = false
+        if (liveListener?.get() === this) liveListener = null
         super.onListenerDisconnected()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N &&
             (SberBalanceStore.isEnabled(this) ||
@@ -52,8 +73,57 @@ class SberPushNotificationListener : NotificationListenerService() {
         }
     }
 
+    override fun onDestroy() {
+        listenerConnected = false
+        if (liveListener?.get() === this) liveListener = null
+        super.onDestroy()
+    }
+
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
-        if (sbn != null) processBankNotification(sbn)
+        if (sbn != null) dispatchBankNotification(sbn, recovered = false)
+    }
+
+    /**
+     * Foreground reconciliation recovers notifications missed while an activity is
+     * visible (also after returning from the shade). No bank app is launched and
+     * no private notification content is persisted.
+     */
+    private fun scanActiveBankNotifications() {
+        if (!listenerConnected) return
+        val cutoff = System.currentTimeMillis() - 15L * 60L * 1_000L
+        try {
+            activeNotifications?.asSequence()?.filter { it.postTime >= cutoff }
+                ?.sortedBy { it.postTime }
+                ?.forEach { dispatchBankNotification(it, recovered = true) }
+        } catch (_: SecurityException) { /* Permission revoked. */ }
+          catch (_: RuntimeException) { /* Device temporarily lost the listener. */ }
+    }
+
+    private fun dispatchBankNotification(sbn: StatusBarNotification, recovered: Boolean) {
+        val bank = RussianBankCatalog.byPackage(sbn.packageName) ?: return
+        if (!BankCardPreferences.enabled(this, bank.id)) return
+        val payload = SberNotificationText.extract(sbn.notification)
+        // Fingerprints are memory-only. No text, amounts, keys or account data
+        // are written to diagnostics, and identical callbacks are not replayed.
+        val fingerprint = ((31 * sbn.postTime.hashCode() +
+            sbn.notification.flags) * 31 + payload.titles.hashCode()) * 31 +
+            payload.bodies.hashCode()
+        val key = sbn.key
+        if (!BankPushRescanPolicy.shouldProcess(handledFingerprint[key],
+                fingerprint, sbn.postTime, System.currentTimeMillis(), recovered)) return
+        handledFingerprint[key] = fingerprint
+        if (handledFingerprint.size > 160) {
+            handledFingerprint.remove(handledFingerprint.keys.first())
+        }
+        val probed = BankPushForegroundProbe.arrival(this, bank.id,
+            recovered, sbn.postTime)
+        processBankNotification(sbn)
+        if (probed) {
+            val status = if (bank.id == "sber")
+                SberPushDiagnostics.latest(this)?.outcome?.name ?: "Обработано"
+            else RussianBankDiagnostics.last(this, bank) ?: "Обработано"
+            BankPushForegroundProbe.outcome(this, bank.id, status)
+        }
     }
 
     private fun state(): Int {
